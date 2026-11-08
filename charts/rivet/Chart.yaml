@@ -11,3 +11,10 @@ keywords:
   - clickhouse
 maintainers:
   - name: Rivet
+dependencies:
+  # Altinity ClickHouse chart (includes the official ClickHouse operator).
+  # Extend via values under `clickhouse:` — see values.yaml.
+  - name: clickhouse
+    version: 0.3.13
+    repository: https://helm.altinity.com
+    condition: clickhouse.enabled

@@ -16,3 +16,15 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
+
+{{/*
+HTTP endpoint for the Altinity ClickHouseInstallation service.
+Service name follows altinity/clickhouse: <release>-clickhouse-service
+*/}}
+{{- define "rivet.clickhouse.url" -}}
+{{- if .Values.clickhouse.url -}}
+{{- .Values.clickhouse.url -}}
+{{- else -}}
+http://{{ .Release.Name }}-clickhouse-service:8123
+{{- end -}}
+{{- end -}}
