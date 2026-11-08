@@ -38,7 +38,7 @@ export function useRivetData(opts: {
   const fetchQuota = useCallback(async () => {
     const historyHours = { "1h": 1, "3h": 3, "6h": 6 }[horizon];
     const soft = <A>(effect: Effect.Effect<A, unknown>) =>
-      effect.pipe(Effect.catch(() => Effect.succeed(null as A | null)));
+      effect.pipe(Effect.orElseSucceed(() => null as A | null));
 
     const [nextQuota, nextHistory] = await runApp(
       Effect.all([soft(Rivet.getQuota), soft(Rivet.getQuotaHistory(historyHours))], {
@@ -63,7 +63,7 @@ export function useRivetData(opts: {
           lastQuotaFetchAt.current === 0;
 
         const soft = <A>(effect: Effect.Effect<A, unknown>) =>
-          effect.pipe(Effect.catch(() => Effect.succeed(null as A | null)));
+          effect.pipe(Effect.orElseSucceed(() => null as A | null));
 
         const snapshot = await runApp(
           Effect.gen(function* () {

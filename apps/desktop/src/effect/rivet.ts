@@ -77,12 +77,12 @@ export const getClickhouseLog = (lines = 80) =>
 
 export const openWikiDir = (path: string) =>
   invokeCommand<boolean>("open_wiki_dir", { path }).pipe(
-    Effect.catch(() => Effect.succeed(null as boolean | null)),
+    Effect.orElseSucceed(() => null as boolean | null),
   );
 
 export const revealPath = (path: string) =>
   invokeCommand<boolean>("reveal_path", { path }).pipe(
-    Effect.catch(() => Effect.succeed(null as boolean | null)),
+    Effect.orElseSucceed(() => null as boolean | null),
   );
 
 /** Parallel bootstrap payload used by the quota home refresh. */

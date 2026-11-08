@@ -29,7 +29,7 @@ export const ensureRivetd: Effect.Effect<void, BackendUnavailable> = Effect.gen(
       }),
   });
   if (!up) {
-    return yield* Effect.fail(new BackendUnavailable({}));
+    return yield* new BackendUnavailable({});
   }
 });
 
@@ -40,14 +40,12 @@ export const apiRequest = (
 ): Effect.Effect<IpcResponse, ApiError | IpcError> =>
   Effect.gen(function* () {
     if (!path.startsWith("/v1/")) {
-      return yield* Effect.fail(
-        new ApiError({
-          method,
-          path,
-          status: 400,
-          body: `api path must start with /v1/ (got ${path})`,
-        }),
-      );
+      return yield* new ApiError({
+        method,
+        path,
+        status: 400,
+        body: `api path must start with /v1/ (got ${path})`,
+      });
     }
     const payload =
       body === undefined ? null : typeof body === "string" ? body : JSON.stringify(body);
@@ -63,21 +61,19 @@ export const apiJson = <T = unknown>(
   Effect.gen(function* () {
     const res = yield* apiRequest(method, path, body);
     if (res.status < 200 || res.status >= 300) {
-      return yield* Effect.fail(new ApiError({ method, path, status: res.status, body: res.body }));
+      return yield* new ApiError({ method, path, status: res.status, body: res.body });
     }
     if (!res.body) return undefined as T;
-    try {
-      return JSON.parse(res.body) as T;
-    } catch (cause) {
-      return yield* Effect.fail(
+    return yield* Effect.try({
+      try: () => JSON.parse(res.body) as T,
+      catch: (cause) =>
         new ApiError({
           method,
           path,
           status: res.status,
           body: `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
         }),
-      );
-    }
+    });
   });
 
 /** Soft read — does not fail on HTTP errors (callers inspect `ok`). */
@@ -119,7 +115,7 @@ export const apiText = (
   Effect.gen(function* () {
     const res = yield* apiRequest(method, path, body);
     if (res.status < 200 || res.status >= 300) {
-      return yield* Effect.fail(new ApiError({ method, path, status: res.status, body: res.body }));
+      return yield* new ApiError({ method, path, status: res.status, body: res.body });
     }
     return res.body;
   });

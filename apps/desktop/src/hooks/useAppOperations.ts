@@ -43,7 +43,7 @@ export function useAppOperations(opts: {
   const loadLogs = useCallback(async () => {
     try {
       const soft = <A>(effect: Effect.Effect<A, unknown>) =>
-        effect.pipe(Effect.catch(() => Effect.succeed(null as A | null)));
+        effect.pipe(Effect.orElseSucceed(() => null as A | null));
 
       const [proxyRes, chRes] = await runApp(
         Effect.gen(function* () {
