@@ -1,0 +1,57 @@
+# External PRs need a human approval; org write+ collaborators and Dependabot
+# do not. Implemented as a required check (not a ruleset review) so trusted
+# authors never see GitHub's "Review required" merge banner.
+name: Review gate
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number || github.event.pull_request_review.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review-gate:
+    name: Review gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.event.pull_request.draft != true
+    steps:
+      - name: Allow trusted authors or require an approval
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          if [ "$AUTHOR" = "dependabot[bot]" ]; then
+            echo "Dependabot PR; review not required"
+            exit 0
+          fi
+
+          permission="$(gh api "repos/${REPO}/collaborators/${AUTHOR}/permission" --jq .permission 2>/dev/null || echo none)"
+          case "$permission" in
+            admin|maintain|write)
+              echo "Trusted collaborator (${permission}); review not required"
+              exit 0
+              ;;
+          esac
+
+          approvals="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/reviews" \
+            --jq '[.[] | select(.state == "APPROVED")] | length')"
+          if [ "$approvals" -ge 1 ]; then
+            echo "External PR has ${approvals} approving review(s)"
+            exit 0
+          fi
+
+          echo "External PR requires at least one approving review from a write access collaborator"
+          exit 1
