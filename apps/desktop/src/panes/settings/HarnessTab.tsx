@@ -36,14 +36,8 @@ export function HarnessTab({
           <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
           <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
           <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
-          <KvRow
-            label="L4 Import"
-            value="Claude / Codex / Cursor transcripts already on disk"
-          />
-          <KvRow
-            label="Project"
-            value="Hard evidence only; cwd is a signal for workers"
-          />
+          <KvRow label="L4 Import" value="Claude / Codex / Cursor transcripts already on disk" />
+          <KvRow label="Project" value="Hard evidence only; cwd is a signal for workers" />
         </Kv>
         <Actions style={{ marginTop: 8 }}>
           <Button

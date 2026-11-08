@@ -71,9 +71,7 @@ function ConversationRow({
           {providerChipLabel(providerKey(c.provider), catalog)}
         </Pill>
         {c.capture_quality && c.capture_quality !== "wire" ? (
-          <Pill tone={c.capture_quality === "soft" ? "warn" : "default"}>
-            {c.capture_quality}
-          </Pill>
+          <Pill tone={c.capture_quality === "soft" ? "warn" : "default"}>{c.capture_quality}</Pill>
         ) : null}
         <span className={styles.mono}>{c.model ?? "—"}</span>
         <span className={styles.muted}>
