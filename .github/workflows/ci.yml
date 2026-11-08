@@ -6,11 +6,13 @@ on:
   pull_request:
 
 jobs:
+  # macOS runners are not available on free private GitHub plans; Linux + Windows
+  # cover the cross-platform surface. Re-add macos-14 when Pro/Team billing is on.
   rust:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -38,8 +40,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
-            packages: ""
           - os: ubuntu-latest
             packages: "libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf"
           - os: windows-latest
@@ -62,6 +62,23 @@ jobs:
       - name: Typecheck / build UI
         working-directory: apps/desktop
         run: bun run build
+      # tauri-build requires externalBin paths to exist; CI only typechecks, so stub them.
+      - name: Stub Tauri sidecars
+        working-directory: apps/desktop/src-tauri
+        shell: bash
+        run: |
+          mkdir -p binaries
+          case "${{ runner.os }}" in
+            Linux)   triple=x86_64-unknown-linux-gnu; ext= ;;
+            Windows) triple=x86_64-pc-windows-msvc; ext=.exe ;;
+            macOS)   triple=aarch64-apple-darwin; ext= ;;
+            *) echo "unsupported OS ${{ runner.os }}"; exit 1 ;;
+          esac
+          for name in rivetd rivet-proxy clickhouse; do
+            path="binaries/${name}-${triple}${ext}"
+            printf '#!/bin/sh\necho stub\n' > "$path"
+            chmod +x "$path" || true
+          done
       - name: Check Tauri crate
         working-directory: apps/desktop/src-tauri
         run: cargo check
