@@ -4,7 +4,6 @@ import { fmt } from "../../lib/provider-utils";
 import { isDefined } from "../../lib/nullish";
 import type { SettingsTab, Status } from "../../lib/types";
 import { Button } from "../../ui";
-import styles from "../../styles/app.module.css";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
 export function RuntimeWikiCard({
@@ -37,7 +36,7 @@ export function RuntimeWikiCard({
     <RuntimePaneCard
       title="Wiki worker"
       statusLabel={on ? "on" : "off"}
-      statusClass={on ? (styles.ok ?? "") : ""}
+      statusTone={on ? "ok" : "default"}
       foot={foot}
     >
       <RuntimeKv label="Pages" value={fmt(status?.workers?.wiki_pages ?? 0)} />

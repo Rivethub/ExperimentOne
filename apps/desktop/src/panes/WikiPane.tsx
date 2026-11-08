@@ -1,9 +1,6 @@
 import { WikiBoard, type WikiInfo, type WikiPageCard } from "../components/WikiBoard";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
 
 export type WikiPaneProps = {
-  active: boolean;
   wiki: WikiInfo | null;
   busy: boolean;
   wikiEnabled: boolean;
@@ -13,7 +10,6 @@ export type WikiPaneProps = {
 };
 
 export function WikiPane({
-  active,
   wiki,
   busy,
   wikiEnabled,
@@ -22,11 +18,7 @@ export function WikiPane({
   loadPage,
 }: WikiPaneProps): React.ReactElement {
   return (
-    <div
-      className={cx(styles.viewPane, active ? styles.isActive : "")}
-      hidden={!active}
-      aria-hidden={!active}
-    >
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <WikiBoard
         wiki={wiki}
         busy={busy}

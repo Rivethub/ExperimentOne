@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { isString } from "../lib/guards";
 import type { JsonObject } from "../lib/json-types";
 import { ApiError, BackendUnavailable, IpcError } from "./errors";
@@ -104,6 +104,38 @@ export const apiJson = <T = unknown>(
           status: res.status,
           body: `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
         }),
+    });
+  });
+
+/** Like `apiJson`, then `Schema.decodeUnknownEffect` on the parsed body. */
+export const apiJsonSchema = <S extends Schema.Top>(
+  method: string,
+  path: string,
+  schema: S,
+  body?: unknown,
+): Effect.Effect<S["Type"], ApiError | IpcError, S["DecodingServices"]> =>
+  Effect.gen(function* runApiJsonSchema() {
+    const res = yield* apiRequest(method, path, body);
+    if (res.status < 200 || res.status >= 300) {
+      return yield* new ApiError({ method, path, status: res.status, body: res.body });
+    }
+    const raw: unknown = yield* Effect.try({
+      try: () => (res.body === "" ? undefined : (JSON.parse(res.body) as unknown)),
+      catch: (cause) =>
+        new ApiError({
+          method,
+          path,
+          status: res.status,
+          body: `invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+        }),
+    });
+    return yield* Effect.mapError(Schema.decodeUnknownEffect(schema)(raw), (err) => {
+      return new ApiError({
+        method,
+        path,
+        status: res.status,
+        body: `schema: ${String(err)}`,
+      });
     });
   });
 

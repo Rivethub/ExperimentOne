@@ -1,8 +1,8 @@
+import { RefreshCw } from "lucide-react";
+import { cn } from "#lib/utils";
 import { fmt } from "../lib/provider-utils";
 import type { Status } from "../lib/types";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
-import { AppStatusBarMeta, AppStatusBarProxyPill } from "./app-status-bar-meta";
+import { AppStatusBarProxyPill } from "./app-status-bar-meta";
 
 export type AppStatusBarProps = {
   syncing: boolean;
@@ -11,9 +11,6 @@ export type AppStatusBarProps = {
   status: Status | null;
   apiOnline: boolean;
   onOpenRuntime: () => void;
-  statusAction: string | null;
-  error: string | null;
-  onDismissError: () => void;
 };
 
 function StatusBarSyncButton({
@@ -26,46 +23,21 @@ function StatusBarSyncButton({
   return (
     <button
       type="button"
-      className={cx(styles.sbSync, syncing ? styles.spinning : "")}
+      className={cn(
+        "m-0 inline-flex shrink-0 items-center justify-center rounded-none border-0 bg-transparent p-0.5 leading-none text-muted-foreground/80 opacity-85 hover:bg-accent hover:text-foreground hover:opacity-100 disabled:opacity-65",
+        syncing && "text-foreground opacity-100",
+      )}
       disabled={syncing}
       onClick={onSync}
       title="Sync status"
       aria-label="Sync status"
     >
-      <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden>
-        <path
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
-        />
-        <path
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21 3v5h-5"
-        />
-        <path
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
-        />
-        <path
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          d="M8 16H3v5"
-        />
-      </svg>
+      <RefreshCw
+        size={12}
+        strokeWidth={1.75}
+        aria-hidden
+        className={cn(syncing && "animate-spin")}
+      />
     </button>
   );
 }
@@ -77,31 +49,57 @@ export function AppStatusBar({
   status,
   apiOnline,
   onOpenRuntime,
-  statusAction,
-  error,
-  onDismissError,
 }: AppStatusBarProps): React.ReactElement {
   return (
-    <footer className={styles.statusbar} aria-label="Server status">
-      <div className={styles.sbGroup}>
+    <footer
+      className={cn(
+        "@container col-span-full row-start-2 z-20 flex h-7 max-h-7 min-h-7 flex-nowrap items-center justify-between gap-1.5 overflow-hidden whitespace-nowrap border-t border-border bg-[#0a0a0c] pr-2.5 pl-0 text-[11.5px] text-muted-foreground",
+        "max-[860px]:col-span-1 max-[860px]:row-start-3 max-[860px]:pr-2",
+      )}
+      aria-label="Server status"
+    >
+      <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden">
         <StatusBarSyncButton syncing={syncing} onSync={onSync} />
-        <span className={styles.sbCounts} title="Accounts · events · wiki pages · embeddings">
+        <span
+          className="mr-0.5 inline-flex min-w-0 shrink items-center overflow-hidden whitespace-nowrap p-0 text-[11.5px] text-muted-foreground tabular-nums"
+          title="Accounts · events · wiki pages · embeddings"
+        >
           <span>
             {accountCount} acct{accountCount === 1 ? "" : "s"}
           </span>
-          <span>{fmt(status?.usage.events ?? 0)} events</span>
-          <span>{status?.workers?.wiki_pages ?? 0} wiki</span>
-          <span>{status?.workers?.embeddings ?? 0} vec</span>
+          <span className="@max-[720px]:hidden">
+            <span className="mx-1.5 text-muted-foreground/80" aria-hidden>
+              ·
+            </span>
+            {fmt(status?.usage.events ?? 0)} events
+          </span>
+          <span className="@max-[860px]:hidden">
+            <span className="mx-1.5 text-muted-foreground/80" aria-hidden>
+              ·
+            </span>
+            {status?.workers?.wiki_pages ?? 0} wiki
+          </span>
+          <span className="@max-[860px]:hidden">
+            <span className="mx-1.5 text-muted-foreground/80" aria-hidden>
+              ·
+            </span>
+            {status?.workers?.embeddings ?? 0} vec
+          </span>
         </span>
         <button
           type="button"
-          className={styles.sbPill}
+          className="inline-flex max-w-none shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border-0 bg-transparent px-1.5 py-1 text-[11.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
           title={apiOnline ? "rivetd control plane reachable" : "rivetd unreachable"}
           onClick={onOpenRuntime}
         >
-          <span className={cx(styles.sbDot, apiOnline ? styles.on : styles.off)} />
-          <span className={styles.sbFull}>rivetd {apiOnline ? "online" : "offline"}</span>
-          <span className={styles.sbShort}>{apiOnline ? "api" : "api↓"}</span>
+          <span
+            className={cn(
+              "size-[7px] shrink-0 rounded-full",
+              apiOnline ? "bg-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,0.16)]" : "bg-red-400",
+            )}
+          />
+          <span className="@max-[860px]:hidden">rivetd {apiOnline ? "online" : "offline"}</span>
+          <span className="hidden @max-[860px]:inline">{apiOnline ? "api" : "api↓"}</span>
         </button>
         <AppStatusBarProxyPill
           proxyRunning={status?.proxy_running}
@@ -109,15 +107,14 @@ export function AppStatusBar({
           onOpenRuntime={onOpenRuntime}
         />
         <span
-          className={cx(styles.sbPill, styles.static, styles.sbBackend)}
+          className="inline-flex max-w-none shrink-0 cursor-default items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border-0 bg-transparent px-1.5 py-1 text-[11.5px] text-muted-foreground @max-[720px]:hidden"
           title="Traffic store backend"
         >
-          <span className={cx(styles.sbDot, styles.on)} />
-          <span className={styles.sbFull}>{status?.traffic_backend ?? "clickhouse"}</span>
-          <span className={styles.sbShort}>ch</span>
+          <span className="size-[7px] shrink-0 rounded-full bg-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,0.16)]" />
+          <span className="@max-[860px]:hidden">{status?.traffic_backend ?? "clickhouse"}</span>
+          <span className="hidden @max-[860px]:inline">ch</span>
         </span>
       </div>
-      <AppStatusBarMeta statusAction={statusAction} error={error} onDismissError={onDismissError} />
     </footer>
   );
 }

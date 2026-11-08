@@ -1,7 +1,15 @@
+import { Ellipsis } from "lucide-react";
+import { Button as ShadcnButton } from "#components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "#components/ui/dropdown-menu";
 import { isDefined } from "../../lib/nullish";
 import type { SettingsHarnessProps } from "./types";
-import { Actions, Banner, Button, Kv, KvRow, Panel, Snippet } from "../../ui";
-import styles from "../../styles/app.module.css";
+import { Actions, Button, Kv, KvRow, Panel, Snippet } from "../../ui";
 
 export function HarnessTab({
   hidden,
@@ -12,7 +20,7 @@ export function HarnessTab({
 
   return (
     <Panel
-      className={styles.settingsPanel}
+      className="m-0"
       hidden={hidden}
       aria-hidden={hidden}
       title="Harness (advanced)"
@@ -24,6 +32,7 @@ export function HarnessTab({
         </>
       }
     >
+      <div className="mb-2 text-xs tracking-wide text-muted-foreground">Write into home config</div>
       <Actions>
         <Button
           variant="primary"
@@ -35,7 +44,6 @@ export function HarnessTab({
           Install into ~/.claude
         </Button>
         <Button
-          variant="primary"
           disabled={harness.busy}
           onClick={() => {
             harness.onWriteHarness("codex", "user");
@@ -43,31 +51,45 @@ export function HarnessTab({
         >
           Install into ~/.codex
         </Button>
-      </Actions>
-      <Actions style={{ marginTop: 8 }}>
-        <Button onClick={harness.onLoadClaude}>Copy Claude snippet</Button>
-        <Button onClick={harness.onLoadCodex}>Copy Codex snippet</Button>
-        <Button onClick={harness.onLoadMcp}>Copy MCP snippet</Button>
-        <Button
-          disabled={harness.busy}
-          onClick={() => {
-            harness.onWriteHarness("claude", "isolated");
-          }}
-        >
-          Isolated Claude dir
-        </Button>
-        <Button
-          disabled={harness.busy}
-          onClick={() => {
-            harness.onWriteHarness("codex", "isolated");
-          }}
-        >
-          Isolated Codex dir
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ShadcnButton variant="ghost" size="icon" aria-label="More harness actions">
+              <Ellipsis />
+            </ShadcnButton>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem disabled={harness.busy} onSelect={harness.onLoadClaude}>
+              Copy Claude snippet
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={harness.busy} onSelect={harness.onLoadCodex}>
+              Copy Codex snippet
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={harness.busy} onSelect={harness.onLoadMcp}>
+              Copy MCP snippet
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              disabled={harness.busy}
+              onSelect={() => {
+                harness.onWriteHarness("claude", "isolated");
+              }}
+            >
+              Isolated Claude dir
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={harness.busy}
+              onSelect={() => {
+                harness.onWriteHarness("codex", "isolated");
+              }}
+            >
+              Isolated Codex dir
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </Actions>
       {isDefined(note) && (
-        <div className={styles.harnessResult}>
-          <Banner tone="note">{note.note}</Banner>
+        <div className="mt-4 border-t border-border/60 pt-3">
+          <p className="mb-2 text-[13px] text-muted-foreground">{note.note}</p>
           <Kv>
             <KvRow label="Path" value={note.path} />
             {isDefined(note.backup_path) && note.backup_path !== "" ? (
@@ -78,6 +100,7 @@ export function HarnessTab({
           {isDefined(envHint) && envHint !== "" ? (
             <Actions>
               <Button
+                variant="ghost"
                 onClick={() => {
                   harness.onCopyText(envHint);
                 }}
@@ -89,9 +112,10 @@ export function HarnessTab({
         </div>
       )}
       {isDefined(harness.snippet) && harness.snippet !== "" && (
-        <div style={{ marginTop: 12 }}>
+        <div className="mt-3">
           <Actions>
             <Button
+              variant="ghost"
               onClick={() => {
                 harness.onCopyText(harness.snippet);
               }}

@@ -1,4 +1,5 @@
 import { providerKey } from "./provider-utils";
+import { formatRelativeTime } from "./relative-time";
 import type { QuotaAccount } from "./types";
 
 /** Claude Code or Codex install target for a linked account provider. */
@@ -18,41 +19,11 @@ export function harnessButtonLabel(target: "claude" | "codex"): string {
 }
 
 export function formatRelativeIso(iso: string | null | undefined): string {
-  if (iso === null || iso === undefined || iso === "") {
-    return "—";
-  }
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) {
-    return iso;
-  }
-  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (sec < 45) {
-    return "just now";
-  }
-  if (sec < 3600) {
-    return `${Math.round(sec / 60)}m ago`;
-  }
-  if (sec < 86_400) {
-    return `${Math.round(sec / 3600)}h ago`;
-  }
-  if (sec < 86_400 * 14) {
-    return `${Math.round(sec / 86_400)}d ago`;
-  }
-  return new Date(t).toLocaleDateString();
+  return formatRelativeTime(iso, { style: "long" });
 }
 
 export function formatSynced(ts: number | null): string {
-  if (ts === null || ts === 0) {
-    return "never";
-  }
-  const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (sec < 5) {
-    return "just now";
-  }
-  if (sec < 60) {
-    return `${sec}s ago`;
-  }
-  return `${Math.floor(sec / 60)}m ago`;
+  return formatRelativeTime(ts, { from: "synced" });
 }
 
 export function isDeviceAuthBlocked(output: string): boolean {

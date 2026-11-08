@@ -1,7 +1,13 @@
-import { useId, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
-import { isDefined } from "../lib/nullish";
-import { cx } from "../styles/cx";
-import styles from "./Modal.module.css";
+import type { HTMLAttributes, ReactElement, ReactNode } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "#components/ui/dialog";
+import { isDefined } from "#lib/nullish";
+import { cn } from "#lib/utils";
 
 export type ModalProps = {
   open: boolean;
@@ -9,7 +15,7 @@ export type ModalProps = {
   title?: ReactNode;
   titleId?: string;
   wide?: boolean;
-  /** When false, backdrop clicks do nothing (e.g. while a login is active). */
+  /** When false, backdrop clicks / escape do nothing (e.g. while a login is active). */
   closeOnBackdrop?: boolean;
   children?: ReactNode;
   footer?: ReactNode;
@@ -23,48 +29,65 @@ export function Modal({
   onClose,
   title,
   titleId,
-  wide,
+  wide = false,
   closeOnBackdrop = true,
   children,
   footer,
   headerExtra,
   className,
-}: ModalProps): ReactElement | null {
-  const autoId = useId();
-  const labelledBy = isDefined(title) ? (titleId ?? autoId) : undefined;
-  if (!open) {
-    return null;
-  }
+}: ModalProps): ReactElement {
+  const preventDismiss = !closeOnBackdrop;
 
   return (
-    <div
-      className={styles.backdrop}
-      role="presentation"
-      onClick={(event) => {
-        if (event.target === event.currentTarget && closeOnBackdrop) {
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) {
           onClose();
         }
       }}
     >
-      <div
-        className={cx(styles.card, wide === true && styles.wide, className)}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
+      <DialogContent
+        showCloseButton={false}
+        className={cn(
+          "max-h-[min(80vh,720px)] gap-0 overflow-auto p-5 sm:max-w-[440px]",
+          wide && "sm:max-w-[560px]",
+          className,
+        )}
+        onInteractOutside={(event) => {
+          if (preventDismiss) {
+            event.preventDefault();
+          }
+        }}
+        onEscapeKeyDown={(event) => {
+          if (preventDismiss) {
+            event.preventDefault();
+          }
+        }}
       >
         {(isDefined(title) || isDefined(headerExtra)) && (
-          <div className={styles.header}>
-            {isDefined(title) ? <h2 id={labelledBy}>{title}</h2> : <span />}
+          <DialogHeader className="mb-2.5 flex-row items-center justify-between gap-3 space-y-0 text-left">
+            {isDefined(title) ? (
+              <DialogTitle id={titleId} className="text-[17px] font-semibold">
+                {title}
+              </DialogTitle>
+            ) : (
+              <span />
+            )}
             {headerExtra}
-          </div>
+          </DialogHeader>
         )}
-        {isDefined(children) ? <div className={styles.body}>{children}</div> : null}
-        {isDefined(footer) ? <div className={styles.footer}>{footer}</div> : null}
-      </div>
-    </div>
+        {isDefined(children) ? <div className="min-w-0">{children}</div> : null}
+        {isDefined(footer) ? (
+          <DialogFooter className="mt-4.5 flex-row flex-wrap justify-end gap-2 sm:justify-end">
+            {footer}
+          </DialogFooter>
+        ) : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 export function ModalActions({ className, ...rest }: HTMLAttributes<HTMLDivElement>): ReactElement {
-  return <div className={cx(styles.footer, className)} {...rest} />;
+  return <div className={cn("mt-4.5 flex flex-wrap justify-end gap-2", className)} {...rest} />;
 }

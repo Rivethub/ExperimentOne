@@ -1,22 +1,34 @@
+import { cva, type VariantProps } from "class-variance-authority";
 import type { HTMLAttributes, ReactElement } from "react";
-import { cx } from "../styles/cx";
-import styles from "./Pill.module.css";
+import { Badge } from "#components/ui/badge";
+import { cn } from "#lib/utils";
 
-export type PillTone = "default" | "ok" | "bad" | "warn" | "claude" | "codex";
+const pillTone = cva("", {
+  variants: {
+    tone: {
+      default: "border-transparent bg-secondary text-muted-foreground",
+      ok: "border-transparent bg-emerald-400/12 text-emerald-400",
+      bad: "border-transparent bg-red-400/12 text-red-400",
+      warn: "border-transparent bg-orange-400/12 text-orange-400",
+      claude: "border-transparent bg-[var(--claude-dim)] text-[var(--claude)]",
+      codex: "border-transparent bg-[var(--codex-dim)] text-[var(--codex)]",
+    },
+  },
+  defaultVariants: {
+    tone: "default",
+  },
+});
 
-export type PillProps = HTMLAttributes<HTMLSpanElement> & {
-  tone?: PillTone;
-};
+export type PillTone = NonNullable<VariantProps<typeof pillTone>["tone"]>;
 
-const toneClass: Record<PillTone, string | undefined> = {
-  default: undefined,
-  ok: styles.ok,
-  bad: styles.bad,
-  warn: styles.warn,
-  claude: styles.claude,
-  codex: styles.codex,
-};
+export type PillProps = HTMLAttributes<HTMLSpanElement> & VariantProps<typeof pillTone>;
 
 export function Pill({ tone = "default", className, ...rest }: PillProps): ReactElement {
-  return <span className={cx(styles.pill, toneClass[tone], className)} {...rest} />;
+  return (
+    <Badge
+      variant="secondary"
+      className={cn("gap-1.5 px-2 py-0.5 text-[11px] font-semibold", pillTone({ tone }), className)}
+      {...rest}
+    />
+  );
 }

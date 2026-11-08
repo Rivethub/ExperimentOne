@@ -1,6 +1,5 @@
 import type { HTMLAttributes, ReactElement } from "react";
-import { cx } from "../styles/cx";
-import styles from "./FieldRow.module.css";
+import { cn } from "#lib/utils";
 
 export type FieldRowProps = HTMLAttributes<HTMLDivElement> & {
   /** Remove the default top margin. */
@@ -8,5 +7,14 @@ export type FieldRowProps = HTMLAttributes<HTMLDivElement> & {
 };
 
 export function FieldRow({ flush, className, ...rest }: FieldRowProps): ReactElement {
-  return <div className={cx(styles.row, flush === true && styles.flush, className)} {...rest} />;
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2",
+        flush === true ? "mt-0" : "mt-3",
+        className,
+      )}
+      {...rest}
+    />
+  );
 }

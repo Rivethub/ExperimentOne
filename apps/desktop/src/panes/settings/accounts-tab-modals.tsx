@@ -3,8 +3,8 @@ import { isDeviceAuthBlocked } from "../../lib/format-utils";
 import { isDefined } from "../../lib/nullish";
 import type { CatalogProvider } from "../../lib/provider-utils";
 import type { LoginStatus } from "../../lib/types";
-import { Actions, Banner, Button, ButtonHint, Modal, Pill, Snippet } from "../../ui";
-import styles from "../../styles/app.module.css";
+import { cn } from "#lib/utils";
+import { Actions, Button, ButtonHint, Modal, Pill, Snippet } from "../../ui";
 
 function loginKindHint(loginKind: string): string {
   if (loginKind === "file_import") {
@@ -69,42 +69,44 @@ export function AccountsTabAddModal({
       wide
       footer={footer}
     >
-      <p>Pick a provider to sign in. Codex opens browser OAuth by default.</p>
-      <div className={styles.providerGrid}>
+      <p className="m-0 text-[13.5px] text-muted-foreground">
+        Pick a provider to sign in. Codex opens browser OAuth by default.
+      </p>
+      <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
         {catalog.map((p) => {
           const linked = providerAccountCount(p.id);
           const hint = loginKindHint(p.login_kind);
           const linkedSuffix = linked > 0 ? ` · ${linked} linked` : "";
           return (
-            <div key={p.id} className={styles.providerAddCard}>
-              <Button
-                variant="provider"
-                style={{ borderColor: `${p.color}55` }}
-                disabled={busy || loginActive}
-                title={p.hint}
-                onClick={() => {
-                  if (p.login_kind === "file_import") {
-                    onRequestVertexImport();
-                  } else {
-                    onRequestLogin(p.id);
-                  }
-                }}
+            <Button
+              key={p.id}
+              variant="provider"
+              className="justify-start text-left"
+              style={{ borderColor: `${p.color}55` }}
+              disabled={busy || loginActive}
+              title={p.hint}
+              onClick={() => {
+                if (p.login_kind === "file_import") {
+                  onRequestVertexImport();
+                } else {
+                  onRequestLogin(p.id);
+                }
+              }}
+            >
+              <span
+                className="grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold"
+                style={{ background: `${p.color}22`, color: p.color }}
               >
-                <span
-                  className={styles.providerIco}
-                  style={{ background: `${p.color}22`, color: p.color }}
-                >
-                  {p.badge}
-                </span>
-                <span>
-                  <strong>{p.label}</strong>
-                  <ButtonHint>
-                    {hint}
-                    {linkedSuffix}
-                  </ButtonHint>
-                </span>
-              </Button>
-            </div>
+                {p.badge}
+              </span>
+              <span className="min-w-0">
+                <strong className="block text-[13px] font-semibold">{p.label}</strong>
+                <ButtonHint>
+                  {hint}
+                  {linkedSuffix}
+                </ButtonHint>
+              </span>
+            </Button>
           );
         })}
       </div>
@@ -163,13 +165,13 @@ export function AccountsTabLoginModal({
       footer={footer}
     >
       {(login.active || (login.done && !login.success)) && (
-        <Actions spaced={false} style={{ marginBottom: 12 }}>
+        <Actions spaced={false} className="mb-3">
           {login.active && (
             <Button variant="danger" onClick={onCancelLogin}>
               Cancel login
             </Button>
           )}
-          {login.provider === "codex" && !login.success && (
+          {login.provider === "codex" && !login.success && !showDeviceBanner && (
             <Button
               variant="ghost"
               disabled={busy}
@@ -184,13 +186,21 @@ export function AccountsTabLoginModal({
       )}
 
       {showDeviceBanner && (
-        <Banner tone="warn">
-          <strong>ChatGPT blocked device code sign-in</strong>
-          <p>
-            Enable device code for Codex, Excel, PowerPoint, and Word in ChatGPT Security Settings,
-            then retry device code — or use browser OAuth instead (recommended).
-          </p>
-          <Actions spaced={false}>
+        <div
+          role="alert"
+          className={cn(
+            "mb-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border px-3.5 py-3",
+            "border-amber-800/70 bg-[#1c1410] text-amber-100",
+          )}
+        >
+          <div className="min-w-0 max-w-[52ch]">
+            <div className="font-medium tracking-tight">ChatGPT blocked device code sign-in</div>
+            <p className="mt-1 m-0 text-[13px] leading-snug text-amber-200/85">
+              Enable device code for Codex in ChatGPT Security Settings, then retry — or use browser
+              OAuth instead (recommended).
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <Button
               variant="primary"
               disabled={busy}
@@ -201,6 +211,7 @@ export function AccountsTabLoginModal({
               Sign in with browser
             </Button>
             <Button
+              variant="ghost"
               disabled={busy}
               onClick={() => {
                 onRequestLogin("codex", "device");
@@ -208,8 +219,8 @@ export function AccountsTabLoginModal({
             >
               Retry device code
             </Button>
-          </Actions>
-        </Banner>
+          </div>
+        </div>
       )}
 
       <Snippet>{outputText}</Snippet>

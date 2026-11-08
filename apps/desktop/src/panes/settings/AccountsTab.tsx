@@ -5,7 +5,6 @@ import { Panel } from "../../ui";
 import { AccountsTabActions } from "./AccountsTabActions";
 import { AccountsTabAddModal, AccountsTabLoginModal } from "./accounts-tab-modals";
 import type { SettingsAccountsProps } from "./types";
-import styles from "../../styles/app.module.css";
 
 export function AccountsTab({
   hidden,
@@ -27,7 +26,7 @@ export function AccountsTab({
 
   return (
     <Panel
-      className={styles.settingsPanel}
+      className="m-0"
       hidden={hidden}
       aria-hidden={hidden}
       title="Accounts"

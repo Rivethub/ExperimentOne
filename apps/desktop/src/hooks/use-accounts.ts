@@ -1,20 +1,19 @@
-import { Effect } from "effect";
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import type { MultiAccountWarnState } from "../components/MultiAccountWarnModal";
-import { rivetErrorMessage, runApp } from "../effect";
-import * as Rivet from "../effect/rivet";
+import { rivetErrorMessage } from "../effect";
+import { notify } from "../lib/notify";
 import { providerKey } from "../lib/provider-utils";
 import type { Account, HarnessWrite, LoginStatus, SettingsTab } from "../lib/types";
 import { useAccountsHarness, useAccountsLogin, useAccountsVertex } from "./use-accounts.parts";
+import { useRivetMutations } from "./use-rivet-mutations";
 
 type AccountsOpts = {
   accounts: Account[];
   ensureSession: () => Promise<void>;
   refresh: () => Promise<void>;
+  horizon?: "1h" | "3h" | "6h";
   openSettings: (tab?: SettingsTab) => void;
   setBusy: (v: boolean) => void;
-  setStatusAction: (v: string | null) => void;
-  setError: (v: string | null | ((prev: string | null) => string | null)) => void;
 };
 
 export type UseAccountsResult = {
@@ -44,16 +43,22 @@ export type UseAccountsResult = {
 };
 
 export function useAccounts(opts: AccountsOpts): UseAccountsResult {
-  const { accounts, refresh, openSettings, setBusy, setStatusAction, setError } = opts;
+  const { accounts, refresh, horizon = "1h", openSettings, setBusy } = opts;
+  const mutations = useRivetMutations({ horizon });
   const [multiAccountWarn, setMultiAccountWarn] = useState<MultiAccountWarnState>(null);
   const clearMultiAccountWarn = useCallback(() => {
     setMultiAccountWarn(null);
   }, []);
 
-  const coreOpts = { refresh, openSettings, setBusy, setStatusAction, setError };
+  const coreOpts = {
+    refresh,
+    openSettings,
+    setBusy,
+    mutations,
+  };
   const loginApi = useAccountsLogin(coreOpts, clearMultiAccountWarn);
   const vertexApi = useAccountsVertex(coreOpts, loginApi, clearMultiAccountWarn);
-  const harnessApi = useAccountsHarness({ setBusy, setError });
+  const harnessApi = useAccountsHarness({ setBusy, mutations });
 
   const providerAccountCount = useCallback(
     (provider: string) => {
@@ -97,7 +102,7 @@ export function useAccounts(opts: AccountsOpts): UseAccountsResult {
             kind: "warning",
           });
         } catch {
-          setError("Removal requires the desktop app confirmation dialog.");
+          notify.error("Removal requires the desktop app confirmation dialog.");
           return false;
         }
       })();
@@ -106,22 +111,16 @@ export function useAccounts(opts: AccountsOpts): UseAccountsResult {
       }
       setBusy(true);
       try {
-        await runApp(
-          Effect.gen(function* removeStoredAccount() {
-            yield* Rivet.requireBackend;
-            yield* Rivet.removeAccount(id);
-          }),
-        );
-        await refresh();
+        await mutations.removeAccount.mutateAsync(id);
+        notify.success("Account removed");
       } catch (err) {
-        setError(rivetErrorMessage(err));
+        notify.error(rivetErrorMessage(err));
       } finally {
         setBusy(false);
       }
     },
-    [refresh, setBusy, setError],
+    [mutations.removeAccount, setBusy],
   );
-
   const confirmMultiAccountWarn = useCallback(
     (pending: NonNullable<MultiAccountWarnState>) => {
       setMultiAccountWarn(null);

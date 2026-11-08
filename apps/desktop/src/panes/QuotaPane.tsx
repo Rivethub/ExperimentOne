@@ -18,10 +18,9 @@ import {
   seriesFromRemainingHistory,
 } from "../lib/quota-series";
 import { isDefined } from "../lib/nullish";
-import { Button, Chip } from "../ui";
+import { Button, Chip, Panel } from "../ui";
 import { quotaMetricModeTitle } from "./quota-pane-toolbar";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cn } from "#lib/utils";
 import type {
   ProviderFilter,
   ProviderQuota,
@@ -32,7 +31,6 @@ import type {
 } from "../lib/types";
 
 export type QuotaPaneProps = {
-  active: boolean;
   counts: Record<string, number>;
   filter: ProviderFilter;
   onFilterChange: (filter: ProviderFilter) => void;
@@ -58,8 +56,34 @@ export type QuotaPaneProps = {
   onAccountSelect: (account: QuotaAccountUx) => void;
 };
 
-export function QuotaPane({
+function SegButton({
   active,
+  onClick,
+  title,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  title?: string;
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <button
+      type="button"
+      title={title}
+      className={cn(
+        "border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium text-muted-foreground",
+        "[&:not(:first-child)]:border-l [&:not(:first-child)]:border-border",
+        active && "bg-secondary text-foreground",
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function QuotaPane({
   counts,
   filter,
   onFilterChange,
@@ -81,11 +105,7 @@ export function QuotaPane({
   onAccountSelect,
 }: QuotaPaneProps): React.ReactElement {
   return (
-    <div
-      className={cx(styles.viewPane, active ? styles.isActive : "")}
-      hidden={!active}
-      aria-hidden={!active}
-    >
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {(counts.all ?? 0) > 0 ? (
         <>
           <LimitRecoveryBanner
@@ -94,7 +114,7 @@ export function QuotaPane({
             onSwitchAccount={limitActions.onSwitchAccount}
             onWait={limitActions.onWait}
           />
-          <div className={styles.filters}>
+          <div className="mb-3.5 flex flex-wrap gap-2">
             <Chip
               active={filter === "all"}
               count={counts.all ?? 0}
@@ -119,41 +139,41 @@ export function QuotaPane({
             ))}
           </div>
 
-          <div className={styles.toolbar}>
-            <div className={cx(styles.seg, styles.metricCtl)}>
+          <div className="mb-4.5 flex flex-wrap items-center gap-2">
+            <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card">
               {(
                 [
-                  ["limits", "L"],
-                  ["tokens", "T"],
-                  ["cost", "C"],
+                  ["limits", "Limits"],
+                  ["tokens", "Tokens"],
+                  ["cost", "Cost"],
                 ] as const
               ).map(([id, label]) => (
-                <button
+                <SegButton
                   key={id}
-                  className={metricMode === id ? "active" : ""}
+                  active={metricMode === id}
+                  title={quotaMetricModeTitle(id)}
                   onClick={() => {
                     onMetricModeChange(id);
                   }}
-                  title={quotaMetricModeTitle(id)}
                 >
                   {label}
-                </button>
+                </SegButton>
               ))}
             </div>
-            <div className={styles.seg}>
+            <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card">
               {(["1h", "3h", "6h"] as const).map((h) => (
-                <button
+                <SegButton
                   key={h}
-                  className={horizon === h ? "active" : ""}
+                  active={horizon === h}
                   onClick={() => {
                     onHorizonChange(h);
                   }}
                 >
                   {h}
-                </button>
+                </SegButton>
               ))}
             </div>
-            <span className={styles.empty} title={quota?.note}>
+            <span className="py-2 text-[13px] text-muted-foreground" title={quota?.note}>
               {quota?.source === "management"
                 ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · quota ≤5m · ${horizon} history`
                 : `Local fallback · ${horizon} window · refresh after proxy is up`}
@@ -166,7 +186,7 @@ export function QuotaPane({
             </span>
           </div>
 
-          <div className={styles.stack}>
+          <div className="flex flex-col gap-3.5">
             {visibleProviders.map((id) => {
               const pq = providerQuota(id);
               const series =
@@ -203,22 +223,20 @@ export function QuotaPane({
           </div>
         </>
       ) : (
-        <section className={cx(styles.card, styles.quotaEmptyCard)}>
-          <div className={styles.cardHead}>
-            <div className={styles.cardTitle}>
-              <div>
-                <h2>No accounts yet</h2>
-                <div className={styles.meta}>Live quota needs at least one signed-in account</div>
-              </div>
-            </div>
+        <Panel
+          className="mb-0"
+          title="No accounts yet"
+          lede="Live quota needs at least one signed-in account"
+          actions={
             <Button variant="primary" onClick={onAddCredentials}>
               Add account
             </Button>
-          </div>
-          <p className={styles.quotaEmptyCopy}>
+          }
+        >
+          <p className="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
             Add a provider account to track remaining limits and burn from captured traffic.
           </p>
-        </section>
+        </Panel>
       )}
     </div>
   );

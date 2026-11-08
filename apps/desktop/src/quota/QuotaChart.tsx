@@ -1,8 +1,12 @@
+import { useEffect, useRef, type ReactElement } from "react";
+import uPlot from "uplot";
+import "uplot/dist/uPlot.min.css";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 
 export function QuotaChart({
   recorded,
+  projected,
   color,
   empty,
   emptyLabel,
@@ -14,7 +18,117 @@ export function QuotaChart({
   empty?: boolean;
   emptyLabel?: string;
   legend?: string;
-}): React.ReactElement {
+}): ReactElement {
+  const hostRef = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<uPlot | null>(null);
+
+  useEffect(() => {
+    if (empty === true) {
+      plotRef.current?.destroy();
+      plotRef.current = null;
+      return;
+    }
+
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
+
+    const xs = recorded.map((_, i) => i);
+    const data: uPlot.AlignedData =
+      projected && projected.length === recorded.length
+        ? [xs, recorded, projected]
+        : [xs, recorded];
+
+    const series: uPlot.Series[] = [
+      {},
+      {
+        label: legend ?? "Measured traffic burn",
+        stroke: color,
+        width: 2,
+        fill: `${color}1f`,
+        points: { show: false },
+      },
+    ];
+    if (projected && projected.length === recorded.length) {
+      series.push({
+        label: "Projected",
+        stroke: color,
+        width: 1.5,
+        dash: [4, 4],
+        points: { show: false },
+      });
+    }
+
+    const opts: uPlot.Options = {
+      width: Math.max(host.clientWidth || 640, 120),
+      height: 160,
+      class: styles.chartUplot,
+      legend: { show: false },
+      cursor: { show: false },
+      scales: {
+        x: { time: false },
+        y: { auto: false, range: [0, 100] },
+      },
+      axes: [
+        { show: false },
+        {
+          show: true,
+          stroke: "#52525b",
+          grid: { stroke: "#1f1f23", width: 1 },
+          ticks: { show: false },
+          values: (_u, vals) => vals.map((v) => (v === 0 || v === 50 || v === 100 ? `${v}` : "")),
+          size: 28,
+          font: "10px DM Sans, sans-serif",
+        },
+      ],
+      series,
+      hooks: {
+        draw: [
+          (u) => {
+            const nowIdx = Math.max(0, recorded.length - 1);
+            const x = u.valToPos(nowIdx, "x", true);
+            const top = u.bbox.top;
+            const bottom = u.bbox.top + u.bbox.height;
+            const { ctx } = u;
+            ctx.save();
+            ctx.strokeStyle = "rgba(250, 250, 250, 0.35)";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, top);
+            ctx.lineTo(x, bottom);
+            ctx.stroke();
+            ctx.fillStyle = "#a1a1aa";
+            ctx.font = "10px DM Sans, sans-serif";
+            ctx.fillText("Now", Math.max(u.bbox.left, x - 28), top + 12);
+            ctx.restore();
+          },
+        ],
+      },
+    };
+
+    plotRef.current?.destroy();
+    plotRef.current = new uPlot(opts, data, host);
+
+    const ro = new ResizeObserver(() => {
+      const plot = plotRef.current;
+      if (!plot || !hostRef.current) {
+        return;
+      }
+      plot.setSize({
+        width: Math.max(hostRef.current.clientWidth || 640, 120),
+        height: 160,
+      });
+    });
+    ro.observe(host);
+
+    return () => {
+      ro.disconnect();
+      plotRef.current?.destroy();
+      plotRef.current = null;
+    };
+  }, [recorded, projected, color, empty, legend]);
+
   if (empty === true) {
     return (
       <div className={cx(styles.chartWrap, styles.chartWrapEmpty)}>
@@ -23,69 +137,9 @@ export function QuotaChart({
     );
   }
 
-  const w = 640;
-  const h = 160;
-  const pad = 8;
-  const nowIdx = Math.max(0, recorded.length - 1);
-
-  const toPath = (vals: number[], from: number, to: number) => {
-    const slice = vals.slice(from, to + 1);
-    return slice
-      .map((v, i) => {
-        const x = pad + ((from + i) / (vals.length - 1)) * (w - pad * 2);
-        const y = pad + (1 - v / 100) * (h - pad * 2);
-        return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(" ");
-  };
-
-  const area = (() => {
-    const line = toPath(recorded, 0, nowIdx);
-    const x0 = pad;
-    const x1 = pad + (nowIdx / (recorded.length - 1)) * (w - pad * 2);
-    const yBase = h - pad;
-    return `${line} L${x1},${yBase} L${x0},${yBase} Z`;
-  })();
-
-  const nowX = pad + (nowIdx / (recorded.length - 1)) * (w - pad * 2);
-
   return (
     <div className={styles.chartWrap}>
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-        {[0, 25, 50, 75, 100].map((tick) => {
-          const y = pad + (1 - tick / 100) * (h - pad * 2);
-          return (
-            <line key={tick} x1={pad} x2={w - pad} y1={y} y2={y} stroke="#1f1f23" strokeWidth="1" />
-          );
-        })}
-        <path d={area} fill={color} opacity="0.12" />
-        <path
-          d={toPath(recorded, 0, nowIdx)}
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <line
-          x1={nowX}
-          x2={nowX}
-          y1={pad}
-          y2={h - pad}
-          stroke="#fafafa"
-          strokeWidth="1"
-          opacity="0.35"
-        />
-        <text
-          x={Math.max(pad, nowX - 28)}
-          y={pad + 10}
-          fill="#a1a1aa"
-          fontSize="10"
-          fontFamily="DM Sans, sans-serif"
-        >
-          Now
-        </text>
-      </svg>
+      <div ref={hostRef} className={styles.chartUplotHost} />
       <div className={styles.chartLegend} style={{ color }}>
         <span>
           <i className={styles.swatch} /> {legend ?? "Measured traffic burn"}

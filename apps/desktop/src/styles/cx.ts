@@ -1,12 +1,11 @@
-/** Join class names, skipping falsy values. */
+import { cn } from "#lib/utils";
+
+/** Join class names, skipping falsy values. Prefer `cn` for new Tailwind UI. */
 export function cx(...parts: (string | false | null | undefined)[]): string {
-  return parts
-    .filter(
-      (part): part is string =>
-        part !== false && part !== null && part !== undefined && part !== "",
-    )
-    .join(" ");
+  return cn(...parts);
 }
+
+export { cn };
 
 /** Look up a CSS-module local by kebab/camel key (for dynamic variants). */
 export function styleOf(

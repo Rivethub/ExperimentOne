@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import type { Status } from "../../lib/types";
 import { Button } from "../../ui";
-import styles from "../../styles/app.module.css";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
 export function RuntimeProxyCard({
@@ -28,7 +27,7 @@ export function RuntimeProxyCard({
     <RuntimePaneCard
       title="Proxy"
       statusLabel={live ? "live" : "stopped"}
-      statusClass={live ? (styles.ok ?? "") : (styles.bad ?? "")}
+      statusTone={live ? "ok" : "bad"}
       foot={foot}
     >
       <RuntimeKv label="Base URL" value={status?.proxy_base_url ?? "—"} />

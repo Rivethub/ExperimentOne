@@ -1,14 +1,22 @@
+import { cva, type VariantProps } from "class-variance-authority";
 import type { InputHTMLAttributes, ReactElement } from "react";
-import { cx } from "../styles/cx";
-import styles from "./Input.module.css";
+import { Input as ShadcnInput } from "#components/ui/input";
+import { cn } from "#lib/utils";
 
-export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
-  /** Monospace path-style input (default) vs plain body text. */
-  tone?: "mono" | "plain";
-};
+const inputTone = cva("min-w-[220px] flex-1", {
+  variants: {
+    tone: {
+      mono: "font-mono text-xs",
+      plain: "font-sans text-sm",
+    },
+  },
+  defaultVariants: {
+    tone: "mono",
+  },
+});
+
+export type InputProps = InputHTMLAttributes<HTMLInputElement> & VariantProps<typeof inputTone>;
 
 export function Input({ tone = "mono", className, ...rest }: InputProps): ReactElement {
-  return (
-    <input className={cx(styles.input, tone === "plain" && styles.plain, className)} {...rest} />
-  );
+  return <ShadcnInput className={cn(inputTone({ tone }), className)} {...rest} />;
 }
