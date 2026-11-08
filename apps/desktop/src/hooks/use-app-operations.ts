@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { useCallback, useRef, useState } from "react";
 import type { WikiInfo } from "../components/WikiBoard";
-import { rivetErrorMessage, runApp } from "../effect";
+import { rivetErrorMessage, runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
 import { pickRivetbag } from "../lib/tauri-utils";
 import type { ConversationSummary, SearchMode, Status, TrafficEvent } from "../lib/types";
@@ -45,14 +45,11 @@ export function useAppOperations(opts: {
 
   const loadLogs = useCallback(async () => {
     try {
-      const soft = <A>(effect: Effect.Effect<A, unknown>) =>
-        effect.pipe(Effect.catch(() => Effect.succeed(null as A | null)));
-
       const [proxyRes, chRes] = await runApp(
-        Effect.gen(function* () {
+        Effect.gen(function* loadProxyAndClickhouseLogs() {
           yield* Rivet.requireBackend;
           return yield* Effect.all(
-            [soft(Rivet.getProxyLog(80)), soft(Rivet.getClickhouseLog(80))],
+            [softEffect(Rivet.getProxyLog(80)), softEffect(Rivet.getClickhouseLog(80))],
             {
               concurrency: "unbounded",
             },
