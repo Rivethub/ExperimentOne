@@ -86,7 +86,7 @@ export function AppTopbar({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem disabled={busy} onSelect={data.onExport}>
-                Export .rivetbag
+                Export all .rivetbag
               </DropdownMenuItem>
               <DropdownMenuItem disabled={busy} onSelect={data.onImport}>
                 Import .rivetbag

@@ -11,7 +11,7 @@ export const Route = createFileRoute("/data")({
 });
 
 function DataLayout(): React.ReactElement {
-  const { rivet, derived, hideLimitBanner, openSettings } = useApp();
+  const { rivet, derived, hideLimitBanner, openSettings, ops, busy } = useApp();
   const search = Route.useSearch();
   const { q, mode, thread } = search;
   const navigate = Route.useNavigate();
@@ -73,6 +73,8 @@ function DataLayout(): React.ReactElement {
       onThreadQueryChange={(next) =>
         void navigate({ search: (prev) => ({ ...prev, thread: next }) })
       }
+      busy={busy}
+      onExportConversations={(ids) => void ops.exportBag(ids)}
     />
   );
 }

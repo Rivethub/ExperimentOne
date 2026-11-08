@@ -523,12 +523,32 @@ export async function handleApiRequest(
 
   // Export / import
   if (m === "POST" && base === "/v1/export") {
-    const path = `/mock/Rivet/exports/rivet-${Date.now()}.rivetbag`;
+    const bodyObj = (payload ?? {}) as { conversation_ids?: string[] };
+    const ids = (bodyObj.conversation_ids ?? [])
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
+    const events =
+      ids.length === 0
+        ? s.traffic
+        : s.traffic.filter((ev) => {
+            const sid = ev.session_id?.trim();
+            const convId = sid && sid.length > 0 ? sid : `event:${ev.id}`;
+            return ids.includes(convId);
+          });
+    const path =
+      ids.length === 0
+        ? `/mock/Rivet/exports/rivet-${Date.now()}.rivetbag`
+        : ids.length === 1
+          ? `/mock/Rivet/exports/rivet-1conv-${Date.now()}.rivetbag`
+          : `/mock/Rivet/exports/rivet-${ids.length}convs-${Date.now()}.rivetbag`;
     s.lastExportPath = path;
     return ok({
       path,
-      event_count: s.traffic.length,
-      note: "Mock export package",
+      event_count: events.length,
+      note:
+        ids.length === 0
+          ? "Mock export package"
+          : `Mock export — ${ids.length} conversation${ids.length === 1 ? "" : "s"}`,
       schema_version: 1,
     });
   }

@@ -108,22 +108,31 @@ export function useAppOperations(opts: {
     }
   }, []);
 
-  const exportBag = useCallback(async () => {
-    setBusy(true);
-    try {
-      const body = await mutations.exportBag.mutateAsync();
-      if (body.error) throw new Error(body.error);
-      setBagPath(body.path);
-      notify.success(
-        `Exported ${body.event_count} events → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
-      );
-      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
-    } catch (err) {
-      notify.error(rivetErrorMessage(err));
-    } finally {
-      setBusy(false);
-    }
-  }, [mutations.exportBag, queryClient, setBusy]);
+  const exportBag = useCallback(
+    async (conversationIds?: string[]) => {
+      setBusy(true);
+      try {
+        const body = await mutations.exportBag.mutateAsync(conversationIds);
+        if (body.error) throw new Error(body.error);
+        setBagPath(body.path);
+        const scope =
+          conversationIds && conversationIds.length > 0
+            ? conversationIds.length === 1
+              ? "1 conversation"
+              : `${conversationIds.length} conversations`
+            : null;
+        notify.success(
+          `Exported ${body.event_count} events${scope ? ` (${scope})` : ""} → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
+        );
+        await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      } catch (err) {
+        notify.error(rivetErrorMessage(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [mutations.exportBag, queryClient, setBusy],
+  );
 
   const importBag = useCallback(async () => {
     const path = await pickRivetbag();

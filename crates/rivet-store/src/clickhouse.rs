@@ -521,6 +521,60 @@ impl TrafficStore for ClickHouseTrafficStore {
     async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
         self.fetch_events(&format!("{EVENT_SELECT} ORDER BY ts ASC")).await
     }
+
+    async fn export_for_conversations(
+        &self,
+        conversation_ids: &[String],
+    ) -> Result<Vec<TrafficEvent>> {
+        let mut session_ids = Vec::new();
+        let mut event_ids = Vec::new();
+        for raw in conversation_ids {
+            let id = raw.trim();
+            if id.is_empty() {
+                continue;
+            }
+            if let Some(event_id) = id.strip_prefix("event:") {
+                if let Ok(uuid) = Uuid::parse_str(event_id) {
+                    event_ids.push(uuid);
+                }
+                continue;
+            }
+            session_ids.push(id.to_string());
+        }
+        if session_ids.is_empty() && event_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        match (session_ids.is_empty(), event_ids.is_empty()) {
+            (false, false) => {
+                self.fetch_events_bound(
+                    &format!(
+                        "{EVENT_SELECT} WHERE session_id IN {{sids:Array(String)}} \
+                         OR id IN {{ids:Array(UUID)}} ORDER BY ts ASC"
+                    ),
+                    |q| q.param("sids", session_ids.as_slice()).param("ids", event_ids.as_slice()),
+                )
+                .await
+            },
+            (false, true) => {
+                self.fetch_events_bound(
+                    &format!(
+                        "{EVENT_SELECT} WHERE session_id IN {{sids:Array(String)}} ORDER BY ts ASC"
+                    ),
+                    |q| q.param("sids", session_ids.as_slice()),
+                )
+                .await
+            },
+            (true, false) => {
+                self.fetch_events_bound(
+                    &format!("{EVENT_SELECT} WHERE id IN {{ids:Array(UUID)}} ORDER BY ts ASC"),
+                    |q| q.param("ids", event_ids.as_slice()),
+                )
+                .await
+            },
+            (true, true) => Ok(Vec::new()),
+        }
+    }
 }
 
 #[cfg(test)]

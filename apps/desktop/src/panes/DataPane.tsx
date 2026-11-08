@@ -40,6 +40,8 @@ export type DataPaneProps = {
   messages: TrafficEvent[];
   threadQuery: string;
   onThreadQueryChange: (query: string) => void;
+  busy?: boolean;
+  onExportConversations?: (conversationIds: string[]) => void;
 };
 
 function ConversationRow({
@@ -183,6 +185,8 @@ export function DataPane({
   messages,
   threadQuery,
   onThreadQueryChange,
+  busy = false,
+  onExportConversations,
 }: DataPaneProps) {
   const deferredThreadQuery = useDeferredValue(threadQuery);
   const threadPending = threadQuery !== deferredThreadQuery;
@@ -193,6 +197,10 @@ export function DataPane({
     const items = timelineFromTrafficEvents(visibleMessages);
     return filterTimeline(items, deferredThreadQuery);
   }, [visibleMessages, deferredThreadQuery]);
+
+  const searchActive = listQuery.trim().length > 0;
+  const canExportMatches =
+    Boolean(onExportConversations) && searchActive && conversations.length > 0 && !listPending;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -256,6 +264,23 @@ export function DataPane({
                 </span>
               ) : null}
             </div>
+            {canExportMatches ? (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-muted-foreground">
+                  {conversations.length} matching conversation
+                  {conversations.length === 1 ? "" : "s"}
+                </span>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    onExportConversations?.(conversations.map((conversation) => conversation.id))
+                  }
+                >
+                  Export matching
+                </Button>
+              </div>
+            ) : null}
 
             {conversations.length === 0 && !listPending ? (
               <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-[10px] border border-border/60">
@@ -326,13 +351,24 @@ export function DataPane({
                     </div>
                   ) : null}
                 </div>
-                <Button
-                  variant="ghost"
-                  aria-label="Close conversation"
-                  onClick={() => onSelectConversation(null)}
-                >
-                  ✕
-                </Button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {onExportConversations && selectedId ? (
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => onExportConversations([selectedId])}
+                    >
+                      Export
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="ghost"
+                    aria-label="Close conversation"
+                    onClick={() => onSelectConversation(null)}
+                  >
+                    ✕
+                  </Button>
+                </div>
               </div>
               <div className="flex min-w-0 items-center gap-2">
                 <Input
