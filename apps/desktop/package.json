@@ -8,7 +8,12 @@
     "dev:mock": "VITE_MOCK_IPC=1 vp dev",
     "build": "tsc -b && vp build",
     "preview": "vp preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "lint": "vp lint --deny-warnings",
+    "fmt": "vp fmt",
+    "fmt:check": "vp fmt --check",
+    "typecheck": "tsc -b --pretty false",
+    "check": "vp fmt --check && vp lint --deny-warnings && tsc -b --pretty false"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

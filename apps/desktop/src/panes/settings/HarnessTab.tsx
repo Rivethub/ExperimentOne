@@ -43,10 +43,7 @@ export function HarnessTab({ hidden, ...harness }: SettingsHarnessProps & { hidd
         >
           Isolated Claude dir
         </Button>
-        <Button
-          disabled={harness.busy}
-          onClick={() => harness.onWriteHarness("codex", "isolated")}
-        >
+        <Button disabled={harness.busy} onClick={() => harness.onWriteHarness("codex", "isolated")}>
           Isolated Codex dir
         </Button>
       </Actions>

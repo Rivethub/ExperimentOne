@@ -62,9 +62,6 @@ export function Modal({
   );
 }
 
-export function ModalActions({
-  className,
-  ...rest
-}: HTMLAttributes<HTMLDivElement>) {
+export function ModalActions({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return <div className={cx(styles.footer, className)} {...rest} />;
 }

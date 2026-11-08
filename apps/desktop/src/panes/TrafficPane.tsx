@@ -66,12 +66,13 @@ export function TrafficPane({
         onSwitchAccount={limitActions.onSwitchAccount}
         onWait={limitActions.onWait}
       />
-      <Panel className={styles.trafficPage} title="Captured requests" lede="Search local traffic history. Bodies get best-effort secret redaction before store and export.">
+      <Panel
+        className={styles.trafficPage}
+        title="Captured requests"
+        lede="Search local traffic history. Bodies get best-effort secret redaction before store and export."
+      >
         <div className={styles.filters} style={{ marginBottom: 10 }}>
-          <Chip
-            active={trafficProvider === "all"}
-            onClick={() => onTrafficProviderChange("all")}
-          >
+          <Chip active={trafficProvider === "all"} onClick={() => onTrafficProviderChange("all")}>
             All
           </Chip>
           {providerIds.map((id) => (

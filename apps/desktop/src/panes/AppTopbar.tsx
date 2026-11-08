@@ -90,16 +90,10 @@ export function AppTopbar({
                 Start proxy
               </Button>
             )}
-            <Button
-              disabled={busy || !runtime.apiOnline}
-              onClick={runtime.onProxyRestart}
-            >
+            <Button disabled={busy || !runtime.apiOnline} onClick={runtime.onProxyRestart}>
               Restart
             </Button>
-            <Button
-              disabled={busy || !runtime.apiOnline}
-              onClick={runtime.onRunWorkers}
-            >
+            <Button disabled={busy || !runtime.apiOnline} onClick={runtime.onRunWorkers}>
               Run workers
             </Button>
           </>

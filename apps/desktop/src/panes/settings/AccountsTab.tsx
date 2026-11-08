@@ -1,15 +1,6 @@
 import { isDeviceAuthBlocked } from "../../formatUtils";
 import { AccountConnectCards } from "../../quota";
-import {
-  Actions,
-  Banner,
-  Button,
-  ButtonHint,
-  Modal,
-  Panel,
-  Pill,
-  Snippet,
-} from "../../ui";
+import { Actions, Banner, Button, ButtonHint, Modal, Panel, Pill, Snippet } from "../../ui";
 import type { SettingsAccountsProps } from "./types";
 import styles from "../../styles/app.module.css";
 
@@ -51,9 +42,7 @@ export function AccountsTab({ hidden, ...accounts }: SettingsAccountsProps & { h
         title="Add account"
         titleId="add-account-title"
         wide
-        footer={
-          <Button onClick={accounts.onToggleAddAccount}>Cancel</Button>
-        }
+        footer={<Button onClick={accounts.onToggleAddAccount}>Cancel</Button>}
       >
         <p>Pick a provider to sign in. Codex opens browser OAuth by default.</p>
         <div className={styles.providerGrid}>

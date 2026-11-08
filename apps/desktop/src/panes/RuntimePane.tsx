@@ -58,9 +58,7 @@ export function RuntimePane({
               </div>
             </div>
             <div className={styles.runtimeCardFoot}>
-              <Button onClick={() => onCopyText(status?.proxy_base_url ?? "")}>
-                Copy URL
-              </Button>
+              <Button onClick={() => onCopyText(status?.proxy_base_url ?? "")}>Copy URL</Button>
             </div>
           </div>
 
@@ -103,9 +101,7 @@ export function RuntimePane({
               </div>
             </div>
             <div className={styles.runtimeCardFoot}>
-              <Button onClick={() => onCopyText(status?.mcp_url ?? "")}>
-                Copy MCP URL
-              </Button>
+              <Button onClick={() => onCopyText(status?.mcp_url ?? "")}>Copy MCP URL</Button>
             </div>
           </div>
 
@@ -172,9 +168,7 @@ export function RuntimePane({
               </div>
             </div>
             <div className={styles.runtimeCardFoot}>
-              <Button onClick={() => onOpenSettings("intelligence")}>
-                Configure
-              </Button>
+              <Button onClick={() => onOpenSettings("intelligence")}>Configure</Button>
             </div>
           </div>
 
@@ -198,12 +192,8 @@ export function RuntimePane({
               </div>
             </div>
             <div className={styles.runtimeCardFoot}>
-              <Button onClick={onRefresh}>
-                Sync now
-              </Button>
-              <Button onClick={() => onOpenSettings("accounts")}>
-                Accounts
-              </Button>
+              <Button onClick={onRefresh}>Sync now</Button>
+              <Button onClick={() => onOpenSettings("accounts")}>Accounts</Button>
             </div>
           </div>
         </div>

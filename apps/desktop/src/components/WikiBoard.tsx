@@ -172,12 +172,13 @@ export function WikiBoard({
   const [loadingPage, setLoadingPage] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  const pages = wiki?.pages ?? [];
+  const pages = wiki?.pages;
+  const pageList = useMemo(() => pages ?? [], [pages]);
 
   // Stay aligned with filesystem: drop deleted projects/pages; reload updates.
   useEffect(() => {
     if (!activeId) return;
-    const page = pages.find((p) => p.id === activeId);
+    const page = pageList.find((p) => p.id === activeId);
     if (!page) {
       setActiveId(null);
       setContent(null);
@@ -191,7 +192,7 @@ export function WikiBoard({
       setLoadingPage(true);
       void loadPage(page)
         .then((full) => {
-          setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pages));
+          setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pageList));
           setPageError(null);
         })
         .catch((e) => {
@@ -199,11 +200,11 @@ export function WikiBoard({
         })
         .finally(() => setLoadingPage(false));
     }
-  }, [pages, activeId, activeUpdated, loadPage]);
+  }, [pageList, activeId, activeUpdated, loadPage]);
 
   const projects = useMemo(() => {
     const byProject = new Map<string, WikiPageCard[]>();
-    for (const page of pages) {
+    for (const page of pageList) {
       const key = page.project_id || wiki?.project_id || "default";
       const list = byProject.get(key) ?? [];
       list.push(page);
@@ -223,19 +224,19 @@ export function WikiBoard({
       });
     }
     return entries.sort((a, b) => a.label.localeCompare(b.label));
-  }, [pages, wiki?.project_id]);
+  }, [pageList, wiki?.project_id]);
 
   async function openPage(page: WikiPageCard) {
     setActiveId(page.id);
     setActiveTitle(page.title);
     setActivePath(page.relative_path);
     setActiveUpdated(page.updated_at);
-    setContent(ensureReadmeToc(page.preview, page.relative_path, page.project_id, pages));
+    setContent(ensureReadmeToc(page.preview, page.relative_path, page.project_id, pageList));
     setPageError(null);
     setLoadingPage(true);
     try {
       const full = await loadPage(page);
-      setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pages));
+      setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pageList));
     } catch (e) {
       setPageError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -250,7 +251,7 @@ export function WikiBoard({
   }
 
   function markdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) {
-    const target = href ? resolveWikiLink(href, activePath, pages) : null;
+    const target = href ? resolveWikiLink(href, activePath, pageList) : null;
     if (target) {
       return (
         <a

@@ -8,12 +8,7 @@ export type ActionsProps = HTMLAttributes<HTMLDivElement> & {
   align?: "start" | "end";
 };
 
-export function Actions({
-  spaced = true,
-  align = "start",
-  className,
-  ...rest
-}: ActionsProps) {
+export function Actions({ spaced = true, align = "start", className, ...rest }: ActionsProps) {
   return (
     <div
       className={cx(

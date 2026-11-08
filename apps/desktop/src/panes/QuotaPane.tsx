@@ -93,7 +93,11 @@ export function QuotaPane({
             onWait={limitActions.onWait}
           />
           <div className={styles.filters}>
-            <Chip active={filter === "all"} count={counts.all ?? 0} onClick={() => onFilterChange("all")}>
+            <Chip
+              active={filter === "all"}
+              count={counts.all ?? 0}
+              onClick={() => onFilterChange("all")}
+            >
               All
             </Chip>
             {providerIds.map((id) => (

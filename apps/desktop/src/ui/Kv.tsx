@@ -13,14 +13,7 @@ export type KvRowProps = HTMLAttributes<HTMLDivElement> & {
   bare?: boolean;
 };
 
-export function KvRow({
-  label,
-  value,
-  bare,
-  className,
-  children,
-  ...rest
-}: KvRowProps) {
+export function KvRow({ label, value, bare, className, children, ...rest }: KvRowProps) {
   return (
     <div className={cx(styles.row, bare && styles.bare, className)} {...rest}>
       {label != null ? <span className={styles.k}>{label}</span> : null}
