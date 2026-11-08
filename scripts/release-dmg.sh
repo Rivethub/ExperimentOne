@@ -31,25 +31,31 @@ export TAURI_SIGNING_IDENTITY="${IDENTITY:-}"
 echo "Building DMG (signing identity: ${IDENTITY:-unsigned})"
 
 cd apps/desktop
+# Tauri 2: --bundles is a tauri arg (do not pass after `--` into cargo).
+# Prefer .app first — Finder AppleScript DMG layout often times out in CI/agent hosts.
+BUILD_OK=0
 if [[ -n "$IDENTITY" ]]; then
-  bun run tauri build -- --bundles dmg --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$IDENTITY\"}}}"
+  bunx tauri build --bundles app --config "{\"bundle\":{\"macOS\":{\"signingIdentity\":\"$IDENTITY\"}}}" && BUILD_OK=1
 else
-  bun run tauri build -- --bundles dmg
+  bunx tauri build --bundles app && BUILD_OK=1
 fi
 
-DMG="$(ls -t src-tauri/target/release/bundle/dmg/*.dmg 2>/dev/null | head -1 || true)"
-if [[ -z "$DMG" ]]; then
-  DMG="$(ls -t target/release/bundle/dmg/*.dmg 2>/dev/null | head -1 || true)"
+APP="$(find src-tauri/target/release/bundle/macos -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -1 || true)"
+if [[ -z "$APP" ]]; then
+  APP="$(find . -path '*/bundle/macos/*.app' -type d 2>/dev/null | head -1 || true)"
 fi
-# Tauri 2 may place artifacts under apps/desktop/src-tauri/target
-if [[ -z "$DMG" ]]; then
-  DMG="$(find . -path '*/bundle/dmg/*.dmg' -type f 2>/dev/null | head -1 || true)"
-fi
-
-if [[ -z "$DMG" ]]; then
-  echo "DMG not found after build" >&2
+if [[ -z "$APP" || "$BUILD_OK" -ne 1 ]]; then
+  echo "Rivet.app not found after build" >&2
   exit 1
 fi
+echo "APP=$APP"
+
+DMG_DIR="$(dirname "$APP")/../dmg"
+mkdir -p "$DMG_DIR"
+DMG="$DMG_DIR/Rivet_1.0.0_aarch64.dmg"
+rm -f "$DMG"
+# Plain UDZO — no Finder AppleScript window layout (avoids -1712 timeouts).
+hdiutil create -volname Rivet -srcfolder "$APP" -ov -format UDZO "$DMG"
 echo "DMG=$DMG"
 
 if [[ "$NOTARIZE" -eq 1 ]]; then
