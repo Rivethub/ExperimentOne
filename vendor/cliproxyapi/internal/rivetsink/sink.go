@@ -271,15 +271,38 @@ func inferProvider(url string, reqBody []byte) string {
 		return "claude"
 	case strings.Contains(u, "openai") || strings.Contains(u, "/v1/responses") || strings.Contains(u, "/v1/chat/completions"):
 		return "codex"
-	case strings.Contains(u, "gemini"):
+	case strings.Contains(u, "antigravity") || strings.Contains(u, "cloudcode"):
+		return "antigravity"
+	case strings.Contains(u, "kimi.ai") || strings.Contains(u, "kimi-ai"):
+		return "kimi-ai"
+	case strings.Contains(u, "kimi") || strings.Contains(u, "moonshot"):
+		return "kimi"
+	case strings.Contains(u, "x.ai") || strings.Contains(u, "/xai") || strings.Contains(u, "grok"):
+		return "xai"
+	case strings.Contains(u, "meta.com") || strings.Contains(u, "llama"):
+		return "meta"
+	case strings.Contains(u, "devin"):
+		return "devin"
+	case strings.Contains(u, "vertex") || strings.Contains(u, "aiplatform.googleapis"):
+		return "vertex"
+	case strings.Contains(u, "gemini") || strings.Contains(u, "generativelanguage.googleapis"):
 		return "gemini"
 	}
-	// Fall back to body shape.
-	if bytes.Contains(reqBody, []byte(`"messages"`)) && bytes.Contains(reqBody, []byte(`"max_tokens"`)) {
+	// Fall back to body shape / model id.
+	body := strings.ToLower(string(reqBody))
+	switch {
+	case strings.Contains(body, `"claude`) || (bytes.Contains(reqBody, []byte(`"messages"`)) && bytes.Contains(reqBody, []byte(`"max_tokens"`))):
 		return "claude"
-	}
-	if bytes.Contains(reqBody, []byte(`"input"`)) || bytes.Contains(reqBody, []byte(`"chat/completions"`)) {
+	case strings.Contains(body, "gpt-") || strings.Contains(body, "codex") || bytes.Contains(reqBody, []byte(`"input"`)):
 		return "codex"
+	case strings.Contains(body, "grok"):
+		return "xai"
+	case strings.Contains(body, "kimi") || strings.Contains(body, "moonshot"):
+		return "kimi"
+	case strings.Contains(body, "gemini"):
+		return "gemini"
+	case strings.Contains(body, "llama"):
+		return "meta"
 	}
 	return "other"
 }

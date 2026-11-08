@@ -48,7 +48,11 @@ cd apps/desktop && bun install && bun run tauri dev
 # release: ./scripts/release-dmg.sh   (+ --notarize with Developer ID creds)
 ```
 
-First-run: **Start proxy → Sign in → Write harness → run traffic.**
+First-run: **Start proxy → Sign in (any prox provider) → Write harness → run traffic.**
+
+Supported credentials (same catalog as prox / CLIProxyAPI): Claude, Codex,
+Antigravity, Kimi.com, Kimi.ai, xAI, Meta, Devin (OAuth), plus Vertex AI
+service-account import.
 
 Workers (on by default): **vectorize** embeds traffic for MCP `semantic_search`
 (lexical locally, or proxy embeddings when `embedding_model` is set); **wiki**

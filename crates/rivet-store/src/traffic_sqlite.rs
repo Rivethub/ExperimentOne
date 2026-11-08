@@ -92,8 +92,7 @@ impl SqliteTrafficStore {
             ts: chrono::DateTime::parse_from_rfc3339(&ts)
                 .map(|d| d.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now()),
-            provider: serde_json::from_value(serde_json::Value::String(provider))
-                .unwrap_or(rivet_core::ProviderKind::Other),
+            provider: rivet_core::ProviderKind::parse(&provider),
             account_label: row.get(3)?,
             model: row.get(4)?,
             session_id: row.get(5)?,

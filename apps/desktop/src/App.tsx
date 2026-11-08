@@ -146,9 +146,43 @@ type WikiInfo = {
   pages: WikiPage[];
 };
 
-type ProviderFilter = "all" | "claude" | "codex";
+type ProviderFilter = string; // "all" or provider id from catalog
+
+type CatalogProvider = {
+  id: string;
+  label: string;
+  badge: string;
+  login_kind: "oauth_browser" | "oauth_device" | "file_import";
+  login_flag?: string | null;
+  aliases: string[];
+  hint: string;
+  color: string;
+};
 
 const API = "http://127.0.0.1:8741";
+
+const FALLBACK_PROVIDERS: CatalogProvider[] = [
+  {
+    id: "claude",
+    label: "Claude (Anthropic)",
+    badge: "C",
+    login_kind: "oauth_browser",
+    login_flag: "claude-login",
+    aliases: ["anthropic"],
+    hint: "Browser OAuth",
+    color: "#f97316",
+  },
+  {
+    id: "codex",
+    label: "Codex (OpenAI)",
+    badge: "X",
+    login_kind: "oauth_device",
+    login_flag: "codex-device-login",
+    aliases: ["openai"],
+    hint: "Device code",
+    color: "#60a5fa",
+  },
+];
 
 const NAV: { id: Page; label: string; icon: string }[] = [
   { id: "quota", label: "Quota", icon: "◈" },
@@ -190,10 +224,31 @@ function fmt(n: number) {
 }
 
 function providerKey(p: string) {
-  const s = String(p).toLowerCase();
+  const s = String(p).toLowerCase().trim();
   if (s.includes("claude") || s === "anthropic") return "claude";
   if (s.includes("codex") || s.includes("openai") || s === "open_ai") return "codex";
-  return s;
+  if (s.includes("antigravity")) return "antigravity";
+  if (s.includes("kimi.ai") || s === "kimi-ai" || s === "kimi_ai") return "kimi-ai";
+  if (s.includes("kimi") || s.includes("moonshot")) return "kimi";
+  if (s.includes("xai") || s.includes("grok")) return "xai";
+  if (s.includes("meta") || s.includes("llama")) return "meta";
+  if (s.includes("devin")) return "devin";
+  if (s.includes("vertex")) return "vertex";
+  if (s.includes("gemini")) return "gemini";
+  return s || "other";
+}
+
+function providerColor(id: string, catalog: CatalogProvider[]) {
+  return catalog.find((p) => p.id === id)?.color
+    ?? (id === "claude" ? "#f97316" : id === "codex" ? "#60a5fa" : "#a1a1aa");
+}
+
+function providerBadge(id: string, catalog: CatalogProvider[]) {
+  return catalog.find((p) => p.id === id)?.badge ?? id.slice(0, 1).toUpperCase();
+}
+
+function providerLabel(id: string, catalog: CatalogProvider[]) {
+  return catalog.find((p) => p.id === id)?.label ?? id;
 }
 
 function horizonMs(h: "1h" | "3h" | "6h") {
@@ -219,7 +274,7 @@ type Series = {
 /** Build chart series from real local traffic for the selected metric. */
 function seriesFromEvents(
   events: TrafficEvent[],
-  provider: "claude" | "codex",
+  provider: string,
   horizon: "1h" | "3h" | "6h",
   mode: MetricMode,
   points = 24,
@@ -593,6 +648,7 @@ export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [quota, setQuota] = useState<QuotaSnapshot | null>(null);
+  const [catalog, setCatalog] = useState<CatalogProvider[]>(FALLBACK_PROVIDERS);
   const [recent, setRecent] = useState<TrafficEvent[]>([]);
   const [trafficQuery, setTrafficQuery] = useState("");
   const [trafficRows, setTrafficRows] = useState<TrafficEvent[]>([]);
@@ -609,6 +665,7 @@ export default function App() {
   const [statusAction, setStatusAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tosAck, setTosAck] = useState(false);
+  const [vertexPath, setVertexPath] = useState("");
   const [bagNote, setBagNote] = useState<string | null>(null);
   const [importPath, setImportPath] = useState("");
   const [embedModel, setEmbedModel] = useState("");
@@ -618,11 +675,12 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [statusRes, accountsRes, recentRes, quotaRes] = await Promise.all([
+      const [statusRes, accountsRes, recentRes, quotaRes, providersRes] = await Promise.all([
         fetch(`${API}/v1/status`),
         fetch(`${API}/v1/accounts`),
         fetch(`${API}/v1/traffic/recent?limit=200`),
         fetch(`${API}/v1/quota`),
+        fetch(`${API}/v1/providers`),
       ]);
       if (!statusRes.ok) throw new Error(`status ${statusRes.status}`);
       const st: Status = await statusRes.json();
@@ -631,6 +689,12 @@ export default function App() {
       setWikiModel(st.wiki_model ?? "");
       if (accountsRes.ok) setAccounts(await accountsRes.json());
       if (quotaRes.ok) setQuota(await quotaRes.json());
+      if (providersRes.ok) {
+        const body = await providersRes.json();
+        if (Array.isArray(body.providers) && body.providers.length) {
+          setCatalog(body.providers);
+        }
+      }
       if (recentRes.ok) {
         const rows: TrafficEvent[] = await recentRes.json();
         setRecent(rows);
@@ -711,51 +775,69 @@ export default function App() {
     return () => clearInterval(id);
   }, [login?.active, refreshLogin]);
 
+  const accountSource = quota?.accounts?.length ? quota.accounts : accounts;
+
+  const providerIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of catalog) ids.add(p.id);
+    for (const a of accountSource) ids.add(providerKey(a.provider));
+    for (const p of quota?.providers ?? []) ids.add(providerKey(p.provider));
+    for (const e of recent) ids.add(providerKey(e.provider));
+    // Prefer catalog order, then extras.
+    const ordered = [
+      ...catalog.map((p) => p.id),
+      ...[...ids].filter((id) => !catalog.some((p) => p.id === id) && id !== "other"),
+    ];
+    return ordered.filter((id, i) => ordered.indexOf(id) === i);
+  }, [catalog, accountSource, quota, recent]);
+
   const counts = useMemo(() => {
-    const source = quota?.accounts?.length ? quota.accounts : accounts;
-    const claude = source.filter((a) => providerKey(a.provider) === "claude").length;
-    const codex = source.filter((a) => providerKey(a.provider) === "codex").length;
-    return { all: source.length, claude, codex };
-  }, [accounts, quota]);
+    const by: Record<string, number> = { all: accountSource.length };
+    for (const id of providerIds) {
+      by[id] = accountSource.filter((a) => providerKey(a.provider) === id).length;
+    }
+    return by;
+  }, [accountSource, providerIds]);
 
   const providerQuota = useCallback(
-    (provider: "claude" | "codex") =>
+    (provider: string) =>
       quota?.providers?.find((p) => providerKey(p.provider) === provider) ?? null,
     [quota],
   );
 
   const accountsFor = useCallback(
-    (provider: "claude" | "codex") =>
-      (quota?.accounts ?? []).filter((a) => providerKey(a.provider) === provider),
-    [quota],
+    (provider: string): QuotaAccount[] => {
+      if (quota?.accounts?.length) {
+        return quota.accounts.filter((a) => providerKey(a.provider) === provider);
+      }
+      return accounts
+        .filter((a) => providerKey(a.provider) === provider)
+        .map((a) => ({
+          id: a.id,
+          provider: a.provider,
+          label: a.label,
+          email: a.label.includes("@") ? a.label : null,
+          remaining_pct: null,
+          reset_at: null,
+          cooldown_seconds: null,
+          supports_quota: false,
+          loaded: true,
+          status: "local",
+        }));
+    },
+    [quota, accounts],
   );
 
-  const claudeSeries = useMemo(
-    () =>
-      seriesFromEvents(
-        recent,
-        "claude",
-        horizon,
-        metricMode,
-        24,
-        providerQuota("claude")?.remaining_pct,
-        providerQuota("claude")?.capacity_pct,
-      ),
-    [recent, horizon, metricMode, providerQuota],
-  );
-  const codexSeries = useMemo(
-    () =>
-      seriesFromEvents(
-        recent,
-        "codex",
-        horizon,
-        metricMode,
-        24,
-        providerQuota("codex")?.remaining_pct,
-        providerQuota("codex")?.capacity_pct,
-      ),
-    [recent, horizon, metricMode, providerQuota],
-  );
+  const visibleProviders = useMemo(() => {
+    if (filter === "all") {
+      // Show providers that have accounts/traffic, else the full catalog.
+      const active = providerIds.filter(
+        (id) => (counts[id] ?? 0) > 0 || recent.some((e) => providerKey(e.provider) === id),
+      );
+      return active.length ? active : catalog.map((p) => p.id).slice(0, 4);
+    }
+    return [filter];
+  }, [filter, providerIds, counts, recent, catalog]);
 
   async function proxyAction(path: "start" | "stop" | "restart") {
     setBusy(true);
@@ -825,8 +907,13 @@ export default function App() {
     }
   }
 
-  async function startLogin(provider: "claude" | "codex") {
+  async function startLogin(provider: string) {
+    if (!tosAck) {
+      setError("Acknowledge the ToS note before signing in.");
+      return;
+    }
     setBusy(true);
+    setStatusAction(`Starting ${provider} login…`);
     try {
       const res = await fetch(`${API}/v1/accounts/login`, {
         method: "POST",
@@ -848,6 +935,58 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+      setStatusAction(null);
+    }
+  }
+
+  async function importVertex() {
+    if (!tosAck) {
+      setError("Acknowledge the ToS note before importing.");
+      return;
+    }
+    let path = vertexPath.trim();
+    if (!path) {
+      try {
+        const { open } = await import("@tauri-apps/plugin-dialog");
+        const selected = await open({
+          multiple: false,
+          filters: [{ name: "Service account", extensions: ["json"] }],
+        });
+        if (typeof selected === "string") path = selected;
+        else if (Array.isArray(selected) && selected[0]) path = selected[0];
+      } catch {
+        /* typed path fallback */
+      }
+    }
+    if (!path) {
+      setError("Choose a Vertex service-account JSON path.");
+      return;
+    }
+    setVertexPath(path);
+    setBusy(true);
+    setStatusAction("Importing Vertex credentials…");
+    try {
+      const res = await fetch(`${API}/v1/accounts/import/vertex`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "vertex import failed");
+      setLogin({
+        active: true,
+        provider: "vertex",
+        output: body.message ?? "",
+        done: false,
+        success: false,
+      });
+      setPage("accounts");
+      await refreshLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+      setStatusAction(null);
     }
   }
 
@@ -1134,8 +1273,6 @@ export default function App() {
     });
   }, [trafficRows, trafficProvider, trafficStatus]);
 
-  const showClaude = filter === "all" || filter === "claude";
-  const showCodex = filter === "all" || filter === "codex";
   const onboard = status?.onboarding;
   const needsOnboarding =
     !!status &&
@@ -1237,7 +1374,7 @@ export default function App() {
                   Start proxy {onboard?.proxy_running ? "✓" : ""}
                 </li>
                 <li className={onboard?.has_accounts ? "done" : ""}>
-                  Sign in Claude or Codex {onboard?.has_accounts ? "✓" : ""}
+                  Sign in a provider {onboard?.has_accounts ? "✓" : ""}
                 </li>
                 <li className={onboard?.harness_ready ? "done" : ""}>
                   Write harness config {onboard?.harness_ready ? "✓" : ""}
@@ -1272,28 +1409,22 @@ export default function App() {
           {page === "quota" && (
             <>
               <div className="filters">
-                {(
-                  [
-                    ["all", "All", counts.all],
-                    ["claude", "Claude", counts.claude],
-                    ["codex", "Codex", counts.codex],
-                  ] as const
-                ).map(([id, label, count]) => (
+                <button
+                  className={`chip ${filter === "all" ? "active" : ""}`}
+                  onClick={() => setFilter("all")}
+                >
+                  All
+                  <span className="count">{counts.all ?? 0}</span>
+                </button>
+                {providerIds.map((id) => (
                   <button
                     key={id}
                     className={`chip ${filter === id ? "active" : ""}`}
                     onClick={() => setFilter(id)}
                   >
-                    {id !== "all" && (
-                      <span
-                        className="dot"
-                        style={{
-                          background: id === "claude" ? "var(--claude)" : "var(--codex)",
-                        }}
-                      />
-                    )}
-                    {label}
-                    <span className="count">{count}</span>
+                    <span className="dot" style={{ background: providerColor(id, catalog) }} />
+                    {providerLabel(id, catalog).split(" (")[0]}
+                    <span className="count">{counts[id] ?? 0}</span>
                   </button>
                 ))}
               </div>
@@ -1342,35 +1473,33 @@ export default function App() {
               </div>
 
               <div className="stack">
-                {showClaude && (
-                  <QuotaProviderCard
-                    name="Claude"
-                    ico="C"
-                    icoClass="claude"
-                    color="#f97316"
-                    count={counts.claude}
-                    metricMode={metricMode}
-                    series={claudeSeries}
-                    pq={providerQuota("claude")}
-                    accounts={accountsFor("claude")}
-                    horizon={horizon}
-                  />
-                )}
-
-                {showCodex && (
-                  <QuotaProviderCard
-                    name="Codex"
-                    ico="X"
-                    icoClass="codex"
-                    color="#60a5fa"
-                    count={counts.codex}
-                    metricMode={metricMode}
-                    series={codexSeries}
-                    pq={providerQuota("codex")}
-                    accounts={accountsFor("codex")}
-                    horizon={horizon}
-                  />
-                )}
+                {visibleProviders.map((id) => {
+                  const pq = providerQuota(id);
+                  const series = seriesFromEvents(
+                    recent,
+                    id,
+                    horizon,
+                    metricMode,
+                    24,
+                    pq?.remaining_pct,
+                    pq?.capacity_pct,
+                  );
+                  return (
+                    <QuotaProviderCard
+                      key={id}
+                      name={providerLabel(id, catalog).split(" (")[0]}
+                      ico={providerBadge(id, catalog)}
+                      icoClass={id === "claude" || id === "codex" ? id : "generic"}
+                      color={providerColor(id, catalog)}
+                      count={counts[id] ?? 0}
+                      metricMode={metricMode}
+                      series={series}
+                      pq={pq}
+                      accounts={accountsFor(id)}
+                      horizon={horizon}
+                    />
+                  );
+                })}
               </div>
             </>
           )}
@@ -1383,19 +1512,20 @@ export default function App() {
                 store and export.
               </p>
               <div className="filters" style={{ marginBottom: 10 }}>
-                {(
-                  [
-                    ["all", "All"],
-                    ["claude", "Claude"],
-                    ["codex", "Codex"],
-                  ] as const
-                ).map(([id, label]) => (
+                <button
+                  className={`chip ${trafficProvider === "all" ? "active" : ""}`}
+                  onClick={() => setTrafficProvider("all")}
+                >
+                  All
+                </button>
+                {providerIds.map((id) => (
                   <button
                     key={id}
                     className={`chip ${trafficProvider === id ? "active" : ""}`}
                     onClick={() => setTrafficProvider(id)}
                   >
-                    {label}
+                    <span className="dot" style={{ background: providerColor(id, catalog) }} />
+                    {providerLabel(id, catalog).split(" (")[0]}
                   </button>
                 ))}
                 <div className="seg" style={{ marginLeft: 4 }}>
@@ -1464,7 +1594,11 @@ export default function App() {
                       </span>
                       <span>
                         <span
-                          className={`pill ${providerKey(ev.provider) === "claude" ? "claude" : "codex"}`}
+                          className="pill"
+                          style={{
+                            background: `${providerColor(providerKey(ev.provider), catalog)}22`,
+                            color: providerColor(providerKey(ev.provider), catalog),
+                          }}
                         >
                           {providerKey(ev.provider)}
                         </span>
@@ -1598,21 +1732,51 @@ export default function App() {
                   public API.
                 </span>
               </label>
+              <div className="provider-grid">
+                {catalog
+                  .filter((p) => p.login_kind !== "file_import")
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      className="btn provider-login"
+                      style={{ borderColor: `${p.color}55` }}
+                      disabled={busy || !tosAck || !!login?.active}
+                      title={p.hint}
+                      onClick={() => void startLogin(p.id)}
+                    >
+                      <span className="provider-ico" style={{ background: `${p.color}22`, color: p.color }}>
+                        {p.badge}
+                      </span>
+                      <span>
+                        <strong>{p.label}</strong>
+                        <span className="hint">
+                          {p.login_kind === "oauth_device" ? "device / OAuth" : "browser OAuth"}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+              </div>
+              <div className="vertex-import">
+                <div className="lede" style={{ marginBottom: 8 }}>
+                  Vertex AI — import a Google Cloud service-account JSON (same as prox `-vertex-import`).
+                </div>
+                <div className="import-row">
+                  <input
+                    className="path-input"
+                    placeholder="/path/to/service-account.json"
+                    value={vertexPath}
+                    onChange={(e) => setVertexPath(e.target.value)}
+                  />
+                  <button
+                    className="btn"
+                    disabled={busy || !tosAck || !!login?.active}
+                    onClick={() => void importVertex()}
+                  >
+                    Import Vertex
+                  </button>
+                </div>
+              </div>
               <div className="actions">
-                <button
-                  className="btn primary"
-                  disabled={busy || !tosAck || !!login?.active}
-                  onClick={() => startLogin("claude")}
-                >
-                  Sign in Claude
-                </button>
-                <button
-                  className="btn"
-                  disabled={busy || !tosAck || !!login?.active}
-                  onClick={() => startLogin("codex")}
-                >
-                  Sign in Codex (device)
-                </button>
                 {login?.active && (
                   <button className="btn danger" onClick={cancelLogin}>
                     Cancel login
