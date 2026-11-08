@@ -29,10 +29,10 @@ use chrono::{Duration, Utc};
 use rivet_core::{
     age_days_since, assemble_startup_memory_with_workspace, claude_mcp_json, claude_settings_json,
     codex_config_toml, conversations_from_events, harness_user_ready, hydrate_event_content,
-    lexical_embed, load_workspace_memory, localhost_port_free,
-    normalize_event_turns, project_id_from_cwd, provider_catalog, recency_boost,
-    resolve_project_root, Capabilities, ConversationSummary, LiveBus, ProviderKind, RivetConfig,
-    RivetPaths, TrafficEvent, TrafficRole, UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
+    lexical_embed, load_workspace_memory, localhost_port_free, normalize_event_turns,
+    project_id_from_cwd, provider_catalog, recency_boost, resolve_project_root, Capabilities,
+    ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole,
+    UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
 };
 use rivet_store::{
     fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseTrafficStore,

@@ -33,10 +33,9 @@ pub use jobs::{
     TASK_SUGGEST_TAGS, TASK_SYNTHESIZE_TOOL, TASK_UPSERT_TOPICS,
 };
 pub use meta::{
-    can_nest_under, topic_depth, EnrichmentEvent, LineageExpand, MetaStore,
-    PlacementBy, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, SummaryKind, SummaryMeta,
-    TagSuggestion, TidyProposal, TopicMeta, WikiPageMeta, COMPACT_PIPELINE_VERSION,
-    MAX_TOPIC_DEPTH,
+    can_nest_under, topic_depth, EnrichmentEvent, LineageExpand, MetaStore, PlacementBy,
+    QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, SummaryKind, SummaryMeta, TagSuggestion,
+    TidyProposal, TopicMeta, WikiPageMeta, COMPACT_PIPELINE_VERSION, MAX_TOPIC_DEPTH,
 };
 pub use migrations::{run as run_clickhouse_migrations, MIGRATIONS};
 pub use nats_jobs::{ClaimedJob, NatsJobStore, STREAM_DEAD, STREAM_JOBS};

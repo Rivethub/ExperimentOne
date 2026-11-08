@@ -200,11 +200,7 @@
       "warn",
       {
         "allowBoundaryFunctions": true,
-        "allowedFilePatterns": [
-          "/src/effect/ipc\\.ts$",
-          "/src/mock/",
-          "/src/lib/tauri-utils\\.ts$"
-        ]
+        "allowedFilePatterns": ["/src/effect/ipc\\.ts$", "/src/mock/", "/src/lib/tauri-utils\\.ts$"]
       }
     ],
     "de-clank/no-unknown-returns": "warn",

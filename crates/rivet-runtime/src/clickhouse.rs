@@ -267,4 +267,3 @@ fn port_open(port: u16) -> bool {
     )
     .is_ok()
 }
-

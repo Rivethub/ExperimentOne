@@ -175,9 +175,7 @@ impl RivetMcp {
         }
         match do_get_full(&self.state, &args.id).await {
             Ok(body) => Ok(json_tool_result(body)),
-            Err(McpErrorKind::BadRequest) => {
-                Err(McpError::invalid_params("id is required", None))
-            },
+            Err(McpErrorKind::BadRequest) => Err(McpError::invalid_params("id is required", None)),
             Err(McpErrorKind::Internal) => Err(McpError::internal_error("get_full failed", None)),
         }
     }
@@ -206,9 +204,9 @@ impl RivetMcp {
 }
 
 fn json_tool_result(body: serde_json::Value) -> CallToolResult {
-    CallToolResult::success(vec![ContentBlock::json(body).unwrap_or_else(|_| {
-        ContentBlock::text("{}")
-    })])
+    CallToolResult::success(vec![
+        ContentBlock::json(body).unwrap_or_else(|_| ContentBlock::text("{}"))
+    ])
 }
 
 #[allow(clippy::unused_async_trait_impl)] // `#[tool_handler]` generates async stubs.
@@ -320,10 +318,8 @@ async fn do_semantic_search(
 }
 
 fn do_topic_search(state: &McpState, query: &str, limit: u32) -> Result<serde_json::Value, ()> {
-    let topics = state
-        .meta
-        .search_topics(query, usize::try_from(limit).unwrap_or(20))
-        .map_err(|_| ())?;
+    let topics =
+        state.meta.search_topics(query, usize::try_from(limit).unwrap_or(20)).map_err(|_| ())?;
     Ok(json!({ "results": topics }))
 }
 

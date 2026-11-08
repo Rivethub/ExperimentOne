@@ -444,9 +444,7 @@ impl WorkerPool {
             // Approximate uncovered from recent window; compact loads the full conversation.
             let uncovered_est = count.saturating_sub(covered.len());
             let root = self.meta.get_summary_for_session(&session_id).ok().flatten();
-            let has_root = root
-                .as_ref()
-                .is_some_and(|s| matches!(s.kind, SummaryKind::Root));
+            let has_root = root.as_ref().is_some_and(|s| matches!(s.kind, SummaryKind::Root));
             let pipeline_stale =
                 self.meta.session_needs_pipeline_refresh(&session_id).unwrap_or(false);
             let root_age = root.as_ref().and_then(|s| {
