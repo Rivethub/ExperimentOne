@@ -4,8 +4,12 @@
 //!   `embedding_model` is set, otherwise local lexical vectors).
 //! - **Wiki**: builds a markdown tree from traffic; when `wiki_model` is set,
 //!   also asks the local proxy for an LLM overview page.
+//! - **Wiki FS sync**: watches `wiki/` and keeps file meta aligned with disk.
+
+mod wiki_fs;
 
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,12 +22,15 @@ use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+pub use wiki_fs::{reconcile_wiki_dir, spawn_wiki_watcher};
+
 pub struct WorkerPool {
     store: Arc<dyn TrafficStore>,
     meta: Arc<MetaStore>,
     paths: RivetPaths,
     config: Arc<RwLock<RivetConfig>>,
     http: reqwest::Client,
+    wiki_revision: Arc<AtomicU64>,
 }
 
 impl WorkerPool {
@@ -32,6 +39,7 @@ impl WorkerPool {
         meta: Arc<MetaStore>,
         paths: RivetPaths,
         config: Arc<RwLock<RivetConfig>>,
+        wiki_revision: Arc<AtomicU64>,
     ) -> Self {
         Self {
             store,
@@ -42,23 +50,37 @@ impl WorkerPool {
                 .timeout(Duration::from_secs(60))
                 .build()
                 .expect("reqwest client"),
+            wiki_revision,
         }
     }
 
-    pub fn spawn(self: Arc<Self>) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
-            // First pass soon after boot so UI shows pages/embeddings quickly.
-            if let Err(err) = self.tick_once().await {
-                warn!(?err, "worker initial tick failed");
-            }
-            let mut tick = tokio::time::interval(Duration::from_secs(20));
-            loop {
-                tick.tick().await;
-                if let Err(err) = self.tick_once().await {
-                    warn!(?err, "worker tick failed");
+    pub fn wiki_revision(&self) -> Arc<AtomicU64> {
+        self.wiki_revision.clone()
+    }
+
+    pub fn spawn(self: Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
+        let watcher = spawn_wiki_watcher(
+            self.paths.clone(),
+            self.meta.clone(),
+            self.wiki_revision.clone(),
+        );
+        let ticks = tokio::spawn({
+            let this = self.clone();
+            async move {
+                // First pass soon after boot so UI shows pages/embeddings quickly.
+                if let Err(err) = this.tick_once().await {
+                    warn!(?err, "worker initial tick failed");
+                }
+                let mut tick = tokio::time::interval(Duration::from_secs(20));
+                loop {
+                    tick.tick().await;
+                    if let Err(err) = this.tick_once().await {
+                        warn!(?err, "worker tick failed");
+                    }
                 }
             }
-        })
+        });
+        vec![watcher, ticks]
     }
 
     /// Run one vectorize + wiki cycle (also exposed via control API).
@@ -67,11 +89,26 @@ impl WorkerPool {
         let totals = self.store.usage_totals().await?;
         debug!(?totals, "worker heartbeat");
 
+        // Always keep meta ↔ disk aligned (covers edits while wiki worker is off).
+        if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
+            if upserts > 0 || removed > 0 {
+                self.wiki_revision
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+        }
+
         if cfg.capabilities.vector_search {
             self.embed_new_events(&cfg).await?;
         }
         if cfg.capabilities.wiki {
             self.upsert_wiki(&cfg).await?;
+            // Worker writes new files; re-index so titles/previews match.
+            if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
+                if upserts > 0 || removed > 0 {
+                    self.wiki_revision
+                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                }
+            }
         }
         Ok(())
     }
@@ -200,7 +237,8 @@ impl WorkerPool {
 
         // --- Topics (keyword buckets) ---
         let topics = cluster_topics(&recent);
-        let mut topics_index = String::from("# Topics\n\nDerived from captured traffic keywords.\n\n");
+        let mut topics_index =
+            String::from("# Topics\n\nDerived from captured traffic keywords.\n\n");
         for (topic, events) in &topics {
             let slug = slugify(topic);
             let rel = format!("topics/{slug}.md");
@@ -212,13 +250,7 @@ impl WorkerPool {
             for e in events.iter().take(30) {
                 page.push_str(&format!("- {}\n", format_event_line(e)));
             }
-            self.write_wiki_page(
-                project,
-                &format!("topics/{slug}"),
-                topic,
-                &rel,
-                &page,
-            )?;
+            self.write_wiki_page(project, &format!("topics/{slug}"), topic, &rel, &page)?;
             toc.push((topic.clone(), rel));
         }
         if topics.is_empty() {
@@ -247,13 +279,7 @@ impl WorkerPool {
             for e in events.iter().take(40) {
                 body.push_str(&format!("- {}\n", format_event_line(e)));
             }
-            self.write_wiki_page(
-                project,
-                &format!("providers/{slug}"),
-                &title,
-                &rel,
-                &body,
-            )?;
+            self.write_wiki_page(project, &format!("providers/{slug}"), &title, &rel, &body)?;
             toc.push((title, rel));
         }
 
@@ -273,7 +299,10 @@ impl WorkerPool {
                 .unwrap_or(true);
             let traffic_changed = last_fp.as_deref() != Some(fingerprint.as_str());
             if traffic_changed && stale_hour && totals.events > 0 {
-                match self.generate_llm_overview(cfg, model, &recent, &totals).await {
+                match self
+                    .generate_llm_overview(cfg, model, &recent, &totals)
+                    .await
+                {
                     Ok(markdown) => {
                         self.write_wiki_page(
                             project,
@@ -338,8 +367,7 @@ impl WorkerPool {
         }
         self.write_wiki_page(project, "README", "Project overview", "README.md", &readme)?;
 
-        self.meta
-            .set_job_cursor("wiki", &Utc::now().to_rfc3339())?;
+        self.meta.set_job_cursor("wiki", &Utc::now().to_rfc3339())?;
         debug!(project, pages = toc.len() + 1, "wiki worker upserted pages");
         Ok(())
     }
@@ -508,7 +536,7 @@ fn cluster_topics(events: &[TrafficEvent]) -> BTreeMap<String, Vec<&TrafficEvent
         buckets.entry(topic).or_default().push(event);
     }
     let mut ordered: Vec<_> = buckets.into_iter().collect();
-    ordered.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+    ordered.sort_by_key(|a| std::cmp::Reverse(a.1.len()));
     ordered.into_iter().take(12).collect()
 }
 
@@ -530,11 +558,56 @@ fn slugify(s: &str) -> String {
 }
 
 const STOP: &[&str] = &[
-    "about", "after", "again", "being", "between", "could", "every", "first", "their", "there",
-    "these", "those", "through", "under", "where", "which", "while", "would", "should", "please",
-    "thanks", "using", "with", "from", "this", "that", "have", "here", "your", "what", "when",
-    "will", "into", "just", "like", "make", "need", "other", "some", "than", "then", "them",
-    "content", "messages", "assistant", "system", "model", "tokens", "request", "response",
+    "about",
+    "after",
+    "again",
+    "being",
+    "between",
+    "could",
+    "every",
+    "first",
+    "their",
+    "there",
+    "these",
+    "those",
+    "through",
+    "under",
+    "where",
+    "which",
+    "while",
+    "would",
+    "should",
+    "please",
+    "thanks",
+    "using",
+    "with",
+    "from",
+    "this",
+    "that",
+    "have",
+    "here",
+    "your",
+    "what",
+    "when",
+    "will",
+    "into",
+    "just",
+    "like",
+    "make",
+    "need",
+    "other",
+    "some",
+    "than",
+    "then",
+    "them",
+    "content",
+    "messages",
+    "assistant",
+    "system",
+    "model",
+    "tokens",
+    "request",
+    "response",
 ];
 
 fn relative_wiki_path(paths: &RivetPaths, absolute: &std::path::Path) -> String {

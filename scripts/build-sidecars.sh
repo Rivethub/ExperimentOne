@@ -44,6 +44,13 @@ cp -f "$SRC" "$OUT/rivetd-${TRIPLE}${EXE_SUFFIX}"
 chmod +x "$OUT/rivetd-${TRIPLE}${EXE_SUFFIX}" 2>/dev/null || true
 
 echo "==> building rivet-proxy ($TRIPLE)"
+# Prefer a Go that satisfies vendor/cliproxyapi/go.mod (proto-managed installs).
+if [[ -d "${HOME}/.proto/tools/go" ]]; then
+  newest_proto_go="$(ls -1d "${HOME}"/.proto/tools/go/*/bin 2>/dev/null | sort -V | tail -1 || true)"
+  if [[ -n "${newest_proto_go}" && -x "${newest_proto_go}/go" ]]; then
+    export PATH="${newest_proto_go}:${PATH}"
+  fi
+fi
 if command -v go >/dev/null 2>&1; then
   :
 elif [[ -x /usr/local/go/bin/go ]]; then
@@ -64,7 +71,7 @@ chmod +x "$OUT/rivet-proxy-${TRIPLE}${EXE_SUFFIX}" 2>/dev/null || true
 
 echo "==> fetching ClickHouse ($TRIPLE)"
 if ! "$ROOT/scripts/fetch-clickhouse.sh" "$TRIPLE"; then
-  echo "WARN: ClickHouse fetch failed for $TRIPLE — SQLite-only mode until present" >&2
+  echo "WARN: ClickHouse fetch failed for $TRIPLE — rivetd will need RIVET_CLICKHOUSE_URL" >&2
 fi
 
 ls -lh "$OUT"/rivetd-"$TRIPLE"* "$OUT"/rivet-proxy-"$TRIPLE"* 2>/dev/null || true

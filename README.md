@@ -19,7 +19,7 @@ docs/            Architecture, packaging, ClickHouse, enterprise
 
 ## Dev
 
-Requires **Rust 1.90** (`rust-toolchain.toml` pins it).
+Requires **Rust 1.99.1** (`rust-toolchain.toml` pins it), **Bun 1.4.4**, and **Node.js 26** (`.prototools`).
 
 ```bash
 # Sidecars (rivetd + rivet-proxy + ClickHouse) into Tauri binaries/
@@ -30,17 +30,18 @@ cargo run -p rivet-runtime
 
 # Desktop UI (tray + auto-starts rivetd)
 cd apps/desktop && bun install && bun run tauri dev
-# (bun run dev for Vite-only against an already-running rivetd)
+# (bun run dev for Vite-only against an already-running rivetd;
+#  bun run dev:mock for browser UI with mocked IPC)
 ```
 
 ## Product (v1.0)
 
 Local control app + `rivetd` control plane on **macOS, Linux, and Windows**.
-Quota charts and burn/drain metrics use **captured local traffic** (honest
-estimates until live provider quota APIs). ClickHouse dual-write when the
-bundled sidecar is present. Close the window to keep Rivet in the tray; Quit
-from the tray menu stops `rivetd`. Default proxy port is **18317**
-(auto-migrates if busy).
+Quota charts use live provider windows plus burn/cost from **captured local
+traffic**. Traffic lives in ClickHouse (bundled sidecar or `RIVET_CLICKHOUSE_URL`);
+meta (wiki index, quota history, embeddings) is file-backed under `meta/`.
+Close the window to keep Rivet in the tray; Quit from the tray menu stops
+`rivetd`. Default proxy port is **18317** (auto-migrates if busy).
 
 Data directory: macOS `~/Library/Application Support/Rivet`, Linux
 `~/.local/share/Rivet`, Windows `%APPDATA%\Rivet` (override with
@@ -56,14 +57,17 @@ cd apps/desktop && bun install && bun run tauri dev
 
 First-run: **Start proxy → Sign in (any prox provider) → Write harness → run traffic.**
 
-Supported credentials (same catalog as prox / CLIProxyAPI): Claude, Codex,
-Antigravity, Kimi.com, Kimi.ai, xAI, Meta, Devin (OAuth), plus Vertex AI
-service-account import.
+Supported credentials (same catalog as prox / CLIProxyAPI): Claude, Codex
+(browser OAuth by default; device code optional), Antigravity, Kimi.com,
+Kimi.ai, xAI, Meta, Devin (OAuth), plus Vertex AI service-account import.
+Accounts live under Settings → Accounts as a list with **Add account**.
 
 Workers (on by default): **vectorize** embeds traffic for MCP `semantic_search`
 (lexical locally, or proxy embeddings when `embedding_model` is set); **wiki**
-writes markdown under the local Rivet data directory (plus an LLM overview when
-`wiki_model` is set). Trigger immediately via `POST /v1/workers/tick` or
+writes one **README.md per project** under the local Rivet data directory, with a
+full TOC of every project file, plus optional LLM overview when `wiki_model` is
+set. The Wiki board opens those READMEs and navigates by markdown links only
+(no full file-list UI). Trigger immediately via `POST /v1/workers/tick` or
 Intelligence → Run workers now.
 
 ## Milestones
@@ -71,7 +75,7 @@ Intelligence → Run workers now.
 | | Status |
 | --- | --- |
 | **M1** Local loop — supervise proxy, ingest, harness, login UI | Done |
-| **M2** Traffic quality — rivetsink parse, redaction, export, CH dual-write path | Done |
+| **M2** Traffic quality — rivetsink parse, redaction, export, ClickHouse primary | Done |
 | **M3** Desktop polish — tray (close-to-tray), traffic browser, wiki, packaging | Done |
 | **M4** Optional intelligence — vector/wiki workers + semantic MCP | Done |
 | **M5** Enterprise Helm scaffold | Done (OIDC/teams later) |

@@ -18,13 +18,8 @@ TRIPLE="$(rustc -vV | awk '/^host:/{print $2}')"
 ./scripts/build-sidecars.sh "$TRIPLE"
 
 cd "$ROOT/apps/desktop"
-if command -v bun >/dev/null 2>&1; then
-  bun install
-  bun run build
-else
-  npm install
-  npm run build
-fi
+bun install
+bun run build
 
 case "$TARGET_OS" in
   macos)

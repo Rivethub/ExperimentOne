@@ -109,13 +109,16 @@ impl ClickHouseSupervisor {
     /// Start the sidecar if a binary is present. Returns Ok(false) when skipped.
     pub fn start_if_available(&self) -> Result<bool> {
         let Some(bin) = Self::resolve_binary() else {
-            info!("ClickHouse binary not found — SQLite-only mode");
+            info!("ClickHouse binary not found — set RIVET_CLICKHOUSE_URL or ship the sidecar");
             return Ok(false);
         };
 
         let mut slot = self.child.lock().expect("ch child lock");
         if self.refresh_locked(&mut slot) {
-            info!(port = self.config.clickhouse_http_port, "clickhouse already listening");
+            info!(
+                port = self.config.clickhouse_http_port,
+                "clickhouse already listening"
+            );
             return Ok(true);
         }
 
