@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rivet_core::{redact_event, TrafficEvent, UsageTotals};
+use rivet_core::{redact_event, ConversationSummary, TrafficEvent, UsageTotals};
 use std::sync::Arc;
 
 use crate::TrafficStore;
@@ -56,5 +56,25 @@ impl TrafficStore for RedactingStore {
             redact_event(e);
         }
         Ok(events)
+    }
+
+    async fn list_conversations(&self, limit: u32) -> Result<Vec<ConversationSummary>> {
+        self.inner.list_conversations(limit).await
+    }
+
+    async fn conversation_events(
+        &self,
+        conversation_id: &str,
+        limit: u32,
+    ) -> Result<Vec<TrafficEvent>> {
+        self.inner.conversation_events(conversation_id, limit).await
+    }
+
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<ConversationSummary>> {
+        self.inner.search_conversations(query, limit).await
     }
 }

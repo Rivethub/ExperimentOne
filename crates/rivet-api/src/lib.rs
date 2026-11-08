@@ -19,9 +19,10 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rivet_core::{
-    claude_mcp_json, claude_settings_json, codex_config_toml, harness_user_ready,
-    localhost_port_free, migrate_claude_connector_auth, provider_catalog, Capabilities,
-    ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, UsageTotals,
+    claude_mcp_json, claude_settings_json, codex_config_toml, conversations_from_events, cosine,
+    harness_user_ready, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
+    provider_catalog, Capabilities, ConversationSummary, ProviderKind, RivetConfig, RivetPaths,
+    TrafficEvent, TrafficRole, UsageTotals,
 };
 use rivet_store::{MetaStore, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
@@ -378,6 +379,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/config", get(get_config).put(put_config))
         .route("/v1/traffic/recent", get(recent))
         .route("/v1/traffic/search", get(search_traffic))
+        .route("/v1/conversations", get(list_conversations))
+        .route("/v1/conversations/search", get(search_conversations))
+        .route("/v1/conversations/events", get(conversation_events))
         .route("/v1/providers", get(list_providers))
         .route("/v1/accounts", get(accounts))
         .route("/v1/accounts/login/status", get(login_status))
@@ -566,6 +570,164 @@ async fn search_traffic(
         .await
         .map(Json)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+#[derive(Debug, Deserialize)]
+struct ConversationQuery {
+    limit: Option<u32>,
+    q: Option<String>,
+    /// `keyword` (default) or `vector`.
+    mode: Option<String>,
+    id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ConversationSearchResponse {
+    mode: &'static str,
+    results: Vec<ConversationSummary>,
+}
+
+async fn list_conversations(
+    State(state): State<ApiState>,
+    Query(q): Query<ConversationQuery>,
+) -> Result<Json<Vec<ConversationSummary>>, StatusCode> {
+    let limit = q.limit.unwrap_or(100).min(500);
+    state
+        .store
+        .list_conversations(limit)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn conversation_events(
+    State(state): State<ApiState>,
+    Query(q): Query<ConversationQuery>,
+) -> Result<Json<Vec<TrafficEvent>>, StatusCode> {
+    let limit = q.limit.unwrap_or(500).min(2000);
+    let id = q.id.unwrap_or_default();
+    if id.trim().is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    state
+        .store
+        .conversation_events(&id, limit)
+        .await
+        .map(Json)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+async fn search_conversations(
+    State(state): State<ApiState>,
+    Query(q): Query<ConversationQuery>,
+) -> Result<Json<ConversationSearchResponse>, StatusCode> {
+    let limit = q.limit.unwrap_or(100).min(500);
+    let query = q.q.unwrap_or_default();
+    if query.trim().is_empty() {
+        let results = state
+            .store
+            .list_conversations(limit)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        return Ok(Json(ConversationSearchResponse {
+            mode: "list",
+            results,
+        }));
+    }
+
+    let vector_on = state.config.read().await.capabilities.vector_search;
+    let mode = q.mode.as_deref().unwrap_or("keyword");
+    let want_vector = matches!(mode, "vector" | "semantic");
+
+    if want_vector {
+        if !vector_on {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        match semantic_conversation_search(&state, &query, limit).await {
+            Ok((mode, results)) => {
+                return Ok(Json(ConversationSearchResponse { mode, results }));
+            }
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
+
+    let results = state
+        .store
+        .search_conversations(&query, limit)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(ConversationSearchResponse {
+        mode: "keyword",
+        results,
+    }))
+}
+
+async fn semantic_conversation_search(
+    state: &ApiState,
+    query: &str,
+    limit: u32,
+) -> Result<(&'static str, Vec<ConversationSummary>), String> {
+    let query_vec = lexical_embed(query);
+    let embeddings = state.meta.all_embeddings().map_err(|e| e.to_string())?;
+
+    let mut scored: Vec<(f32, String)> = embeddings
+        .into_iter()
+        .filter(|(_, dims)| dims.len() == query_vec.len())
+        .map(|(id, dims)| (cosine(&query_vec, &dims), id))
+        .filter(|(score, _)| *score > 0.05)
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate((limit as usize).saturating_mul(4).max(limit as usize));
+
+    if scored.is_empty() {
+        let results = state
+            .store
+            .search_conversations(query, limit)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(("keyword_fallback", results));
+    }
+
+    let ids: Vec<String> = scored.iter().map(|(_, id)| id.clone()).collect();
+    let found = state
+        .store
+        .get_by_ids(&ids)
+        .await
+        .map_err(|e| e.to_string())?;
+    // Preserve score order when projecting to conversations.
+    let mut by_id = HashMap::new();
+    for event in &found {
+        by_id.insert(event.id.to_string(), event);
+    }
+    let mut ordered = Vec::new();
+    for (_score, id) in &scored {
+        if let Some(event) = by_id.remove(id) {
+            ordered.push(event.clone());
+        }
+    }
+    // Pull full sessions for hit events so the list shows conversation context.
+    let mut seen = std::collections::HashSet::new();
+    let mut expanded = Vec::new();
+    for ev in &ordered {
+        let cid = ev.conversation_id();
+        if !seen.insert(cid.clone()) {
+            continue;
+        }
+        let session = state
+            .store
+            .conversation_events(&cid, 200)
+            .await
+            .unwrap_or_default();
+        if session.is_empty() {
+            expanded.push(ev.clone());
+        } else {
+            expanded.extend(session);
+        }
+    }
+    Ok((
+        "vector",
+        conversations_from_events(&expanded, limit.max(1)),
+    ))
 }
 
 #[derive(Debug, Deserialize)]

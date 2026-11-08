@@ -3,10 +3,13 @@ import type { CatalogProvider } from "../providerUtils";
 import type {
   Account,
   BagResult,
+  ConversationSearchResponse,
+  ConversationSummary,
   HarnessWrite,
   LoginStatus,
   QuotaHistory,
   QuotaSnapshot,
+  SearchMode,
   Status,
   TrafficEvent,
 } from "../types";
@@ -33,6 +36,19 @@ export const searchTraffic = (q: string, limit = 100) =>
   apiJson<TrafficEvent[]>(
     "GET",
     `/v1/traffic/search?limit=${limit}&q=${encodeURIComponent(q.trim())}`,
+  );
+
+export const listConversations = (limit = 100) =>
+  apiJson<ConversationSummary[]>("GET", `/v1/conversations?limit=${limit}`);
+export const getConversationEvents = (id: string, limit = 500) =>
+  apiJson<TrafficEvent[]>(
+    "GET",
+    `/v1/conversations/events?limit=${limit}&id=${encodeURIComponent(id)}`,
+  );
+export const searchConversations = (q: string, mode: SearchMode = "keyword", limit = 100) =>
+  apiJson<ConversationSearchResponse>(
+    "GET",
+    `/v1/conversations/search?limit=${limit}&mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(q.trim())}`,
   );
 
 export const getWiki = apiJson<WikiInfo>("GET", "/v1/wiki");
