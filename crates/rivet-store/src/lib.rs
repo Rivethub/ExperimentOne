@@ -2,6 +2,7 @@
 
 mod clickhouse;
 mod meta;
+mod migrations;
 mod redacting;
 
 use anyhow::Result;
@@ -15,6 +16,7 @@ use tracing::info;
 pub use clickhouse::{
     ClickHouseTrafficStore, EmbeddingSearchHit, EMBEDDINGS_DDL, TRAFFIC_EVENTS_DDL,
 };
+pub use migrations::{run as run_clickhouse_migrations, MIGRATIONS};
 pub use meta::{
     EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, WikiPageMeta,
 };

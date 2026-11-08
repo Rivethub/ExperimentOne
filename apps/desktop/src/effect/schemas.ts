@@ -241,4 +241,29 @@ export const WorkersTickSchema = Schema.Struct({
 /** Empty 2xx bodies decode as `undefined`; non-empty bodies stay untyped. */
 export const UnknownOkSchema = Schema.UndefinedOr(Schema.Unknown);
 
-export const ConfigResponseSchema = Schema.Record(Schema.String, Schema.Unknown);
+/** Mirrors Rust `PublicConfig` / OpenAPI `PublicConfig` (no secrets). */
+export const PublicConfigSchema = Schema.Struct({
+  proxy_port: Schema.Finite,
+  api_port: Schema.Finite,
+  mcp_port: Schema.Finite,
+  clickhouse_http_port: Schema.Finite,
+  clickhouse_native_port: Schema.Finite,
+  access_key_hint: Schema.String,
+  management_configured: Schema.Boolean,
+  capabilities: CapabilitiesSchema,
+  embedding_model: Schema.optional(Schema.NullOr(Schema.String)),
+  wiki_model: Schema.optional(Schema.NullOr(Schema.String)),
+  wiki_project_id: Schema.String,
+  rate_limit_rps: Schema.optional(Schema.Finite),
+  rate_limit_burst: Schema.optional(Schema.Finite),
+  metrics_enabled: Schema.optional(Schema.Boolean),
+});
+
+export const ConfigResponseSchema = PublicConfigSchema;
+
+/** Mirrors Rust `LiveCursor` — cheap poll/SSE sync token. */
+export const LiveCursorSchema = Schema.Struct({
+  wiki_revision: Schema.Finite,
+  traffic_events: Schema.Finite,
+  observed_at: Schema.String,
+});

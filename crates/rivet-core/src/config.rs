@@ -1,10 +1,12 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::paths::RivetPaths;
 
 /// Feature flags driven by what the user has configured.
 #[allow(clippy::struct_excessive_bools)] // Serde feature flags map 1:1 to config fields.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct Capabilities {
     /// Keyword/SQL history via MCP always on once traffic exists.
     pub mcp: bool,
@@ -16,7 +18,7 @@ pub struct Capabilities {
     pub teams: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct RivetConfig {
     pub proxy_port: u16,
     pub api_port: u16,
@@ -38,10 +40,31 @@ pub struct RivetConfig {
     /// Default project bucket for wiki upserts.
     #[serde(default = "default_wiki_project")]
     pub wiki_project_id: String,
+    /// Sustained request rate for loopback API+ingest (`0` disables).
+    #[serde(default = "default_rate_limit_rps")]
+    pub rate_limit_rps: u32,
+    /// Burst size for the loopback rate limiter.
+    #[serde(default = "default_rate_limit_burst")]
+    pub rate_limit_burst: u32,
+    /// Expose Prometheus metrics at `GET /metrics` on the API port (loopback only).
+    #[serde(default = "default_true")]
+    pub metrics_enabled: bool,
 }
 
 fn default_wiki_project() -> String {
     "default".into()
+}
+
+const fn default_rate_limit_rps() -> u32 {
+    500
+}
+
+const fn default_rate_limit_burst() -> u32 {
+    1_000
+}
+
+const fn default_true() -> bool {
+    true
 }
 
 const PROXY_PORT_FALLBACKS: &[u16] = &[18317, 18741, 28417, 38417, 48417, 5817];
@@ -68,6 +91,9 @@ impl Default for RivetConfig {
             embedding_model: None,
             wiki_model: None,
             wiki_project_id: default_wiki_project(),
+            rate_limit_rps: default_rate_limit_rps(),
+            rate_limit_burst: default_rate_limit_burst(),
+            metrics_enabled: true,
         }
     }
 }

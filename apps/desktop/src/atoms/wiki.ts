@@ -9,11 +9,12 @@ const fetchWiki = Effect.gen(function* loadWikiSnapshot() {
 });
 
 /**
- * Wiki index atom — polls every 1s while mounted (wiki page subscribed).
+ * Wiki index atom — slow safety poll while mounted; `useLiveEvents` refreshes
+ * on wiki_revision bumps from rivetd.
  * Soft failures stay in AsyncResult; UI maps them to null.
  */
 export const wikiAtom = Atom.make(fetchWiki).pipe(
-  Atom.withRefresh("1 second"),
+  Atom.withRefresh("30 seconds"),
   Atom.withLabel("rivet:wiki"),
 );
 

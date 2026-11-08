@@ -1,25 +1,35 @@
 //! Local MCP tools for agents.
 //!
-//! Supports Streamable HTTP JSON-RPC on `POST /mcp` (initialize / tools/list /
-//! tools/call / notifications/initialized) plus legacy REST tool routes for
-//! debugging. Keyword search always works; semantic search is gated by
-//! `capabilities.vector_search`.
+//! Streamable HTTP MCP via the official `rmcp` SDK (`GET`/`POST /mcp` with SSE),
+//! plus legacy REST tool routes for debugging. Keyword search always works;
+//! semantic search is gated by `capabilities.vector_search`.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
     extract::State,
     http::{header, Request, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
 use rivet_core::{lexical_embed, RivetConfig, LEXICAL_SPACE};
 use rivet_store::{ClickHouseTrafficStore, TrafficStore};
+use rmcp::{
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::{CallToolResult, ContentBlock, Implementation, ProtocolVersion, ServerCapabilities, ServerConfig},
+    schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
+};
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager,
+    tower::{StreamableHttpServerConfig, StreamableHttpService},
+};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -36,15 +46,24 @@ impl std::fmt::Debug for McpState {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SearchRequest {
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SearchArgs {
+    /// Search query over captured prompts and completions.
     pub query: String,
+    /// Max results (1–100).
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
 
 const fn default_limit() -> u32 {
     20
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchRequest {
+    pub query: String,
+    #[serde(default = "default_limit")]
+    pub limit: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,15 +78,64 @@ pub struct ToolDescriptor {
     pub description: &'static str,
 }
 
-#[derive(Deserialize)]
-struct JsonRpcRequest {
-    #[serde(default)]
+#[derive(Clone)]
+struct RivetMcp {
+    state: McpState,
+    /// Wired by `#[tool_handler]` for tools/list + tools/call dispatch.
     #[allow(dead_code)]
-    jsonrpc: Option<String>,
-    id: Option<Value>,
-    method: Option<String>,
-    #[serde(default)]
-    params: Value,
+    tool_router: ToolRouter<Self>,
+}
+
+#[tool_router]
+impl RivetMcp {
+    fn new(state: McpState) -> Self {
+        Self { state, tool_router: Self::tool_router() }
+    }
+
+    #[tool(description = "Keyword search over captured prompts and completions")]
+    async fn search_history(
+        &self,
+        Parameters(args): Parameters<SearchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = args.limit.clamp(1, 100);
+        if args.query.trim().is_empty() {
+            return Err(McpError::invalid_params("query is required", None));
+        }
+        match do_search_history(&self.state, &args.query, limit).await {
+            Ok(body) => Ok(CallToolResult::success(vec![ContentBlock::json(body)
+                .unwrap_or_else(|_| ContentBlock::text("{}"))])),
+            Err(()) => Err(McpError::internal_error("search failed", None)),
+        }
+    }
+
+    #[tool(description = "Vector / lexical semantic search over history")]
+    async fn semantic_search(
+        &self,
+        Parameters(args): Parameters<SearchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = args.limit.clamp(1, 100);
+        if args.query.trim().is_empty() {
+            return Err(McpError::invalid_params("query is required", None));
+        }
+        match do_semantic_search(&self.state, &args.query, limit).await {
+            Ok(body) => Ok(CallToolResult::success(vec![ContentBlock::json(body)
+                .unwrap_or_else(|_| ContentBlock::text("{}"))])),
+            Err(err) => Err(McpError::internal_error(err, None)),
+        }
+    }
+}
+
+#[allow(clippy::unused_async_trait_impl)] // `#[tool_handler]` generates async stubs.
+#[tool_handler]
+impl ServerHandler for RivetMcp {
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("rivet", env!("CARGO_PKG_VERSION")))
+            .with_protocol_version(ProtocolVersion::V_2025_03_26)
+            .with_instructions(
+                "Query Rivet-captured AI traffic. Tools: search_history, semantic_search.",
+            )
+    }
 }
 
 async fn require_mcp_loopback(
@@ -94,31 +162,41 @@ pub fn router(state: McpState) -> Router {
     let cors = CorsLayer::new().allow_origin(AllowOrigin::predicate(|origin, _| {
         origin.to_str().is_ok_and(rivet_core::origin_allowed)
     }));
-    Router::new()
-        // Streamable HTTP: POST only on /mcp. GET returns 405 (not SSE yet).
-        .route("/mcp", get(mcp_get_not_allowed).post(jsonrpc))
+
+    let mcp_state = state.clone();
+    let service = StreamableHttpService::new(
+        move || Ok(RivetMcp::new(mcp_state.clone())),
+        Arc::new(LocalSessionManager::default()),
+        // Host/origin checks are enforced by `require_mcp_loopback` below.
+        StreamableHttpServerConfig::default()
+            .with_sse_keep_alive(Some(Duration::from_secs(15)))
+            .with_legacy_session_mode(true)
+            .disable_allowed_hosts(),
+    );
+
+    let legacy = Router::new()
         .route("/mcp/info", get(manifest))
         .route("/mcp/tools", get(tools))
         .route("/mcp/tools/search_history", post(search_history))
         .route("/mcp/tools/semantic_search", post(semantic_search))
+        .with_state(state);
+
+    // `route_service` (not nest) so `/mcp/info` and `/mcp/tools/*` stay available.
+    Router::new()
+        .route_service("/mcp", service)
+        .merge(legacy)
         .route_layer(middleware::from_fn(require_mcp_loopback))
         .layer(cors)
-        .with_state(state)
 }
 
-async fn mcp_get_not_allowed() -> StatusCode {
-    StatusCode::METHOD_NOT_ALLOWED
-}
-
-async fn manifest() -> Json<Value> {
+async fn manifest() -> Json<serde_json::Value> {
     Json(json!({
         "name": "rivet",
-        "version": "0.1.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "description": "Query Rivet-captured AI traffic history",
         "transport": "streamable-http",
         "protocol": "mcp",
-        "jsonrpc": "2.0",
-        "protocolVersion": "2025-03-26",
+        "sdk": "rmcp",
         "methods": ["initialize", "tools/list", "tools/call", "notifications/initialized", "ping"]
     }))
 }
@@ -139,100 +217,6 @@ async fn tool_descriptors(state: &McpState) -> Vec<ToolDescriptor> {
         });
     }
     tools
-}
-
-fn tool_list_schema(tools: &[ToolDescriptor]) -> Value {
-    let listed: Vec<Value> = tools
-        .iter()
-        .map(|t| {
-            json!({
-                "name": t.name,
-                "description": t.description,
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query" },
-                        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
-                    },
-                    "required": ["query"]
-                }
-            })
-        })
-        .collect();
-    json!({ "tools": listed })
-}
-
-async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>) -> Response {
-    let method = req.method.as_deref().unwrap_or("");
-    let id = req.id.clone().unwrap_or(Value::Null);
-    let is_notification = id.is_null() || method.starts_with("notifications/");
-
-    // MCP notifications: 202 Accepted, empty body.
-    if is_notification {
-        return StatusCode::ACCEPTED.into_response();
-    }
-
-    let result = match method {
-        "initialize" => Ok(json!({
-            "protocolVersion": "2025-03-26",
-            "capabilities": { "tools": {} },
-            "serverInfo": { "name": "rivet", "version": "0.1.0" }
-        })),
-        "ping" => Ok(json!({})),
-        "tools/list" => {
-            let tools = tool_descriptors(&state).await;
-            Ok(tool_list_schema(&tools))
-        },
-        "tools/call" => {
-            let name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = req.params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let limit =
-                args.get("limit").and_then(Value::as_u64).unwrap_or(20).clamp(1, 100) as u32;
-            if query.trim().is_empty() {
-                Err(rpc_error(-32602, "query is required"))
-            } else {
-                match name {
-                    "search_history" => match do_search_history(&state, &query, limit).await {
-                        Ok(body) => Ok(json!({
-                            "content": [{ "type": "text", "text": serde_json::to_string_pretty(&body).unwrap_or_default() }],
-                            "isError": false
-                        })),
-                        Err(()) => Err(rpc_error(-32000, "search failed")),
-                    },
-                    "semantic_search" => match do_semantic_search(&state, &query, limit).await {
-                        Ok(body) => Ok(json!({
-                            "content": [{ "type": "text", "text": serde_json::to_string_pretty(&body).unwrap_or_default() }],
-                            "isError": false
-                        })),
-                        Err(e) => Err(rpc_error(-32000, &e)),
-                    },
-                    _ => Err(rpc_error(-32601, &format!("unknown tool '{name}'"))),
-                }
-            }
-        },
-        "" => Err(rpc_error(-32600, "missing method")),
-        other => Err(rpc_error(-32601, &format!("method not found: {other}"))),
-    };
-
-    match result {
-        Ok(value) => Json(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": value
-        }))
-        .into_response(),
-        Err(err) => Json(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": err
-        }))
-        .into_response(),
-    }
-}
-
-fn rpc_error(code: i64, message: &str) -> Value {
-    json!({ "code": code, "message": message })
 }
 
 async fn do_search_history(
@@ -310,10 +294,10 @@ async fn semantic_search(
     })
 }
 
-pub async fn serve(addr: std::net::SocketAddr, state: McpState) -> Result<()> {
+pub async fn serve(addr: SocketAddr, state: McpState) -> Result<()> {
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "rivet mcp listening");
+    tracing::info!(%addr, "rivet mcp listening (rmcp streamable-http)");
     axum::serve(listener, app).await?;
     Ok(())
 }
