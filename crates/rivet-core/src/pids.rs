@@ -6,7 +6,11 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+#[cfg(not(any(unix, windows)))]
+use anyhow::Context;
+use anyhow::Result;
+#[cfg(unix)]
+use anyhow::{bail, Context};
 
 use crate::RivetPaths;
 
@@ -55,7 +59,7 @@ pub fn try_acquire_rivetd_lock(paths: &RivetPaths) -> Result<InstanceLock> {
             .map_err(|_| {
                 anyhow::anyhow!("another rivetd is already running (pids/rivetd.lock held)")
             })?;
-        return Ok(InstanceLock { _file: file });
+        Ok(InstanceLock { _file: file })
     }
     #[cfg(not(any(unix, windows)))]
     {
@@ -127,16 +131,17 @@ pub fn process_exe(pid: u32) -> Option<String> {
         if let Some(p) = process_exe_from_ps(pid) {
             return Some(p);
         }
+        None
     }
     #[cfg(windows)]
     {
-        return process_exe_windows(pid);
+        process_exe_windows(pid)
     }
     #[cfg(not(any(unix, windows)))]
     {
         let _ = pid;
+        None
     }
-    None
 }
 
 #[cfg(windows)]
