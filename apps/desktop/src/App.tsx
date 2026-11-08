@@ -405,6 +405,10 @@ export default function App() {
   const [recent, setRecent] = useState<TrafficEvent[]>([]);
   const [trafficQuery, setTrafficQuery] = useState("");
   const [trafficRows, setTrafficRows] = useState<TrafficEvent[]>([]);
+  const [trafficProvider, setTrafficProvider] = useState<ProviderFilter>("all");
+  const [trafficStatus, setTrafficStatus] = useState<"all" | "ok" | "error">("all");
+  const [proxyLog, setProxyLog] = useState("");
+  const [chLog, setChLog] = useState("");
   const [snippet, setSnippet] = useState("");
   const [harnessNote, setHarnessNote] = useState<HarnessWrite | null>(null);
   const [login, setLogin] = useState<LoginStatus | null>(null);
@@ -476,9 +480,14 @@ export default function App() {
     const id = setInterval(() => {
       refresh();
       if (page === "wiki") refreshWiki();
+      if (page === "runtime") void loadLogs();
     }, 3000);
     return () => clearInterval(id);
   }, [refresh, refreshWiki, page]);
+
+  useEffect(() => {
+    if (page === "runtime") void loadLogs();
+  }, [page]);
 
   useEffect(() => {
     if (!login?.active) return;
@@ -816,6 +825,43 @@ export default function App() {
     }
   }
 
+  async function loadLogs() {
+    try {
+      const [proxyRes, chRes] = await Promise.all([
+        fetch(`${API}/v1/logs/proxy?lines=80`),
+        fetch(`${API}/v1/logs/clickhouse?lines=80`),
+      ]);
+      if (proxyRes.ok) {
+        const body = await proxyRes.json();
+        setProxyLog(body.text ?? "");
+      }
+      if (chRes.ok) {
+        const body = await chRes.json();
+        setChLog(body.text ?? "");
+      }
+    } catch {
+      /* rivetd down */
+    }
+  }
+
+  const filteredTraffic = useMemo(() => {
+    return trafficRows.filter((ev) => {
+      if (trafficProvider !== "all" && providerKey(ev.provider) !== trafficProvider) {
+        return false;
+      }
+      if (trafficStatus === "ok") {
+        const code = ev.status_code ?? 0;
+        if (code < 200 || code >= 400) return false;
+      }
+      if (trafficStatus === "error") {
+        const code = ev.status_code ?? 0;
+        if (code > 0 && code < 400) return false;
+        if (code === 0) return false;
+      }
+      return true;
+    });
+  }, [trafficRows, trafficProvider, trafficStatus]);
+
   const showClaude = filter === "all" || filter === "claude";
   const showCodex = filter === "all" || filter === "codex";
   const onboard = status?.onboarding;
@@ -1144,6 +1190,40 @@ export default function App() {
                 Search local traffic history. Bodies are redacted for obvious secrets before
                 store and export.
               </p>
+              <div className="filters" style={{ marginBottom: 10 }}>
+                {(
+                  [
+                    ["all", "All"],
+                    ["claude", "Claude"],
+                    ["codex", "Codex"],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    className={`chip ${trafficProvider === id ? "active" : ""}`}
+                    onClick={() => setTrafficProvider(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <div className="seg" style={{ marginLeft: 4 }}>
+                  {(
+                    [
+                      ["all", "Any status"],
+                      ["ok", "2xx"],
+                      ["error", "4xx/5xx"],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      className={trafficStatus === id ? "active" : ""}
+                      onClick={() => setTrafficStatus(id)}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="import-row" style={{ marginTop: 0 }}>
                 <input
                   className="path-input"
@@ -1171,10 +1251,14 @@ export default function App() {
                   <span>Tokens</span>
                   <span>Preview</span>
                 </div>
-                {trafficRows.length === 0 ? (
-                  <p className="empty">No events yet — start the proxy or load demo traffic.</p>
+                {filteredTraffic.length === 0 ? (
+                  <p className="empty">
+                    {trafficRows.length === 0
+                      ? "No events yet — start the proxy or load demo traffic."
+                      : "No events match these filters."}
+                  </p>
                 ) : (
-                  trafficRows.map((ev) => (
+                  filteredTraffic.map((ev) => (
                     <button
                       key={ev.id}
                       className={`traffic-row ${selectedEvent?.id === ev.id ? "active" : ""}`}
@@ -1192,6 +1276,11 @@ export default function App() {
                         >
                           {providerKey(ev.provider)}
                         </span>
+                        {ev.status_code != null && ev.status_code >= 400 && (
+                          <span className="pill bad" style={{ marginLeft: 6 }}>
+                            {ev.status_code}
+                          </span>
+                        )}
                       </span>
                       <span className="mono">{ev.model ?? "—"}</span>
                       <span className="mono">
@@ -1287,7 +1376,14 @@ export default function App() {
                 >
                   Copy base URL
                 </button>
+                <button className="btn" onClick={loadLogs}>
+                  Refresh logs
+                </button>
               </div>
+              <h2 style={{ marginTop: 20 }}>Proxy log</h2>
+              <pre className="snippet">{proxyLog || "No proxy log yet."}</pre>
+              <h2 style={{ marginTop: 16 }}>ClickHouse log</h2>
+              <pre className="snippet">{chLog || "No ClickHouse log yet."}</pre>
             </section>
           )}
 
@@ -1587,8 +1683,7 @@ export default function App() {
               </div>
               <p className="note">
                 Lexical embeddings work offline. Proxy models need the proxy running and a
-                signed-in account. Restart rivetd after first enabling vectors so MCP exposes{" "}
-                <span className="mono">semantic_search</span>.
+                signed-in account. Toggling vectors updates MCP immediately — no restart.
               </p>
               {bagNote && <p className="note">{bagNote}</p>}
             </section>

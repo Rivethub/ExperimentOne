@@ -111,14 +111,25 @@ impl Runtime {
             store: store.clone(),
         };
 
-        let caps = config.read().await.capabilities.clone();
         let mcp_state = McpState {
             store: store.clone(),
             meta: meta.clone(),
-            vector_search: caps.vector_search,
+            config: config.clone(),
         };
 
         let _worker_handle = worker.spawn();
+
+        // Keep the proxy up if the user/boot asked for it.
+        let proxy_watch = self.proxy.clone();
+        let _watch_handle = tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+            loop {
+                tick.tick().await;
+                if let Err(err) = proxy_watch.ensure_desired() {
+                    tracing::warn!(?err, "proxy watchdog restart failed");
+                }
+            }
+        });
 
         let api_addr: SocketAddr = format!("127.0.0.1:{}", self.config.api_port).parse()?;
         let mcp_addr: SocketAddr = format!("127.0.0.1:{}", self.config.mcp_port).parse()?;
