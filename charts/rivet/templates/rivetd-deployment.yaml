@@ -30,7 +30,7 @@ spec:
             - name: RIVET_CLICKHOUSE_URL
               value: {{ include "rivet.clickhouse.url" . | quote }}
             - name: RIVET_NATS_URL
-              value: {{ required "bus.natsUrl is required (JetStream job plane)" .Values.bus.natsUrl | quote }}
+              value: {{ include "rivet.nats.url" . | quote }}
             - name: RIVET_WORKER_ROLE
               value: "all"
           resources:

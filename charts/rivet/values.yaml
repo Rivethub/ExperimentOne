@@ -87,7 +87,18 @@ teams:
     issuer: ""
     clientId: ""
 
-# NATS JetStream job plane (required). Point at a cluster URL before install.
-bus:
+# Extends https://nats-io.github.io/k8s/helm/charts/ chart `nats`
+# (official JetStream StatefulSet — recommended over the legacy nats-operator).
+# Set nats.enabled=false and nats.url to point at an external cluster.
+nats:
   enabled: true
-  natsUrl: "nats://nats:4222"
+  # Optional override when using an external / managed NATS instead of the subchart.
+  url: ""
+
+  config:
+    jetstream:
+      enabled: true
+      fileStore:
+        pvc:
+          enabled: true
+          size: 10Gi

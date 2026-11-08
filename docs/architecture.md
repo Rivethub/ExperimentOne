@@ -629,7 +629,7 @@ Default data root: macOS `~/Library/Application Support/Rivet`, Linux
 | --- | --- | --- |
 | Proxy | Sidecar process (`:18317`) | Deployment (chart often `:8317`) |
 | ClickHouse | Bundled single-node or URL | Altinity CHI / managed (analytics only) |
-| NATS | Bundled `nats-server` JetStream (**required**) | External `bus.natsUrl` (required) |
+| NATS | Bundled `nats-server` JetStream (**required**) | Official `nats` subchart (JetStream) or `nats.url` |
 | Workers | In-process role loops (`RIVET_WORKER_ROLE=all`) | Same in-process on rivetd (role-split Deployments not ready — meta is process-local) |
 | Bus | NATS JetStream job plane + in-process `LiveBus` | Same intended JetStream URL; Redpanda optional later for fan-out |
 | UI auth | Loopback + key / control IPC | OIDC + admin portal (scaffold) |

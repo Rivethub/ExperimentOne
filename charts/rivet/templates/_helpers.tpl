@@ -28,3 +28,15 @@ Service name follows altinity/clickhouse: <release>-clickhouse-service
 http://{{ .Release.Name }}-clickhouse-service:8123
 {{- end -}}
 {{- end -}}
+
+{{/*
+Client URL for the official NATS subchart service.
+Service name follows nats-io/nats: <release>-nats
+*/}}
+{{- define "rivet.nats.url" -}}
+{{- if .Values.nats.url -}}
+{{- .Values.nats.url -}}
+{{- else -}}
+nats://{{ .Release.Name }}-nats:4222
+{{- end -}}
+{{- end -}}
