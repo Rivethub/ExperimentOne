@@ -252,9 +252,8 @@ pub fn router(state: McpState) -> Router {
         origin.to_str().is_ok_and(rivet_core::origin_allowed)
     }));
 
-    let mcp_state = state.clone();
     let service = StreamableHttpService::new(
-        move || Ok(RivetMcp::new(mcp_state.clone())),
+        move || Ok(RivetMcp::new(state.clone())),
         Arc::new(LocalSessionManager::default()),
         // Host/origin checks are enforced by `require_mcp_loopback` below.
         StreamableHttpServerConfig::default()

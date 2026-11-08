@@ -5,7 +5,7 @@
 //! missing — never promote cwd alone to a project at capture time.
 //!
 //! - **Vectorize**: embeds traffic content as local lexical 64-d vectors into
-//!   ClickHouse HNSW (`LEXICAL_SPACE`).
+//!   `ClickHouse` HNSW (`LEXICAL_SPACE`).
 //! - **Wiki**: traffic markdown tree + knowledge extract (patch → bound →
 //!   archive → consolidate/recompile) when `wiki_model` is set.
 //! - **Topics**: durable keyword topics with event/session citations in meta.
