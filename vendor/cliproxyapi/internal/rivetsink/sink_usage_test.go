@@ -3,6 +3,7 @@ package rivetsink
 import "testing"
 
 func TestClaudeUsageHighWaterNotAdditive(t *testing.T) {
+	t.Parallel()
 	meta := parsedMeta{}
 	frame1 := map[string]any{
 		"usage": map[string]any{
@@ -31,6 +32,7 @@ func TestClaudeUsageHighWaterNotAdditive(t *testing.T) {
 }
 
 func TestParseStreamMetaDoesNotTripleUsage(t *testing.T) {
+	t.Parallel()
 	meta := parsedMeta{}
 	raw := "data: {\"usage\":{\"input_tokens\":10,\"cache_read_input_tokens\":5,\"output_tokens\":1},\"response\":{\"usage\":{\"input_tokens\":10,\"cache_read_input_tokens\":5,\"output_tokens\":1}}}\n"
 	parseStreamMeta(&meta, "claude", raw)
@@ -40,6 +42,7 @@ func TestParseStreamMetaDoesNotTripleUsage(t *testing.T) {
 }
 
 func TestGeminiUsageMetadata(t *testing.T) {
+	t.Parallel()
 	meta := parsedMeta{}
 	applyUsage(&meta, "gemini", map[string]any{
 		"usageMetadata": map[string]any{
@@ -57,6 +60,7 @@ func TestGeminiUsageMetadata(t *testing.T) {
 }
 
 func TestGeminiThoughtsTokenCount(t *testing.T) {
+	t.Parallel()
 	meta := parsedMeta{}
 	applyUsage(&meta, "gemini", map[string]any{
 		"usageMetadata": map[string]any{
@@ -75,6 +79,7 @@ func TestGeminiThoughtsTokenCount(t *testing.T) {
 }
 
 func TestInferProviderAccountRouteBeatsModel(t *testing.T) {
+	t.Parallel()
 	body := []byte(`{"model":"claude-sonnet-4-5"}`)
 	if got := inferProvider("https://aiplatform.googleapis.com/v1/projects/x", body); got != "vertex" {
 		t.Fatalf("vertex+claude model → %q want vertex", got)
@@ -85,6 +90,7 @@ func TestInferProviderAccountRouteBeatsModel(t *testing.T) {
 }
 
 func TestInferProviderFromCaptureUsesAuthPool(t *testing.T) {
+	t.Parallel()
 	body := []byte(`{"model":"claude-sonnet-4-5"}`)
 	api := []byte("=== API REQUEST 1 ===\nUpstream URL: https://aiplatform.googleapis.com/v1/projects/x\nAuth: provider=vertex, auth_id=sa.json, type=oauth\n")
 	if got := inferProviderFromCapture("/v1/messages", body, api); got != "vertex" {
@@ -97,6 +103,7 @@ func TestInferProviderFromCaptureUsesAuthPool(t *testing.T) {
 }
 
 func TestInferProviderModelForOpenAICompat(t *testing.T) {
+	t.Parallel()
 	body := []byte(`{"model":"claude-3-5-sonnet"}`)
 	if got := inferProvider("http://127.0.0.1:8317/v1/chat/completions", body); got != "claude" {
 		t.Fatalf("openai-compat+claude → %q want claude", got)
@@ -113,6 +120,7 @@ func TestInferProviderModelForOpenAICompat(t *testing.T) {
 }
 
 func TestUsageShapeFollowsResponseNotPool(t *testing.T) {
+	t.Parallel()
 	req := []byte(`{"model":"claude-sonnet-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`)
 	claudeShaped := []byte(`{"type":"message","usage":{"input_tokens":10,"cache_read_input_tokens":100000,"cache_creation_input_tokens":0,"output_tokens":500}}`)
 	for _, pool := range []string{"claude", "vertex", "antigravity"} {
@@ -140,6 +148,7 @@ func TestUsageShapeFollowsResponseNotPool(t *testing.T) {
 }
 
 func TestFailoverUsesLastAuthPool(t *testing.T) {
+	t.Parallel()
 	req := []byte(`{"model":"claude-sonnet-4-5"}`)
 	retry := []byte("=== API REQUEST 1 ===\nUpstream URL: https://api.anthropic.com/v1/messages\nAuth: provider=claude, auth_id=c1\n\nBody:\n{}\n\n=== API REQUEST 2 ===\nUpstream URL: https://aiplatform.googleapis.com/v1/x\nAuth: provider=vertex, auth_id=v1\n\nBody:\n{}\n\n")
 	if got := inferProviderFromCapture("/v1/messages", req, retry); got != "vertex" {
@@ -148,6 +157,7 @@ func TestFailoverUsesLastAuthPool(t *testing.T) {
 }
 
 func TestKimiAIPoolFromAuthContext(t *testing.T) {
+	t.Parallel()
 	req := []byte(`{"model":"kimi-k2"}`)
 	// Ordinary kimi.com stays on the kimi pool even if the filename looks like kimi-ai.
 	com := []byte("=== API REQUEST 1 ===\nUpstream URL: https://api.kimi.com/coding/v1/chat\nAuth: provider=kimi, auth_id=kimi-ai-foo.json\n\nBody:\n{}\n")

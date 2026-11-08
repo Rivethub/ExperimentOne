@@ -173,7 +173,7 @@ async fn main() -> ExitCode {
         Err(err) => {
             eprintln!("error: {err:#}");
             ExitCode::FAILURE
-        }
+        },
     }
 }
 
@@ -185,16 +185,16 @@ async fn run() -> Result<()> {
             let report = install::install(version.as_deref()).await?;
             install::print_install_report(&report);
             return Ok(());
-        }
+        },
         Commands::Upgrade => {
             let report = install::install(None).await?;
             install::print_install_report(&report);
             return Ok(());
-        }
+        },
         Commands::Prompt => {
             print!("{AGENT_PROMPT}");
             return Ok(());
-        }
+        },
         Commands::VersionInfo => {
             let cli_ver = env!("CARGO_PKG_VERSION");
             let runtime = installed_version();
@@ -222,8 +222,8 @@ async fn run() -> Result<()> {
                 }
             }
             return Ok(());
-        }
-        _ => {}
+        },
+        _ => {},
     }
 
     let base = cli.api_url.clone().unwrap_or_else(default_api_base);
@@ -232,96 +232,92 @@ async fn run() -> Result<()> {
     match cli.cmd {
         Commands::Install { .. } | Commands::Upgrade | Commands::Prompt | Commands::VersionInfo => {
             unreachable!("handled above")
-        }
+        },
         Commands::Setup { version, wait } => {
             cmd_setup(&mut client, version.as_deref(), wait, cli.json).await?;
-        }
+        },
         Commands::Start { wait } => {
             daemon::start(&mut client, wait).await?;
-        }
+        },
         Commands::Stop => {
             daemon::stop(&mut client).await?;
-        }
+        },
         Commands::Restart { wait } => {
             let _ = daemon::stop(&mut client).await;
             daemon::start(&mut client, wait).await?;
-        }
+        },
         Commands::Status => {
             let v = client.get_value("/v1/status").await?;
             print_value(&v, cli.json);
-        }
+        },
         Commands::Doctor => {
             cmd_doctor(&mut client, cli.json).await?;
-        }
+        },
         Commands::Proxy { action } => match action {
             ProxyCmd::Start => {
                 let v = client.post_value("/v1/proxy/start", None).await?;
                 print_value(&v, cli.json);
-            }
+            },
             ProxyCmd::Stop => {
                 let v = client.post_value("/v1/proxy/stop", None).await?;
                 print_value(&v, cli.json);
-            }
+            },
         },
-        Commands::Login {
-            target,
-            method,
-            watch,
-        } => {
+        Commands::Login { target, method, watch } => {
             cmd_login(&mut client, &target, method, watch, cli.json).await?;
-        }
+        },
         Commands::Accounts => {
             let v = client.get_value("/v1/accounts").await?;
             print_value(&v, cli.json);
-        }
+        },
         Commands::Providers => {
             let v = client.get_value("/v1/providers").await?;
             print_value(&v, cli.json);
-        }
+        },
         Commands::Harness { action } => match action {
             HarnessCmd::Write { target, mode } => {
                 let body = json!({ "target": target, "mode": mode });
                 let v = client.post_value("/v1/harness/write", Some(body)).await?;
                 print_value(&v, cli.json);
-            }
+            },
         },
         Commands::Demo { action } => match action {
             DemoCmd::Seed => {
                 let v = client.post_value("/v1/demo/seed", None).await?;
                 print_value(&v, cli.json);
-            }
+            },
         },
         Commands::Traffic { action } => match action {
             TrafficCmd::Recent => {
                 let v = client.get_value("/v1/traffic/recent").await?;
                 print_value(&v, cli.json);
-            }
+            },
         },
         Commands::Workers { action } => match action {
             WorkersCmd::Tick => {
                 let v = client.post_value("/v1/workers/tick", None).await?;
                 print_value(&v, cli.json);
-            }
+            },
         },
         Commands::Config { action } => match action {
             ConfigCmd::Get => {
                 let v = client.get_value("/v1/config").await?;
                 print_value(&v, cli.json);
-            }
+            },
         },
         Commands::Export => {
             let v = client.post_value("/v1/export", None).await?;
             print_value(&v, cli.json);
-        }
+        },
         Commands::Import { path } => {
             let body = json!({ "path": path });
             let v = client.post_value("/v1/import", Some(body)).await?;
             print_value(&v, cli.json);
-        }
+        },
         Commands::Logs { kind } => {
             let v = client.get_value(&format!("/v1/logs/{kind}")).await?;
             print_value(&v, cli.json);
-        }
+        },
         Commands::Session => {
             let key = client.ensure_session().await?;
             if cli.json {
@@ -329,7 +325,7 @@ async fn run() -> Result<()> {
             } else {
                 println!("{key}");
             }
-        }
+        },
     }
     Ok(())
 }
@@ -360,16 +356,8 @@ async fn cmd_setup(
     println!("Rivet is up at {}", client.base());
     if let Some(onboarding) = status.get("onboarding") {
         println!("Onboarding:");
-        for key in [
-            "proxy_running",
-            "has_accounts",
-            "harness_ready",
-            "has_traffic",
-        ] {
-            let ok = onboarding
-                .get(key)
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+        for key in ["proxy_running", "has_accounts", "harness_ready", "has_traffic"] {
+            let ok = onboarding.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
             println!("  {}: {}", key, if ok { "ok" } else { "needed" });
         }
     }
@@ -389,22 +377,10 @@ async fn cmd_doctor(client: &mut ApiClient, json: bool) -> Result<()> {
         bail!("rivetd is not running — run `rivet start` or `rivet setup`");
     }
     let status = client.get_value("/v1/status").await?;
-    let onboarding = status
-        .get("onboarding")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let proxy_running = onboarding
-        .get("proxy_running")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let has_accounts = onboarding
-        .get("has_accounts")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let harness_ready = onboarding
-        .get("harness_ready")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let onboarding = status.get("onboarding").cloned().unwrap_or_else(|| json!({}));
+    let proxy_running = onboarding.get("proxy_running").and_then(|v| v.as_bool()).unwrap_or(false);
+    let has_accounts = onboarding.get("has_accounts").and_then(|v| v.as_bool()).unwrap_or(false);
+    let harness_ready = onboarding.get("harness_ready").and_then(|v| v.as_bool()).unwrap_or(false);
     let ready = proxy_running && has_accounts && harness_ready;
 
     let report = json!({
@@ -473,11 +449,11 @@ async fn cmd_login(
     match target.trim().to_ascii_lowercase().as_str() {
         "status" => {
             login_status(client, watch, json).await?;
-        }
+        },
         "cancel" => {
             let v = client.post_value("/v1/accounts/login/cancel", None).await?;
             print_value(&v, json);
-        }
+        },
         provider => {
             let mut body = json!({ "provider": provider });
             if let Some(m) = method {
@@ -493,7 +469,7 @@ async fn cmd_login(
             if watch {
                 login_status(client, true, json).await?;
             }
-        }
+        },
     }
     Ok(())
 }
@@ -507,11 +483,7 @@ async fn login_status(client: &mut ApiClient, watch: bool, json: bool) -> Result
             return Ok(());
         }
 
-        let output = v
-            .get("output")
-            .and_then(|x| x.as_str())
-            .unwrap_or("")
-            .to_string();
+        let output = v.get("output").and_then(|x| x.as_str()).unwrap_or("").to_string();
         if output != last {
             // Print only the delta so agents/humans see new URL/device lines.
             let delta = if output.starts_with(&last) {

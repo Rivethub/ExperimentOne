@@ -19,12 +19,7 @@ pub enum HarnessInstallMode {
 
 impl HarnessInstallMode {
     pub fn parse(raw: Option<&str>) -> Self {
-        match raw
-            .map(str::trim)
-            .unwrap_or("user")
-            .to_ascii_lowercase()
-            .as_str()
-        {
+        match raw.map_or("user", str::trim).to_ascii_lowercase().as_str() {
             "isolated" | "dir" | "sidecar" => Self::Isolated,
             _ => Self::User,
         }
@@ -85,11 +80,11 @@ pub fn install_harness(
         ("claude", HarnessInstallMode::User) => install_claude_user(config),
         ("claude", HarnessInstallMode::Isolated) => {
             install_claude_isolated(config, isolated_claude_dir)
-        }
+        },
         ("codex", HarnessInstallMode::User) => install_codex_user(config),
         ("codex", HarnessInstallMode::Isolated) => {
             install_codex_isolated(config, isolated_codex_dir)
-        }
+        },
         (other, _) => bail!("unknown harness target '{other}'"),
     }
 }
@@ -136,10 +131,8 @@ fn install_claude_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
     };
     let merged = merge_claude_settings(&existing, config)?;
     fs::write(&path, merged).with_context(|| format!("write {}", path.display()))?;
-    let backup_note = backup_path
-        .as_ref()
-        .map(|b| format!(" Backup saved to {b}."))
-        .unwrap_or_default();
+    let backup_note =
+        backup_path.as_ref().map(|b| format!(" Backup saved to {b}.")).unwrap_or_default();
     Ok(HarnessInstallResult {
         target: "claude".into(),
         path: path.display().to_string(),
@@ -164,10 +157,8 @@ fn install_codex_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
     };
     let merged = merge_codex_config(&existing, config);
     fs::write(&path, merged).with_context(|| format!("write {}", path.display()))?;
-    let backup_note = backup_path
-        .as_ref()
-        .map(|b| format!(" Backup saved to {b}."))
-        .unwrap_or_default();
+    let backup_note =
+        backup_path.as_ref().map(|b| format!(" Backup saved to {b}.")).unwrap_or_default();
     Ok(HarnessInstallResult {
         target: "codex".into(),
         path: path.display().to_string(),
@@ -194,10 +185,7 @@ fn backup_if_exists(path: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
     let stamp = Utc::now().format("%Y%m%d-%H%M%S");
-    let file_name = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("config");
+    let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("config");
     let backup = path.with_file_name(format!("{file_name}.rivet-backup-{stamp}"));
     fs::copy(path, &backup)
         .with_context(|| format!("backup {} → {}", path.display(), backup.display()))?;
@@ -219,24 +207,17 @@ pub fn merge_claude_settings(existing: &str, config: &RivetConfig) -> Result<Str
     }
 
     let obj = root.as_object_mut().expect("object");
-    let env = obj
-        .entry("env")
-        .or_insert_with(|| Value::Object(Map::new()));
+    let env = obj.entry("env").or_insert_with(|| Value::Object(Map::new()));
     if !env.is_object() {
         *env = Value::Object(Map::new());
     }
     let env_obj = env.as_object_mut().expect("env object");
-    env_obj.insert(
-        "ANTHROPIC_BASE_URL".into(),
-        Value::String(config.proxy_base_url()),
-    );
+    env_obj.insert("ANTHROPIC_BASE_URL".into(), Value::String(config.proxy_base_url()));
     // Anthropic disables claude.ai connectors when these are set.
     env_obj.remove("ANTHROPIC_AUTH_TOKEN");
     env_obj.remove("ANTHROPIC_API_KEY");
 
-    let mcp = obj
-        .entry("mcpServers")
-        .or_insert_with(|| Value::Object(Map::new()));
+    let mcp = obj.entry("mcpServers").or_insert_with(|| Value::Object(Map::new()));
     if !mcp.is_object() {
         *mcp = Value::Object(Map::new());
     }
@@ -269,10 +250,7 @@ pub fn migrate_claude_settings_file(path: &Path, config: &RivetConfig) -> Result
     let Some(env) = obj.get_mut("env").and_then(|v| v.as_object_mut()) else {
         return Ok(false);
     };
-    let base = env
-        .get("ANTHROPIC_BASE_URL")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let base = env.get("ANTHROPIC_BASE_URL").and_then(|v| v.as_str()).unwrap_or("");
     if base != config.proxy_base_url() {
         return Ok(false);
     }

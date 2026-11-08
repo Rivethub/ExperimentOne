@@ -1,4 +1,4 @@
-//! OAuth / credential providers mirrored from CLIProxyAPI (prox).
+//! OAuth / credential providers mirrored from `CLIProxyAPI` (prox).
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub struct ProviderCatalogEntry {
     /// Short badge letter/glyph for the UI.
     pub badge: String,
     pub login_kind: LoginKind,
-    /// CLIProxyAPI flag when spawning a one-shot login process (without leading `-`).
+    /// `CLIProxyAPI` flag when spawning a one-shot login process (without leading `-`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_flag: Option<String>,
     /// Alternate ids accepted by `POST /v1/accounts/login`.
@@ -136,9 +136,7 @@ pub fn find_provider(raw: &str) -> Option<&'static ProviderCatalogEntry> {
     static CATALOG: OnceLock<Vec<ProviderCatalogEntry>> = OnceLock::new();
     let catalog = CATALOG.get_or_init(provider_catalog);
     let key = raw.trim().to_ascii_lowercase();
-    catalog
-        .iter()
-        .find(|p| p.id == key || p.aliases.iter().any(|a| a.eq_ignore_ascii_case(&key)))
+    catalog.iter().find(|p| p.id == key || p.aliases.iter().any(|a| a.eq_ignore_ascii_case(&key)))
 }
 
 /// Normalize traffic / credential provider labels into a stable id.
@@ -190,10 +188,7 @@ pub fn login_flag_for(raw: &str) -> Option<&'static str> {
 /// `method`: `None` (catalog default), `"browser"`, or `"device"`.
 pub fn login_flag_for_method(raw: &str, method: Option<&str>) -> Option<&'static str> {
     let entry = find_provider(raw)?;
-    match (
-        entry.id.as_str(),
-        method.map(|m| m.trim().to_ascii_lowercase()).as_deref(),
-    ) {
+    match (entry.id.as_str(), method.map(|m| m.trim().to_ascii_lowercase()).as_deref()) {
         ("codex", Some("device")) => Some("codex-device-login"),
         ("codex", Some("browser")) => Some("codex-login"),
         (_, Some(other)) if other != "browser" && other != "device" => None,
@@ -211,13 +206,7 @@ mod tests {
         assert_eq!(p.login_kind, LoginKind::OauthBrowser);
         assert_eq!(p.login_flag.as_deref(), Some("codex-login"));
         assert_eq!(login_flag_for_method("codex", None), Some("codex-login"));
-        assert_eq!(
-            login_flag_for_method("codex", Some("device")),
-            Some("codex-device-login")
-        );
-        assert_eq!(
-            login_flag_for_method("codex", Some("browser")),
-            Some("codex-login")
-        );
+        assert_eq!(login_flag_for_method("codex", Some("device")), Some("codex-device-login"));
+        assert_eq!(login_flag_for_method("codex", Some("browser")), Some("codex-login"));
     }
 }

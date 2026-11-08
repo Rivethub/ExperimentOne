@@ -1,4 +1,4 @@
-//! Boots the local Rivet control plane and supervises proxy + ClickHouse sidecars.
+//! Boots the local Rivet control plane and supervises proxy + `ClickHouse` sidecars.
 
 mod clickhouse;
 mod control_ipc;
@@ -20,6 +20,7 @@ use tracing::info;
 pub use clickhouse::ClickHouseSupervisor;
 pub use proxy::ProxySupervisor;
 
+#[derive(Debug)]
 pub struct Runtime {
     pub paths: rivet_core::RivetPaths,
     pub config: rivet_core::RivetConfig,
@@ -42,7 +43,7 @@ impl Runtime {
             Err(err) => {
                 pids::clear_rivetd_pid(&paths);
                 Err(err)
-            }
+            },
         }
     }
 
@@ -61,14 +62,7 @@ impl Runtime {
         let stores = LocalStores::open(&paths)?;
         let proxy = Arc::new(ProxySupervisor::new(paths.clone(), config.clone())?);
         let clickhouse = Arc::new(ClickHouseSupervisor::new(paths.clone(), config.clone())?);
-        Ok(Self {
-            paths,
-            config,
-            stores,
-            proxy,
-            clickhouse,
-            _instance_lock: instance_lock,
-        })
+        Ok(Self { paths, config, stores, proxy, clickhouse, _instance_lock: instance_lock })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -78,18 +72,16 @@ impl Runtime {
         result
     }
 
+    #[allow(clippy::too_many_lines)] // Single startup orchestration for all local services.
     async fn run_inner(self) -> Result<()> {
         match self.proxy.start() {
             Ok(()) => info!("proxy sidecar ready"),
             Err(err) => {
-                tracing::warn!(
-                    ?err,
-                    "proxy not started (start from UI when binary is ready)"
-                )
-            }
+                tracing::warn!(?err, "proxy not started (start from UI when binary is ready)");
+            },
         }
 
-        let mut clickhouse_url = rivet_store::ClickHouseTrafficStore::from_env_url();
+        let mut clickhouse_url = ClickHouseTrafficStore::from_env_url();
         match self.clickhouse.start_if_available() {
             Ok(true) => {
                 let url = self.clickhouse.http_url();
@@ -110,7 +102,7 @@ impl Runtime {
                         info!("clickhouse schema ready (database rivet)");
                     }
                 }
-            }
+            },
             Ok(false) => {
                 if clickhouse_url.is_none() {
                     anyhow::bail!(
@@ -118,22 +110,17 @@ impl Runtime {
                     );
                 }
                 info!("bundled clickhouse skipped — using RIVET_CLICKHOUSE_URL");
-            }
+            },
             Err(err) => {
                 if clickhouse_url.is_none() {
                     return Err(err)
                         .context("ClickHouse sidecar failed and no RIVET_CLICKHOUSE_URL");
                 }
-                tracing::warn!(
-                    ?err,
-                    "bundled clickhouse failed — using RIVET_CLICKHOUSE_URL"
-                );
-            }
+                tracing::warn!(?err, "bundled clickhouse failed — using RIVET_CLICKHOUSE_URL");
+            },
         }
 
-        let store = self
-            .stores
-            .traffic_store_with_clickhouse(clickhouse_url.clone())?;
+        let store = self.stores.traffic_store_with_clickhouse(clickhouse_url.clone())?;
         let meta = self.stores.meta.clone();
         let config = Arc::new(RwLock::new(self.config.clone()));
 
@@ -158,16 +145,11 @@ impl Runtime {
             wiki_revision,
             shutdown: shutdown_tx,
         };
-        let ingest_state = IngestState {
-            store: store.clone(),
-            ingest_key: self.config.proxy_access_key.clone(),
-        };
+        let ingest_state =
+            IngestState { store: store.clone(), ingest_key: self.config.proxy_access_key.clone() };
 
-        let mcp_state = McpState {
-            store: store.clone(),
-            meta: meta.clone(),
-            config: config.clone(),
-        };
+        let mcp_state =
+            McpState { store: store.clone(), meta: meta.clone(), config: config.clone() };
 
         let _worker_handles = worker.spawn();
 
@@ -202,8 +184,8 @@ impl Runtime {
         let mut api_shutdown_rx = shutdown_rx;
         let shutdown = async move {
             tokio::select! {
-                _ = wait_for_shutdown_signal() => {}
-                _ = async {
+                () = wait_for_shutdown_signal() => {}
+                () = async {
                     loop {
                         if *api_shutdown_rx.borrow() {
                             break;
@@ -220,7 +202,7 @@ impl Runtime {
             res = axum::serve(api_listener, tcp_router) => res.context("api serve"),
             res = control_serve => res.context("control ipc serve"),
             res = rivet_mcp::serve(mcp_addr, mcp_state) => res.context("mcp serve"),
-            _ = shutdown => {
+            () = shutdown => {
                 info!("shutdown signaled — stopping sidecars");
                 Ok(())
             }

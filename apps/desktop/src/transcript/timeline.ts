@@ -1,4 +1,4 @@
-import type { TrafficEvent } from "../types";
+import type { TrafficEvent } from "../lib/types";
 import { partsMatchQuery, turnsFromTrafficEvents } from "./parse";
 import type { TimelineItem, TranscriptPart, TranscriptTurn } from "./types";
 
@@ -19,7 +19,8 @@ function textFromUnknown(value: unknown): string {
   }
 }
 
-const SHELL_NAMES = /^(bash|shell|terminal|run_terminal_cmd|execute_command|exec_command|run_command)$/i;
+const SHELL_NAMES =
+  /^(bash|shell|terminal|run_terminal_cmd|execute_command|exec_command|run_command)$/i;
 
 export function isShellTool(name: string, input: unknown): boolean {
   if (SHELL_NAMES.test(name)) return true;
@@ -72,7 +73,16 @@ export function parseShellOutput(output: unknown): {
 function toolTitle(name: string, input: unknown): string {
   const rec = asRecord(input);
   if (!rec) return name;
-  for (const key of ["path", "file_path", "filePath", "target_file", "query", "pattern", "glob", "url"]) {
+  for (const key of [
+    "path",
+    "file_path",
+    "filePath",
+    "target_file",
+    "query",
+    "pattern",
+    "glob",
+    "url",
+  ]) {
     const v = rec[key];
     if (typeof v === "string" && v.trim()) {
       const short = v.length > 64 ? `${v.slice(0, 64)}…` : v;
@@ -103,9 +113,10 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
   ) => {
     if (isShellTool(name, input)) {
       const command = shellCommandFromInput(input);
-      const shell = output === undefined
-        ? { output: "", exitCode: null as number | null, isError: false }
-        : parseShellOutput(output);
+      const shell =
+        output === undefined
+          ? { output: "", exitCode: null as number | null, isError: false }
+          : parseShellOutput(output);
       items.push({
         kind: "command_execution",
         id,
@@ -225,8 +236,7 @@ export function timelineItemMatchesQuery(item: TimelineItem, query: string): boo
       return item.text.toLowerCase().includes(needle);
     case "command_execution":
       return (
-        item.command.toLowerCase().includes(needle) ||
-        item.output.toLowerCase().includes(needle)
+        item.command.toLowerCase().includes(needle) || item.output.toLowerCase().includes(needle)
       );
     case "tool":
       return (

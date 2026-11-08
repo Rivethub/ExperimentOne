@@ -1,4 +1,4 @@
-//! Persistence layer — ClickHouse for traffic, JSON files for meta.
+//! Persistence layer — `ClickHouse` for traffic, JSON files for meta.
 
 mod clickhouse;
 mod meta;
@@ -46,11 +46,9 @@ pub trait TrafficStore: Send + Sync {
             return self.get_by_ids(&[event_id.to_string()]).await;
         }
         let events = self.recent(limit.saturating_mul(8).clamp(100, 5000)).await?;
-        let mut matched: Vec<TrafficEvent> = events
-            .into_iter()
-            .filter(|e| e.conversation_id() == id)
-            .collect();
-        matched.sort_by(|a, b| a.ts.cmp(&b.ts));
+        let mut matched: Vec<TrafficEvent> =
+            events.into_iter().filter(|e| e.conversation_id() == id).collect();
+        matched.sort_by_key(|event| event.ts);
         matched.truncate(limit.max(1) as usize);
         Ok(matched)
     }
@@ -61,14 +59,13 @@ pub trait TrafficStore: Send + Sync {
         query: &str,
         limit: u32,
     ) -> Result<Vec<ConversationSummary>> {
-        let events = self
-            .search_keyword(query, limit.saturating_mul(8).clamp(50, 2000))
-            .await?;
+        let events = self.search_keyword(query, limit.saturating_mul(8).clamp(50, 2000)).await?;
         Ok(conversations_from_events(&events, limit.max(1)))
     }
 }
 
 /// Open local stores under Application Support.
+#[derive(Debug)]
 pub struct LocalStores {
     pub meta: Arc<MetaStore>,
 }
@@ -76,9 +73,7 @@ pub struct LocalStores {
 impl LocalStores {
     pub fn open(paths: &RivetPaths) -> Result<Self> {
         paths.ensure()?;
-        Ok(Self {
-            meta: Arc::new(MetaStore::open(paths)?),
-        })
+        Ok(Self { meta: Arc::new(MetaStore::open(paths)?) })
     }
 
     /// ClickHouse-only traffic (redacted on write). Requires a reachable URL.

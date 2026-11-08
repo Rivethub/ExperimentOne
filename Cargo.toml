@@ -20,6 +20,9 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/rivet-ai/rivet"
 authors = ["Rivet"]
+readme = "README.md"
+keywords = ["rivet", "proxy", "llm", "traffic"]
+categories = ["development-tools"]
 
 [workspace.dependencies]
 rivet-core = { path = "crates/rivet-core" }
@@ -61,6 +64,40 @@ futures = "0.3"
 tokio-stream = "0.1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 notify = "8"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+future_incompatible = { level = "warn", priority = -1 }
+nonstandard_style = { level = "warn", priority = -1 }
+rust_2021_compatibility = { level = "warn", priority = -1 }
+unused = { level = "warn", priority = -1 }
+unused_must_use = "warn"
+missing_debug_implementations = "warn"
+missing_copy_implementations = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unused_extern_crates = "warn"
+unused_import_braces = "warn"
+unused_qualifications = "warn"
+variant_size_differences = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Pedantic noise: we are not documenting every error/panic path yet.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Crate/module names intentionally repeat the rivet-* prefix.
+module_name_repetitions = "allow"
+# Not every pure helper needs #[must_use].
+must_use_candidate = "allow"
+# Dependency trees may pull multiple semver-compatible versions.
+multiple_crate_versions = "allow"
+# Third-party error types rarely implement std::error::Error in our graph.
+impl_trait_in_params = "allow"
 
 # Faster local/CI compiles: less debug info to generate and link.
 # Use `cargo build --release` (unchanged below) when you need full symbols/LTO.

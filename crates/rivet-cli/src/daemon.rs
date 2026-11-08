@@ -59,8 +59,7 @@ pub async fn start(client: &mut ApiClient, wait_secs: u64) -> Result<PathBuf> {
             });
         }
     }
-    cmd.spawn()
-        .with_context(|| format!("spawn {}", path_display(&bin)))?;
+    cmd.spawn().with_context(|| format!("spawn {}", path_display(&bin)))?;
 
     let deadline = std::time::Instant::now() + Duration::from_secs(wait_secs.max(1));
     while std::time::Instant::now() < deadline {
@@ -82,10 +81,10 @@ pub async fn stop(client: &mut ApiClient) -> Result<()> {
         match client.post_value("/v1/shutdown", None).await {
             Ok(v) => {
                 eprintln!("shutdown: {v}");
-            }
+            },
             Err(err) => {
                 eprintln!("shutdown request failed ({err}); falling back to pidfile");
-            }
+            },
         }
         // Give rivetd a moment to exit cleanly.
         for _ in 0..25 {
@@ -99,10 +98,7 @@ pub async fn stop(client: &mut ApiClient) -> Result<()> {
     // Only signal PIDs Rivet wrote under the local data dir.
     let paths = RivetPaths::discover().context("discover Rivet data dir")?;
     let targets: &[(&str, &[&str])] = &[
-        (
-            "rivet-proxy.pid",
-            &["rivet-proxy", "rivet-pro", "cli-proxy", "cliproxy"],
-        ),
+        ("rivet-proxy.pid", &["rivet-proxy", "rivet-pro", "cli-proxy", "cliproxy"]),
         ("clickhouse.pid", &["clickhouse", "clickhous"]),
         ("rivetd.pid", &["rivetd"]),
     ];
@@ -131,9 +127,7 @@ fn signal_owned_pid(pid: u32, expected: Option<&str>, hints: &[&str]) {
     }
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .status();
+        let _ = Command::new("kill").args(["-TERM", &pid.to_string()]).status();
         for _ in 0..20 {
             if rivet_core::pids::process_exe(pid).is_none() {
                 return;
@@ -142,9 +136,7 @@ fn signal_owned_pid(pid: u32, expected: Option<&str>, hints: &[&str]) {
         }
         if let Some(live) = rivet_core::pids::process_exe(pid) {
             if rivet_core::pids::identity_matches(&live, expected, hints) {
-                let _ = Command::new("kill")
-                    .args(["-KILL", &pid.to_string()])
-                    .status();
+                let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
             }
         }
     }

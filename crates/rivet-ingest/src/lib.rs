@@ -18,8 +18,14 @@ use serde::Deserialize;
 #[derive(Clone)]
 pub struct IngestState {
     pub store: Arc<dyn TrafficStore>,
-    /// Shared with the proxy via `RIVET_INGEST_KEY` (usually proxy_access_key).
+    /// Shared with the proxy via `RIVET_INGEST_KEY` (usually `proxy_access_key`).
     pub ingest_key: String,
+}
+
+impl std::fmt::Debug for IngestState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IngestState").finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,8 +42,7 @@ async fn require_ingest_auth(
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .map(rivet_core::host_is_loopback)
-        .unwrap_or(false);
+        .is_some_and(rivet_core::host_is_loopback);
     if !host_ok {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -58,10 +63,7 @@ pub fn router(state: IngestState) -> Router {
     Router::new()
         .route("/v1/ingest", post(ingest_one))
         .route("/v1/ingest/batch", post(ingest_batch))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            require_ingest_auth,
-        ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_ingest_auth))
         .with_state(state)
 }
 
@@ -80,14 +82,10 @@ async fn ingest_batch(
     State(state): State<IngestState>,
     Json(batch): Json<IngestBatch>,
 ) -> Result<StatusCode, StatusCode> {
-    state
-        .store
-        .insert_batch(&batch.events)
-        .await
-        .map_err(|err| {
-            tracing::error!(?err, "batch ingest failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.store.insert_batch(&batch.events).await.map_err(|err| {
+        tracing::error!(?err, "batch ingest failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(StatusCode::ACCEPTED)
 }
 

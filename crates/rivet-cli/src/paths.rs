@@ -32,10 +32,7 @@ pub fn version_file() -> Result<PathBuf> {
 
 pub fn installed_version() -> Option<String> {
     let path = version_file().ok()?;
-    fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    fs::read_to_string(path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 pub fn ensure_install_dirs() -> Result<PathBuf> {
@@ -85,12 +82,7 @@ pub fn resolve_runtime_bin(base: &str) -> Option<PathBuf> {
         for candidate in [
             dir.join(exe_name(base)),
             dir.join(format!("{base}-{}", target_triple())),
-            dir.join(format!(
-                "{}-{}{}",
-                base,
-                target_triple(),
-                rivet_core::exe_suffix()
-            )),
+            dir.join(format!("{}-{}{}", base, target_triple(), rivet_core::exe_suffix())),
         ] {
             if candidate.is_file() {
                 return Some(candidate);
@@ -102,12 +94,7 @@ pub fn resolve_runtime_bin(base: &str) -> Option<PathBuf> {
         if let Some(dir) = exe.parent() {
             for candidate in [
                 dir.join(exe_name(base)),
-                dir.join(format!(
-                    "{}-{}{}",
-                    base,
-                    target_triple(),
-                    rivet_core::exe_suffix()
-                )),
+                dir.join(format!("{}-{}{}", base, target_triple(), rivet_core::exe_suffix())),
             ] {
                 if candidate.is_file() {
                     return Some(candidate);
@@ -125,12 +112,7 @@ pub fn resolve_runtime_bin(base: &str) -> Option<PathBuf> {
             let dir = cwd.join(&rel);
             for candidate in [
                 dir.join(exe_name(base)),
-                dir.join(format!(
-                    "{}-{}{}",
-                    base,
-                    target_triple(),
-                    rivet_core::exe_suffix()
-                )),
+                dir.join(format!("{}-{}{}", base, target_triple(), rivet_core::exe_suffix())),
             ] {
                 if candidate.is_file() {
                     return Some(candidate);

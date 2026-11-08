@@ -142,15 +142,10 @@ mod tests {
         let mut ev = TrafficEvent::new(ProviderKind::Claude);
         ev.content = Some("hello Authorization: Bearer sk-secret1234567890".into());
         rivet_core::redact_event(&mut ev);
-        let store: Arc<dyn TrafficStore> = Arc::new(MemStore {
-            events: Mutex::new(vec![ev]),
-        });
+        let store: Arc<dyn TrafficStore> = Arc::new(MemStore { events: Mutex::new(vec![ev]) });
         let dir = std::env::temp_dir().join(format!(
             "rivet-export-test-{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("t.rivetbag");
