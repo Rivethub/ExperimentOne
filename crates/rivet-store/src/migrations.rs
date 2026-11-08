@@ -85,11 +85,7 @@ struct VersionRow {
 
 /// Apply all pending migrations against the `rivet` database.
 pub async fn run(client: &Client) -> Result<u32> {
-    client
-        .query(SCHEMA_MIGRATIONS_DDL)
-        .execute()
-        .await
-        .context("schema_migrations ddl")?;
+    client.query(SCHEMA_MIGRATIONS_DDL).execute().await.context("schema_migrations ddl")?;
 
     let applied = client
         .query("SELECT version FROM schema_migrations ORDER BY version")
@@ -103,11 +99,7 @@ pub async fn run(client: &Client) -> Result<u32> {
         if applied.contains(&migration.version) {
             continue;
         }
-        info!(
-            version = migration.version,
-            name = migration.name,
-            "applying clickhouse migration"
-        );
+        info!(version = migration.version, name = migration.name, "applying clickhouse migration");
         client
             .query(migration.sql)
             .execute()

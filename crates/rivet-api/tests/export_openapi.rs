@@ -5,7 +5,6 @@
 
 use std::path::PathBuf;
 
-
 #[test]
 #[ignore = "writes docs/openapi.json — run via scripts/export-openapi.sh"]
 fn export_openapi_doc() {

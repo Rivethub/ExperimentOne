@@ -62,7 +62,9 @@ impl ProviderKind {
 }
 
 /// How the event was captured / how trustworthy the session linkage is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema, JsonSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureQuality {
     /// Live proxy capture with a real harness session marker.

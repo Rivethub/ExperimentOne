@@ -11,9 +11,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use rivet_core::{
-    validate_ingest_batch, validate_traffic_event, LiveBus, LiveEvent, TrafficEvent,
-};
+use rivet_core::{validate_ingest_batch, validate_traffic_event, LiveBus, LiveEvent, TrafficEvent};
 use rivet_store::{MetaStore, TrafficStore};
 use serde::{Deserialize, Serialize};
 

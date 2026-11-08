@@ -30,10 +30,7 @@ impl std::error::Error for IngestValidationError {}
 /// Validate one traffic event before persistence.
 pub fn validate_traffic_event(event: &TrafficEvent) -> Result<(), IngestValidationError> {
     if event.provider.as_str().is_empty() {
-        return Err(IngestValidationError {
-            index: None,
-            message: "provider is required".into(),
-        });
+        return Err(IngestValidationError { index: None, message: "provider is required".into() });
     }
     if event.tokens_in > MAX_TOKENS_FIELD || event.tokens_out > MAX_TOKENS_FIELD {
         return Err(IngestValidationError {

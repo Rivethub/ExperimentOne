@@ -16,10 +16,10 @@ use tracing::info;
 pub use clickhouse::{
     ClickHouseTrafficStore, EmbeddingSearchHit, EMBEDDINGS_DDL, TRAFFIC_EVENTS_DDL,
 };
-pub use migrations::{run as run_clickhouse_migrations, MIGRATIONS};
 pub use meta::{
     EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, WikiPageMeta,
 };
+pub use migrations::{run as run_clickhouse_migrations, MIGRATIONS};
 pub use redacting::RedactingStore;
 
 #[async_trait]

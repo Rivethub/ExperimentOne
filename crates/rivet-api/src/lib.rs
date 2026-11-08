@@ -614,9 +614,7 @@ pub async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
     tag = "live",
     responses((status = 200, description = "Live refresh cursor", body = rivet_core::LiveCursor))
 )]
-pub async fn live_cursor_doc(
-    state: State<ApiState>,
-) -> Json<rivet_core::LiveCursor> {
+pub async fn live_cursor_doc(state: State<ApiState>) -> Json<rivet_core::LiveCursor> {
     live_routes::live_cursor(state).await
 }
 
@@ -629,9 +627,7 @@ pub async fn live_cursor_doc(
         description = "Server-Sent Events stream (`text/event-stream`) of live bus updates"
     ))
 )]
-pub async fn live_events_doc(
-    state: State<ApiState>,
-) -> Response {
+pub async fn live_events_doc(state: State<ApiState>) -> Response {
     live_routes::live_sse(state).await.into_response()
 }
 

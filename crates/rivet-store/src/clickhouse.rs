@@ -251,9 +251,7 @@ impl ClickHouseTrafficStore {
     pub async fn embedded_event_ids(&self, space: &str) -> Result<HashSet<String>> {
         let rows = self
             .client
-            .query(
-                "SELECT DISTINCT event_id FROM embeddings WHERE space = {space:String}",
-            )
+            .query("SELECT DISTINCT event_id FROM embeddings WHERE space = {space:String}")
             .param("space", space)
             .fetch_all::<EmbeddingIdRow>()
             .await?;
@@ -263,9 +261,7 @@ impl ClickHouseTrafficStore {
     pub async fn embedding_count(&self, space: &str) -> Result<u64> {
         let row = self
             .client
-            .query(
-                "SELECT uniqExact(event_id) AS n FROM embeddings WHERE space = {space:String}",
-            )
+            .query("SELECT uniqExact(event_id) AS n FROM embeddings WHERE space = {space:String}")
             .param("space", space)
             .fetch_one::<EmbeddingCountRow>()
             .await
@@ -445,10 +441,9 @@ impl TrafficStore for ClickHouseTrafficStore {
             return Ok(Vec::new());
         }
         // Server-side Array(UUID) membership avoids string-escaped IN lists.
-        self.fetch_events_bound(
-            &format!("{EVENT_SELECT} WHERE id IN {{ids:Array(UUID)}}"),
-            |q| q.param("ids", uuids.as_slice()),
-        )
+        self.fetch_events_bound(&format!("{EVENT_SELECT} WHERE id IN {{ids:Array(UUID)}}"), |q| {
+            q.param("ids", uuids.as_slice())
+        })
         .await
     }
 
@@ -461,11 +456,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             .fetch_one::<UsageTotalsRow>()
             .await
             .unwrap_or(UsageTotalsRow { events: 0, tokens_in: 0, tokens_out: 0 });
-        Ok(UsageTotals {
-            events: row.events,
-            tokens_in: row.tokens_in,
-            tokens_out: row.tokens_out,
-        })
+        Ok(UsageTotals { events: row.events, tokens_in: row.tokens_in, tokens_out: row.tokens_out })
     }
 
     async fn export_all(&self) -> Result<Vec<TrafficEvent>> {

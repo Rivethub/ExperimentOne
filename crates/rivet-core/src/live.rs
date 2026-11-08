@@ -16,7 +16,17 @@ pub enum LiveEvent {
 }
 
 /// Cheap snapshot for long-poll / Tauri watchers (no stream required).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, utoipa::ToSchema, schemars::JsonSchema)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    Default,
+    utoipa::ToSchema,
+    schemars::JsonSchema,
+)]
 pub struct LiveCursor {
     pub wiki_revision: u64,
     pub traffic_events: u64,

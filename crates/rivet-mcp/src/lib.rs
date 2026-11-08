@@ -19,14 +19,17 @@ use axum::{
 };
 use rivet_core::{lexical_embed, RivetConfig, LEXICAL_SPACE};
 use rivet_store::{ClickHouseTrafficStore, TrafficStore};
-use rmcp::{
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::{CallToolResult, ContentBlock, Implementation, ProtocolVersion, ServerCapabilities, ServerConfig},
-    schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
-};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager,
     tower::{StreamableHttpServerConfig, StreamableHttpService},
+};
+use rmcp::{
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::{
+        CallToolResult, ContentBlock, Implementation, ProtocolVersion, ServerCapabilities,
+        ServerConfig,
+    },
+    schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -102,8 +105,9 @@ impl RivetMcp {
             return Err(McpError::invalid_params("query is required", None));
         }
         match do_search_history(&self.state, &args.query, limit).await {
-            Ok(body) => Ok(CallToolResult::success(vec![ContentBlock::json(body)
-                .unwrap_or_else(|_| ContentBlock::text("{}"))])),
+            Ok(body) => Ok(CallToolResult::success(vec![
+                ContentBlock::json(body).unwrap_or_else(|_| ContentBlock::text("{}"))
+            ])),
             Err(()) => Err(McpError::internal_error("search failed", None)),
         }
     }
@@ -118,8 +122,9 @@ impl RivetMcp {
             return Err(McpError::invalid_params("query is required", None));
         }
         match do_semantic_search(&self.state, &args.query, limit).await {
-            Ok(body) => Ok(CallToolResult::success(vec![ContentBlock::json(body)
-                .unwrap_or_else(|_| ContentBlock::text("{}"))])),
+            Ok(body) => Ok(CallToolResult::success(vec![
+                ContentBlock::json(body).unwrap_or_else(|_| ContentBlock::text("{}"))
+            ])),
             Err(err) => Err(McpError::internal_error(err, None)),
         }
     }
