@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   push:
@@ -16,9 +16,12 @@ permissions:
 
 jobs:
   commit-lint:
+    name: Commit lint
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v7
+      - name: Check out repository
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Install committed
@@ -43,14 +46,18 @@ jobs:
   # macOS runners are not available on free private GitHub plans; Linux + Windows
   # cover the cross-platform surface. Re-add macos-14 when Pro/Team billing is on.
   rust:
+    name: Rust (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@master
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: "1.99.1"
           components: rustfmt, clippy
@@ -59,7 +66,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y clang mold
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: rivet-workspace
       - name: rustfmt
@@ -74,10 +82,14 @@ jobs:
         run: cargo test -p rivet-core -p rivet-api -p rivet-export -p rivet-runtime --lib
 
   sink:
+    name: Sink
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
         with:
           go-version-file: vendor/cliproxyapi/go.mod
       - name: gofmt
@@ -89,7 +101,8 @@ jobs:
             echo "$files"
             exit 1
           fi
-      - uses: golangci/golangci-lint-action@v9
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.15.0
           working-directory: vendor/cliproxyapi
@@ -99,10 +112,14 @@ jobs:
         run: go test ./internal/rivetsink/ -count=1 -vet=all
 
   desktop-lint:
+    name: Desktop lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.4"
       - name: Install frontend deps
@@ -119,7 +136,7 @@ jobs:
         run: bun run typecheck
 
   desktop:
-    name: desktop (${{ matrix.os }})
+    name: Desktop (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -129,12 +146,16 @@ jobs:
           - os: windows-latest
             packages: ""
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - name: Check out repository
+        uses: actions/checkout@v7
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.4"
-      - uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: "1.99.1"
       - name: Install Linux Tauri deps
@@ -142,7 +163,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ${{ matrix.packages }} clang mold
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
           shared-key: rivet-desktop
           workspaces: apps/desktop/src-tauri
@@ -174,11 +196,13 @@ jobs:
         run: cargo check
 
   # Single required check for branch rules / auto-merge. Keeps protection stable
-  # when matrix legs are renamed or added.
+  # when matrix legs are renamed or added. Display name must stay "CI".
   CI:
+    name: CI
     if: always() && !cancelled()
     needs: [commit-lint, rust, sink, desktop-lint, desktop]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require all jobs to succeed
         run: |
