@@ -1,0 +1,19 @@
+[package]
+name = "rivet-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Local control API for the Rivet desktop app"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+rivet-core.workspace = true
+rivet-export.workspace = true
+rivet-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tower-http.workspace = true

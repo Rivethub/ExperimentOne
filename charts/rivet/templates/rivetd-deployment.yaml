@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rivet.fullname" . }}-rivetd
+  labels:
+    {{- include "rivet.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rivetd
+spec:
+  replicas: {{ .Values.rivetd.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: rivetd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: rivetd
+    spec:
+      containers:
+        - name: rivetd
+          image: "{{ .Values.rivetd.image.repository }}:{{ .Values.rivetd.image.tag }}"
+          imagePullPolicy: {{ .Values.rivetd.image.pullPolicy }}
+          ports:
+            - name: api
+              containerPort: {{ .Values.rivetd.service.apiPort }}
+            - name: mcp
+              containerPort: {{ .Values.rivetd.service.mcpPort }}
+          env:
+            - name: RIVET_CLICKHOUSE_URL
+              value: "http://{{ include "rivet.fullname" . }}-clickhouse:{{ .Values.clickhouse.service.httpPort }}"
+          resources:
+            {{- toYaml .Values.rivetd.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rivet.fullname" . }}-rivetd
+  labels:
+    {{- include "rivet.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rivetd
+spec:
+  type: {{ .Values.rivetd.service.type }}
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: rivetd
+  ports:
+    - name: api
+      port: {{ .Values.rivetd.service.apiPort }}
+      targetPort: api
+    - name: mcp
+      port: {{ .Values.rivetd.service.mcpPort }}
+      targetPort: mcp
