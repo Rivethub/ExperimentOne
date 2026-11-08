@@ -158,9 +158,7 @@ mod tests {
         assert!(name.ends_with(".exe"), "{name}");
         #[cfg(not(windows))]
         assert!(
-            !Path::new(&name)
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")),
+            !Path::new(&name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")),
             "{name}"
         );
     }

@@ -10,11 +10,7 @@ export function AccountsTabActions({
   onToggleAddAccount: () => void;
 }): React.ReactElement {
   return (
-    <Button
-      variant="primary"
-      disabled={busy || loginActive}
-      onClick={onToggleAddAccount}
-    >
+    <Button variant="primary" disabled={busy || loginActive} onClick={onToggleAddAccount}>
       Add account
     </Button>
   );

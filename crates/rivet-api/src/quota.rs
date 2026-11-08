@@ -158,9 +158,7 @@ struct QuotaGroup {
 
 impl QuotaGroup {
     fn name(&self) -> Option<String> {
-        self.display_name
-            .clone()
-            .or_else(|| self.display_name_snake.clone())
+        self.display_name.clone().or_else(|| self.display_name_snake.clone())
     }
 }
 
@@ -182,24 +180,15 @@ struct QuotaBucket {
 
 impl QuotaBucket {
     fn remaining(&self) -> Option<f64> {
-        self.remaining_fraction
-            .or(self.remaining_fraction_camel)
-            .map(|f| f * 100.0)
+        self.remaining_fraction.or(self.remaining_fraction_camel).map(|f| f * 100.0)
     }
 
     fn reset(&self) -> Option<String> {
-        self.reset_time
-            .clone()
-            .or_else(|| self.reset_time_camel.clone())
+        self.reset_time.clone().or_else(|| self.reset_time_camel.clone())
     }
 
     fn window_id(&self, group_name: Option<&str>) -> String {
-        if let Some(w) = self
-            .window
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        if let Some(w) = self.window.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             return normalize_window_id(w);
         }
         if let Some(g) = group_name.map(str::trim).filter(|s| !s.is_empty()) {
@@ -252,8 +241,7 @@ fn http_client() -> Result<reqwest::Client> {
 }
 
 fn auth_headers(req: reqwest::RequestBuilder, key: &str) -> reqwest::RequestBuilder {
-    req.header("Authorization", format!("Bearer {key}"))
-        .header("X-Management-Key", key)
+    req.header("Authorization", format!("Bearer {key}")).header("X-Management-Key", key)
 }
 
 /// List credentials and fold them into a Rivet quota snapshot.
@@ -270,23 +258,17 @@ pub async fn fetch_quota_snapshot(
         Err(err) => {
             tracing::warn!(error = %err, "management credential list failed");
             return Err(err);
-        }
+        },
     };
     build_snapshot(cfg, &http, key, list, burn_by_provider).await
 }
 
 async fn list_credentials(http: &reqwest::Client, base: &str, key: &str) -> Result<CredList> {
     let v8 = format!("{base}/v8/management/credentials");
-    let res = auth_headers(http.get(&v8), key)
-        .send()
-        .await
-        .context("list credentials")?;
+    let res = auth_headers(http.get(&v8), key).send().await.context("list credentials")?;
     if res.status() == reqwest::StatusCode::NOT_FOUND {
         let v0 = format!("{base}/v0/management/auth-files");
-        let res = auth_headers(http.get(&v0), key)
-            .send()
-            .await
-            .context("list auth-files")?;
+        let res = auth_headers(http.get(&v0), key).send().await.context("list auth-files")?;
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
@@ -315,10 +297,7 @@ pub async fn refresh_credentials(cfg: &RivetConfig) -> Result<serde_json::Value>
         .context("refresh credentials")?;
     if res.status() == reqwest::StatusCode::NOT_FOUND {
         let url = format!("{base}/v0/management/auth-files/refresh?all=true");
-        let res = auth_headers(http.post(&url), key)
-            .send()
-            .await
-            .context("refresh auth-files")?;
+        let res = auth_headers(http.post(&url), key).send().await.context("refresh auth-files")?;
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
@@ -350,17 +329,10 @@ async fn build_snapshot(
             .or_else(|| file.id.clone())
             .unwrap_or_else(|| "unknown".into());
         let provider = normalize_provider(
-            file.provider
-                .as_deref()
-                .or(file.type_.as_deref())
-                .unwrap_or("unknown"),
+            file.provider.as_deref().or(file.type_.as_deref()).unwrap_or("unknown"),
         );
         let email = file.email.clone();
-        let label = file
-            .label
-            .clone()
-            .or_else(|| email.clone())
-            .unwrap_or_else(|| id.clone());
+        let label = file.label.clone().or_else(|| email.clone()).unwrap_or_else(|| id.clone());
 
         let mut remaining_pct = remaining_from_signals(file.quota.as_ref());
         let mut reset_at = reset_from_signals(file.quota.as_ref())
@@ -469,10 +441,7 @@ async fn fetch_live_quota(
     key: &str,
     auth_index: &str,
 ) -> Result<QuotaFetchResponse> {
-    for path in [
-        "/v8/management/credentials/quota/fetch",
-        "/v0/management/quota/fetch",
-    ] {
+    for path in ["/v8/management/credentials/quota/fetch", "/v0/management/quota/fetch"] {
         let url = format!("{base}{path}");
         let res = auth_headers(http.post(&url), key)
             .json(&serde_json::json!({ "auth_index": auth_index }))
@@ -643,10 +612,7 @@ fn reset_from_signals(obs: Option<&QuotaObservation>) -> Option<String> {
             }
         }
     }
-    candidates
-        .into_iter()
-        .min_by_key(|(r, _)| *r)
-        .map(|(_, iso)| iso)
+    candidates.into_iter().min_by_key(|(r, _)| *r).map(|(_, iso)| iso)
 }
 
 fn parse_reset_value(v: &str) -> Option<String> {
@@ -688,11 +654,7 @@ fn claude_window_rank(key: &str) -> i32 {
 fn cooldown_reset(items: Option<&Vec<CooldownItem>>) -> Option<String> {
     items?
         .iter()
-        .filter(|c| {
-            c.reason
-                .as_deref()
-                .is_none_or(|r| r.contains("quota"))
-        })
+        .filter(|c| c.reason.as_deref().is_none_or(|r| r.contains("quota")))
         .filter_map(|c| c.retry_at.clone())
         .min()
 }
@@ -748,11 +710,7 @@ pub fn local_fallback_snapshot(
             id: id.clone(),
             provider: p,
             label: label.clone(),
-            email: if label.contains('@') {
-                Some(label.clone())
-            } else {
-                None
-            },
+            email: if label.contains('@') { Some(label.clone()) } else { None },
             plan: None,
             remaining_pct: None,
             reset_at: None,
@@ -813,25 +771,15 @@ pub fn provider_quota_from_accounts(
     burn_tok_h: f64,
 ) -> ProviderQuota {
     let account_count = list.len() as u64;
-    let known: Vec<f64> = list
-        .iter()
-        .filter(|a| a.loaded)
-        .filter_map(|a| a.remaining_pct)
-        .collect();
+    let known: Vec<f64> =
+        list.iter().filter(|a| a.loaded).filter_map(|a| a.remaining_pct).collect();
     let known_count = known.len() as u64;
     // Only sum observed watermarks — never invent "full" for missing signals.
     let remaining_pct = known.iter().sum::<f64>();
-    let capacity_pct = if known_count > 0 {
-        u64_to_f64(known_count) * 100.0
-    } else {
-        0.0
-    };
+    let capacity_pct = if known_count > 0 { u64_to_f64(known_count) * 100.0 } else { 0.0 };
 
     let remaining_tokens: f64 = remaining_tokens_from_pct_sum(
-        list.iter()
-            .filter(|a| a.loaded)
-            .filter_map(|a| a.remaining_pct)
-            .sum(),
+        list.iter().filter(|a| a.loaded).filter_map(|a| a.remaining_pct).sum(),
     );
     let burn_pct_per_hour = if known_count > 0 {
         let pool = u64_to_f64(known_count) * ASSUMED_TOK_PER_ACCT;
@@ -845,10 +793,7 @@ pub fn provider_quota_from_accounts(
     } else if remaining_tokens <= 0.0 {
         "Empty".into()
     } else if burn_tok_h > 1.0 {
-        format!(
-            "est. {} @ 80k tok/acct",
-            format_horizon(remaining_tokens / burn_tok_h)
-        )
+        format!("est. {} @ 80k tok/acct", format_horizon(remaining_tokens / burn_tok_h))
     } else {
         "Steady".into()
     };
@@ -868,13 +813,17 @@ pub fn provider_quota_from_accounts(
             let rem_tok = (rem / 100.0) * ASSUMED_TOK_PER_ACCT;
             Some((rem_tok / share, a.label.clone()))
         })
-        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)).map_or_else(|| {
-            if known.is_empty() {
-                "— pending live quota".into()
-            } else {
-                "—".into()
-            }
-        }, |(h, label)| format!("est. {label} · {}", format_horizon(h)));
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+        .map_or_else(
+            || {
+                if known.is_empty() {
+                    "— pending live quota".into()
+                } else {
+                    "—".into()
+                }
+            },
+            |(h, label)| format!("est. {label} · {}", format_horizon(h)),
+        );
 
     let next_reset = list
         .iter()
@@ -884,13 +833,17 @@ pub fn provider_quota_from_accounts(
             let r = a.reset_at.as_ref()?;
             Some((r, rem))
         })
-        .min_by(|a, b| a.0.cmp(b.0)).map_or_else(|| {
-            if known.is_empty() {
-                "— pending live quota".into()
-            } else {
-                "—".into()
-            }
-        }, |(r, rem)| format_reset_label(r, rem));
+        .min_by(|a, b| a.0.cmp(b.0))
+        .map_or_else(
+            || {
+                if known.is_empty() {
+                    "— pending live quota".into()
+                } else {
+                    "—".into()
+                }
+            },
+            |(r, rem)| format_reset_label(r, rem),
+        );
 
     ProviderQuota {
         provider: provider.to_string(),
@@ -980,11 +933,7 @@ mod tests {
         assert!(q.pool_empty.contains("pending"), "{}", q.pool_empty);
         assert!(q.next_reset.contains("pending"), "{}", q.next_reset);
         assert_eq!(q.burn_pct_per_hour, 0.0);
-        assert!(
-            q.burn_last_horizon.contains("12000"),
-            "{}",
-            q.burn_last_horizon
-        );
+        assert!(q.burn_last_horizon.contains("12000"), "{}", q.burn_last_horizon);
     }
 
     #[test]

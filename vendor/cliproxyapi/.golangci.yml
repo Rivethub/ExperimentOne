@@ -1,11 +1,9 @@
 # Strict lint for Rivet first-party Go (internal/rivetsink only).
-# Upstream CLIProxyAPI is not lint-clean; keep `run.paths` narrow.
+# Upstream CLIProxyAPI is not lint-clean; callers must pass ./internal/rivetsink/...
 version: "2"
 
 run:
   relative-path-mode: gomod
-  paths:
-    - internal/rivetsink
   tests: true
 
 output:

@@ -63,8 +63,7 @@ export function AccountConnectCards({
           isDefined(q?.reset_at) && q.reset_at !== ""
             ? ` · reset ${formatCountdownTo(q.reset_at)}`
             : "";
-        const showAltLabel =
-          isDefined(q) && a.label !== (q.email ?? q.label);
+        const showAltLabel = isDefined(q) && a.label !== (q.email ?? q.label);
         return (
           <article key={a.id} className={styles.connectCard} style={{ borderColor: `${color}44` }}>
             <header className={styles.connectCardHead} style={{ borderColor: `${color}33` }}>
@@ -82,7 +81,9 @@ export function AccountConnectCards({
                 {fmtPct(q?.remaining_pct ?? null)} remaining
                 {resetSuffix}
               </div>
-              <div className={cx(styles.mono, styles.accountLimit)}>{showAltLabel ? a.label : ""}</div>
+              <div className={cx(styles.mono, styles.accountLimit)}>
+                {showAltLabel ? a.label : ""}
+              </div>
             </div>
             <footer className={styles.connectCardActions}>
               {showHarness && (
@@ -90,14 +91,21 @@ export function AccountConnectCards({
                   Harness setup
                 </Button>
               )}
-              <Button disabled={busy || loginActive} onClick={() => { onReconnect(id); }}>
+              <Button
+                disabled={busy || loginActive}
+                onClick={() => {
+                  onReconnect(id);
+                }}
+              >
                 Reconnect
               </Button>
               <Button
                 variant="danger"
                 disabled={busy}
                 title="Deletes the local credential file (DELETE /v1/accounts)"
-                onClick={() => { onRemove(a.id); }}
+                onClick={() => {
+                  onRemove(a.id);
+                }}
               >
                 Remove
               </Button>

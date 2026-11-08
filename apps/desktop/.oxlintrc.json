@@ -45,9 +45,7 @@
   },
   "overrides": [
     {
-      "files": [
-        "**/*.{cts,mts,ts,tsx}"
-      ],
+      "files": ["**/*.{cts,mts,ts,tsx}"],
       "rules": {
         "no-redeclare": "off"
       }
@@ -75,9 +73,7 @@
       }
     },
     {
-      "files": [
-        "**/*.d.ts"
-      ],
+      "files": ["**/*.d.ts"],
       "rules": {
         "typescript/method-signature-style": "off",
         "typescript/no-explicit-any": "off",
@@ -105,10 +101,7 @@
       }
     },
     {
-      "files": [
-        "**/*.tsx",
-        "**/*.jsx"
-      ],
+      "files": ["**/*.tsx", "**/*.jsx"],
       "rules": {
         "max-lines-per-function": [
           "warn",
@@ -120,10 +113,7 @@
       }
     },
     {
-      "files": [
-        "src/effect/ipc.ts",
-        "src/lib/api.ts"
-      ],
+      "files": ["src/effect/ipc.ts", "src/lib/api.ts"],
       "rules": {
         "de-clank/no-unvalidated-json-parse": "off",
         "typescript/no-unsafe-type-assertion": "off",
@@ -133,17 +123,13 @@
       }
     },
     {
-      "files": [
-        "src/effect/errors.ts"
-      ],
+      "files": ["src/effect/errors.ts"],
       "rules": {
         "max-classes-per-file": "off"
       }
     },
     {
-      "files": [
-        "src/lib/tauri-utils.ts"
-      ],
+      "files": ["src/lib/tauri-utils.ts"],
       "rules": {
         "de-clank/no-default-on-catch": "off"
       }
@@ -229,11 +215,7 @@
     "de-clank/no-unowned-source-root-files": [
       "warn",
       {
-        "allowed": [
-          "App.tsx",
-          "main.tsx",
-          "vite-env.d.ts"
-        ]
+        "allowed": ["App.tsx", "main.tsx", "vite-env.d.ts"]
       }
     ],
     "de-clank/no-unsafe-dictionary-type": "warn",
@@ -306,10 +288,7 @@
     "jsdoc/require-yields-description": "off",
     "jsdoc/require-yields-type": "off",
     "capitalized-comments": "off",
-    "arrow-body-style": [
-      "warn",
-      "as-needed"
-    ],
+    "arrow-body-style": ["warn", "as-needed"],
     "id-length": "off",
     "import/consistent-type-specifier-style": "off",
     "import/exports-last": "off",
@@ -325,10 +304,7 @@
     "import/prefer-default-export": "off",
     "import/unambiguous": "off",
     "init-declarations": "off",
-    "max-classes-per-file": [
-      "warn",
-      1
-    ],
+    "max-classes-per-file": ["warn", 1],
     "max-lines": [
       "warn",
       {
@@ -343,14 +319,8 @@
         "skipBlankLines": true
       }
     ],
-    "max-params": [
-      "warn",
-      5
-    ],
-    "max-statements": [
-      "warn",
-      40
-    ],
+    "max-params": ["warn", 5],
+    "max-statements": ["warn", 40],
     "new-cap": [
       "warn",
       {
@@ -411,10 +381,7 @@
     "no-underscore-dangle": "off",
     "no-useless-computed-key": "off",
     "no-use-before-define": "off",
-    "one-var": [
-      "warn",
-      "never"
-    ],
+    "one-var": ["warn", "never"],
     "oxc/no-async-await": "off",
     "promise/avoid-new": "off",
     "promise/prefer-await-to-callbacks": "off",
@@ -743,35 +710,18 @@
       }
     ],
     "no-lonely-if": "warn",
-    "curly": [
-      "warn",
-      "all"
-    ],
+    "curly": ["warn", "all"],
     "oxc/no-this-in-exported-function": "warn",
     "no-warning-comments": [
       "warn",
       {
-        "terms": [
-          "todo",
-          "fixme",
-          "xxx",
-          "hack"
-        ],
+        "terms": ["todo", "fixme", "xxx", "hack"],
         "location": "anywhere"
       }
     ],
-    "max-depth": [
-      "warn",
-      4
-    ],
-    "complexity": [
-      "warn",
-      30
-    ],
-    "max-nested-callbacks": [
-      "warn",
-      4
-    ],
+    "max-depth": ["warn", 4],
+    "complexity": ["warn", 30],
+    "max-nested-callbacks": ["warn", 4],
     "no-continue": "warn",
     "no-labels": "warn",
     "no-loop-func": "warn",
@@ -781,16 +731,10 @@
     "import/first": "warn",
     "import/newline-after-import": "warn",
     "import/no-mutable-exports": "warn",
-    "typescript/method-signature-style": [
-      "warn",
-      "property"
-    ],
+    "typescript/method-signature-style": ["warn", "property"],
     "typescript/no-restricted-types": "warn",
     "typescript/no-empty-object-type": "warn",
-    "typescript/consistent-indexed-object-style": [
-      "warn",
-      "record"
-    ],
+    "typescript/consistent-indexed-object-style": ["warn", "record"],
     "no-restricted-properties": [
       "warn",
       {

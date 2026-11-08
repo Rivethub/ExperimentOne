@@ -13,10 +13,7 @@ export function open(opts?: {
   return Promise.resolve(path);
 }
 
-export function ask(
-  message: string,
-  opts?: { title?: string; kind?: string },
-): Promise<boolean> {
+export function ask(message: string, opts?: { title?: string; kind?: string }): Promise<boolean> {
   console.info("[mock dialog] ask", opts?.title ?? "confirm", message);
   return Promise.resolve(true);
 }

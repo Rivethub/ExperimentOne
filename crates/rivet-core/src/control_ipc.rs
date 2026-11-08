@@ -60,7 +60,7 @@ pub fn control_request(
     }
     let method = method.trim().to_ascii_uppercase();
     match method.as_str() {
-        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" => {}
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" => {},
         other => bail!("unsupported method {other}"),
     }
 
@@ -79,26 +79,21 @@ pub fn control_request(
     }
     if !body_bytes.is_empty() {
         writeln!(req, "Content-Type: application/json").context("format control ipc request")?;
-        writeln!(req, "Content-Length: {}", body_bytes.len()).context("format control ipc request")?;
+        writeln!(req, "Content-Length: {}", body_bytes.len())
+            .context("format control ipc request")?;
     } else if matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
         writeln!(req, "Content-Length: 0").context("format control ipc request")?;
     }
     req.push_str("\r\n");
 
-    stream
-        .write_all(req.as_bytes())
-        .context("write control ipc headers")?;
+    stream.write_all(req.as_bytes()).context("write control ipc headers")?;
     if !body_bytes.is_empty() {
-        stream
-            .write_all(body_bytes)
-            .context("write control ipc body")?;
+        stream.write_all(body_bytes).context("write control ipc body")?;
     }
     stream.flush().context("flush control ipc")?;
 
     let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .context("read control ipc response")?;
+    stream.read_to_end(&mut raw).context("read control ipc response")?;
     Ok(parse_http_response(&raw))
 }
 
@@ -117,11 +112,8 @@ fn parse_http_response(raw: &[u8]) -> ControlIpcResponse {
     let (header_blob, body) = http_header_body(&text);
     let mut lines = header_blob.lines();
     let status_line = lines.next().unwrap_or("");
-    let status = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(0);
+    let status =
+        status_line.split_whitespace().nth(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
     let mut content_type = String::new();
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
@@ -130,11 +122,7 @@ fn parse_http_response(raw: &[u8]) -> ControlIpcResponse {
             }
         }
     }
-    ControlIpcResponse {
-        status,
-        body: body.to_string(),
-        content_type,
-    }
+    ControlIpcResponse { status, body: body.to_string(), content_type }
 }
 
 #[cfg(unix)]
@@ -156,13 +144,13 @@ fn connect_stream(paths: &RivetPaths, timeout: Duration) -> std::io::Result<Cont
                 let _ = stream.set_read_timeout(Some(timeout));
                 let _ = stream.set_write_timeout(Some(timeout));
                 return Ok(stream);
-            }
+            },
             Err(err) => {
                 if start.elapsed() >= timeout {
                     return Err(err);
                 }
                 std::thread::sleep(Duration::from_millis(25));
-            }
+            },
         }
     }
 }
@@ -176,19 +164,14 @@ fn connect_stream(paths: &RivetPaths, timeout: Duration) -> std::io::Result<Cont
     let endpoint = control_endpoint(paths);
     let start = std::time::Instant::now();
     loop {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .access_mode(ACCESS)
-            .open(&endpoint)
-        {
+        match OpenOptions::new().read(true).write(true).access_mode(ACCESS).open(&endpoint) {
             Ok(file) => return Ok(file),
             Err(err) => {
                 if start.elapsed() >= timeout {
                     return Err(err);
                 }
                 std::thread::sleep(Duration::from_millis(25));
-            }
+            },
         }
     }
 }

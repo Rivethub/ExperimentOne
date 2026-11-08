@@ -28,14 +28,18 @@ export function HarnessTab({
         <Button
           variant="primary"
           disabled={harness.busy}
-          onClick={() => { harness.onWriteHarness("claude", "user"); }}
+          onClick={() => {
+            harness.onWriteHarness("claude", "user");
+          }}
         >
           Install into ~/.claude
         </Button>
         <Button
           variant="primary"
           disabled={harness.busy}
-          onClick={() => { harness.onWriteHarness("codex", "user"); }}
+          onClick={() => {
+            harness.onWriteHarness("codex", "user");
+          }}
         >
           Install into ~/.codex
         </Button>
@@ -46,11 +50,18 @@ export function HarnessTab({
         <Button onClick={harness.onLoadMcp}>Copy MCP snippet</Button>
         <Button
           disabled={harness.busy}
-          onClick={() => { harness.onWriteHarness("claude", "isolated"); }}
+          onClick={() => {
+            harness.onWriteHarness("claude", "isolated");
+          }}
         >
           Isolated Claude dir
         </Button>
-        <Button disabled={harness.busy} onClick={() => { harness.onWriteHarness("codex", "isolated"); }}>
+        <Button
+          disabled={harness.busy}
+          onClick={() => {
+            harness.onWriteHarness("codex", "isolated");
+          }}
+        >
           Isolated Codex dir
         </Button>
       </Actions>
@@ -66,7 +77,13 @@ export function HarnessTab({
           </Kv>
           {isDefined(envHint) && envHint !== "" ? (
             <Actions>
-              <Button onClick={() => { harness.onCopyText(envHint); }}>Copy env export</Button>
+              <Button
+                onClick={() => {
+                  harness.onCopyText(envHint);
+                }}
+              >
+                Copy env export
+              </Button>
             </Actions>
           ) : null}
         </div>
@@ -74,7 +91,13 @@ export function HarnessTab({
       {isDefined(harness.snippet) && harness.snippet !== "" && (
         <div style={{ marginTop: 12 }}>
           <Actions>
-            <Button onClick={() => { harness.onCopyText(harness.snippet); }}>Copy snippet</Button>
+            <Button
+              onClick={() => {
+                harness.onCopyText(harness.snippet);
+              }}
+            >
+              Copy snippet
+            </Button>
           </Actions>
           <Snippet>{harness.snippet}</Snippet>
         </div>

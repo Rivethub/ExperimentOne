@@ -77,9 +77,7 @@ pub struct LocalStores {
 impl LocalStores {
     pub fn open(paths: &RivetPaths) -> Result<Self> {
         paths.ensure()?;
-        Ok(Self {
-            meta: Arc::new(MetaStore::open(paths)?),
-        })
+        Ok(Self { meta: Arc::new(MetaStore::open(paths)?) })
     }
 
     /// ClickHouse-only traffic (redacted on write). Requires a reachable URL.

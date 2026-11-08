@@ -53,8 +53,14 @@ export function costForProviderEvents(
 }
 
 export function fmtUsd(n: number): string {
-  if (n < 0.01 && n > 0) {return "<$0.01";}
-  if (n < 1) {return `$${n.toFixed(2)}`;}
-  if (n < 100) {return `$${n.toFixed(2)}`;}
+  if (n < 0.01 && n > 0) {
+    return "<$0.01";
+  }
+  if (n < 1) {
+    return `$${n.toFixed(2)}`;
+  }
+  if (n < 100) {
+    return `$${n.toFixed(2)}`;
+  }
   return `$${Math.round(n)}`;
 }

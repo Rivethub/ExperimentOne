@@ -13,7 +13,15 @@ export function RuntimeMcpCard({
 }): React.ReactElement {
   const enabled = status?.capabilities.mcp === true;
   const foot = useMemo(
-    () => <Button onClick={() => { onCopyText(status?.mcp_url ?? ""); }}>Copy MCP URL</Button>,
+    () => (
+      <Button
+        onClick={() => {
+          onCopyText(status?.mcp_url ?? "");
+        }}
+      >
+        Copy MCP URL
+      </Button>
+    ),
     [onCopyText, status?.mcp_url],
   );
   return (

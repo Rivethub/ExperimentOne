@@ -27,7 +27,7 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
         Err(err) => {
             warn!(?err, "wiki dir unreadable");
             return Ok((0, 0));
-        }
+        },
     };
 
     for entry in entries.flatten() {
@@ -35,10 +35,8 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
         if !project_path.is_dir() {
             continue;
         }
-        let Some(project_id) = project_path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(ToString::to_string)
+        let Some(project_id) =
+            project_path.file_name().and_then(|s| s.to_str()).map(ToString::to_string)
         else {
             continue;
         };
@@ -47,11 +45,8 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
         }
 
         for md in walk_markdown(&project_path) {
-            let rel = md
-                .strip_prefix(&project_path)
-                .unwrap_or(&md)
-                .to_string_lossy()
-                .replace('\\', "/");
+            let rel =
+                md.strip_prefix(&project_path).unwrap_or(&md).to_string_lossy().replace('\\', "/");
             let page = page_from_file(paths, &project_id, &rel, &md);
             seen_ids.insert(page.id.clone());
             let changed = match meta.get_wiki_page(&page.id)? {
@@ -60,7 +55,7 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
                         || prev.path != page.path
                         || prev.updated_at != page.updated_at
                         || prev.project_id != page.project_id
-                }
+                },
                 None => true,
             };
             if changed {
@@ -119,15 +114,14 @@ fn page_from_file(
     abs: &Path,
 ) -> WikiPageMeta {
     let body = std::fs::read_to_string(abs).unwrap_or_default();
-    let id_suffix = relative
-        .trim_end_matches(".md")
-        .trim_end_matches(".MD")
-        .trim_end_matches(".Md");
+    let id_suffix =
+        relative.trim_end_matches(".md").trim_end_matches(".MD").trim_end_matches(".Md");
     let title = title_from_markdown(&body, id_suffix);
     let stored = relative_wiki_path(paths, abs);
     let updated_at = std::fs::metadata(abs)
         .and_then(|m| m.modified())
-        .ok().map_or_else(|| Utc::now().to_rfc3339(), |t| DateTime::<Utc>::from(t).to_rfc3339());
+        .ok()
+        .map_or_else(|| Utc::now().to_rfc3339(), |t| DateTime::<Utc>::from(t).to_rfc3339());
 
     WikiPageMeta {
         id: format!("{project_id}/{id_suffix}"),
@@ -157,7 +151,10 @@ fn title_from_markdown(body: &str, fallback: &str) -> String {
 
 fn relative_wiki_path(paths: &RivetPaths, abs: &Path) -> String {
     let root = paths.as_root().as_std_path();
-    abs.strip_prefix(root).map_or_else(|_| abs.to_string_lossy().replace('\\', "/"), |p| p.to_string_lossy().replace('\\', "/"))
+    abs.strip_prefix(root).map_or_else(
+        |_| abs.to_string_lossy().replace('\\', "/"),
+        |p| p.to_string_lossy().replace('\\', "/"),
+    )
 }
 
 /// Watch `wiki/` and reconcile meta on any create/modify/remove (debounced).
@@ -171,7 +168,7 @@ pub fn spawn_wiki_watcher(
             Ok(_) => {
                 revision.fetch_add(1, Ordering::SeqCst);
                 info!("wiki filesystem index ready");
-            }
+            },
             Err(err) => warn!(?err, "initial wiki reconcile failed"),
         }
 
@@ -188,19 +185,16 @@ pub fn spawn_wiki_watcher(
                     ) {
                         let _ = tx.send(());
                     }
-                }
+                },
                 Err(err) => warn!(?err, "wiki watcher error"),
             },
             notify::Config::default(),
         ) {
             Ok(w) => w,
             Err(err) => {
-                warn!(
-                    ?err,
-                    "wiki watcher unavailable — index only updates on worker ticks"
-                );
+                warn!(?err, "wiki watcher unavailable — index only updates on worker ticks");
                 return;
-            }
+            },
         };
 
         let wiki = paths.wiki_dir();
@@ -224,7 +218,7 @@ pub fn spawn_wiki_watcher(
                     if upserts > 0 || removed > 0 {
                         revision.fetch_add(1, Ordering::SeqCst);
                     }
-                }
+                },
                 Err(err) => warn!(?err, "wiki reconcile after fs event failed"),
             }
         }

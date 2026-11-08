@@ -26,10 +26,7 @@ function wikiPagesUnchanged(prev: WikiInfo, next: WikiInfo): boolean {
   });
 }
 
-export function useWiki(opts: {
-  page: string;
-  ensureSession: () => Promise<void>;
-}): UseWikiResult {
+export function useWiki(opts: { page: string; ensureSession: () => Promise<void> }): UseWikiResult {
   const { page } = opts;
   const [wiki, setWiki] = useState<WikiInfo | null>(null);
 

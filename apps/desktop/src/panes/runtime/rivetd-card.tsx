@@ -22,7 +22,13 @@ export function RuntimeRivetdCard({
     () => (
       <>
         <Button onClick={onRefresh}>Sync now</Button>
-        <Button onClick={() => { onOpenSettings("accounts"); }}>Accounts</Button>
+        <Button
+          onClick={() => {
+            onOpenSettings("accounts");
+          }}
+        >
+          Accounts
+        </Button>
       </>
     ),
     [onOpenSettings, onRefresh],
@@ -36,7 +42,11 @@ export function RuntimeRivetdCard({
       foot={foot}
     >
       <RuntimeKv label="Synced" value={formatSynced(lastSyncedAt)} />
-      <RuntimeKv label="Wiki path" value={status?.wiki_dir ?? "—"} title={status?.wiki_dir ?? undefined} />
+      <RuntimeKv
+        label="Wiki path"
+        value={status?.wiki_dir ?? "—"}
+        title={status?.wiki_dir ?? undefined}
+      />
     </RuntimePaneCard>
   );
 }

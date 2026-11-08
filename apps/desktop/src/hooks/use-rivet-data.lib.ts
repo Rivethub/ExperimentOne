@@ -1,10 +1,5 @@
 import { Effect } from "effect";
-import {
-  hasStringMessage,
-  isTransientReachabilityMessage,
-  runApp,
-  softEffect,
-} from "../effect";
+import { hasStringMessage, isTransientReachabilityMessage, runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
 import type { CatalogProvider } from "../lib/provider-utils";
 import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";

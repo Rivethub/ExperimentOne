@@ -16,7 +16,9 @@ function isBoolean(value: unknown): value is boolean {
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
-  return value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value);
+  return (
+    value !== undefined && value !== null && typeof value === "object" && !Array.isArray(value)
+  );
 }
 
 export function ok(data: unknown, status = 200): MockHttpResult {

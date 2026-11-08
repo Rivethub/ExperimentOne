@@ -20,11 +20,7 @@ pub struct ClickHouseSupervisor {
 impl ClickHouseSupervisor {
     pub fn new(paths: RivetPaths, config: RivetConfig) -> Result<Self> {
         write_clickhouse_config(&paths, &config)?;
-        Ok(Self {
-            paths,
-            config,
-            child: Mutex::new(None),
-        })
+        Ok(Self { paths, config, child: Mutex::new(None) })
     }
 
     pub fn http_url(&self) -> String {
@@ -60,12 +56,8 @@ impl ClickHouseSupervisor {
 
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         for candidate in [
-            manifest
-                .join("../../apps/desktop/src-tauri/binaries")
-                .join(&named),
-            manifest
-                .join("../../apps/desktop/src-tauri/binaries")
-                .join(&plain),
+            manifest.join("../../apps/desktop/src-tauri/binaries").join(&named),
+            manifest.join("../../apps/desktop/src-tauri/binaries").join(&plain),
             PathBuf::from("/tmp/rivet-clickhouse"),
             PathBuf::from("/tmp/rivet-clickhouse.exe"),
         ] {
@@ -95,13 +87,13 @@ impl ClickHouseSupervisor {
                     *slot = None;
                     crate::pids::clear_clickhouse_pid(&self.paths);
                     false
-                }
+                },
                 Ok(None) => true,
                 Err(_) => {
                     *slot = None;
                     crate::pids::clear_clickhouse_pid(&self.paths);
                     false
-                }
+                },
             }
         } else {
             port_open(self.config.clickhouse_http_port)
@@ -117,10 +109,7 @@ impl ClickHouseSupervisor {
 
         let mut slot = self.child.lock().expect("ch child lock");
         if self.refresh_locked(&mut slot) {
-            info!(
-                port = self.config.clickhouse_http_port,
-                "clickhouse already listening"
-            );
+            info!(port = self.config.clickhouse_http_port, "clickhouse already listening");
             return Ok(true);
         }
 
@@ -139,9 +128,7 @@ impl ClickHouseSupervisor {
             cmd.process_group(0);
         }
 
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("spawn clickhouse {}", bin.display()))?;
+        let child = cmd.spawn().with_context(|| format!("spawn clickhouse {}", bin.display()))?;
         info!(path = %bin.display(), pid = child.id(), "clickhouse sidecar started");
         crate::pids::write_clickhouse_pid(&self.paths, child.id());
         *slot = Some(child);
@@ -177,13 +164,9 @@ impl ClickHouseSupervisor {
             let pid = child.id();
             #[cfg(unix)]
             {
-                let _ = Command::new("kill")
-                    .args(["-TERM", &format!("-{pid}")])
-                    .status();
+                let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
                 thread::sleep(Duration::from_millis(200));
-                let _ = Command::new("kill")
-                    .args(["-KILL", &format!("-{pid}")])
-                    .status();
+                let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
             }
             #[cfg(windows)]
             {

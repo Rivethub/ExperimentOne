@@ -109,18 +109,10 @@ impl RivetConfig {
 
     /// Turn on optional capabilities when models are configured.
     pub fn sync_capabilities_from_models(&mut self) {
-        if self
-            .embedding_model
-            .as_ref()
-            .is_some_and(|s| !s.trim().is_empty())
-        {
+        if self.embedding_model.as_ref().is_some_and(|s| !s.trim().is_empty()) {
             self.capabilities.vector_search = true;
         }
-        if self
-            .wiki_model
-            .as_ref()
-            .is_some_and(|s| !s.trim().is_empty())
-        {
+        if self.wiki_model.as_ref().is_some_and(|s| !s.trim().is_empty()) {
             self.capabilities.wiki = true;
         }
         self.capabilities.mcp = true;

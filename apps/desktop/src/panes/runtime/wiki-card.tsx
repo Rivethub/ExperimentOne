@@ -16,10 +16,20 @@ export function RuntimeWikiCard({
 }): React.ReactElement {
   const on = status?.workers?.wiki === true || status?.capabilities.wiki === true;
   const model =
-    isDefined(status?.wiki_model) && status.wiki_model !== "" ? status.wiki_model : "structure only";
+    isDefined(status?.wiki_model) && status.wiki_model !== ""
+      ? status.wiki_model
+      : "structure only";
   const cursor = status?.workers?.wiki_cursor ?? undefined;
   const foot = useMemo(
-    () => <Button onClick={() => { onOpenSettings("intelligence"); }}>Configure</Button>,
+    () => (
+      <Button
+        onClick={() => {
+          onOpenSettings("intelligence");
+        }}
+      >
+        Configure
+      </Button>
+    ),
     [onOpenSettings],
   );
 

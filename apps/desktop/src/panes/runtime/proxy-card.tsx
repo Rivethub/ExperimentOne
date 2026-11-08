@@ -13,7 +13,15 @@ export function RuntimeProxyCard({
 }): React.ReactElement {
   const live = status?.proxy_running === true;
   const foot = useMemo(
-    () => <Button onClick={() => { onCopyText(status?.proxy_base_url ?? ""); }}>Copy URL</Button>,
+    () => (
+      <Button
+        onClick={() => {
+          onCopyText(status?.proxy_base_url ?? "");
+        }}
+      >
+        Copy URL
+      </Button>
+    ),
     [onCopyText, status?.proxy_base_url],
   );
   return (

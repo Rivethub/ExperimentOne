@@ -89,9 +89,7 @@ export function AccountDetailSheet({
               <strong>{w.label}</strong>
               <div className={styles.meta}>
                 {fmtPct(w.remaining_pct ?? null)} · reset{" "}
-                {isDefined(w.reset_at) && w.reset_at !== ""
-                  ? formatCountdownTo(w.reset_at)
-                  : "—"}
+                {isDefined(w.reset_at) && w.reset_at !== "" ? formatCountdownTo(w.reset_at) : "—"}
               </div>
             </div>
           ))}

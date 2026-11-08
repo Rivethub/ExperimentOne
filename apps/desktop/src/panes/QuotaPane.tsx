@@ -4,12 +4,14 @@ import {
   providerColor,
   type CatalogProvider,
 } from "../lib/provider-utils";
-import { QuotaProviderCard,
+import {
+  QuotaProviderCard,
   LimitRecoveryBanner,
   StaleStamp,
   type LimitHitInfo,
   type MetricMode,
-  type QuotaAccountUx } from "../quota";
+  type QuotaAccountUx,
+} from "../quota";
 import {
   historyPointsForProvider,
   seriesFromEvents,
@@ -96,7 +98,9 @@ export function QuotaPane({
             <Chip
               active={filter === "all"}
               count={counts.all ?? 0}
-              onClick={() =>{  onFilterChange("all"); }}
+              onClick={() => {
+                onFilterChange("all");
+              }}
             >
               All
             </Chip>
@@ -106,7 +110,9 @@ export function QuotaPane({
                 active={filter === id}
                 dotColor={providerColor(id, catalog)}
                 count={counts[id] ?? 0}
-                onClick={() =>{  onFilterChange(id); }}
+                onClick={() => {
+                  onFilterChange(id);
+                }}
               >
                 {providerChipLabel(id, catalog)}
               </Chip>
@@ -125,7 +131,9 @@ export function QuotaPane({
                 <button
                   key={id}
                   className={metricMode === id ? "active" : ""}
-                  onClick={() =>{  onMetricModeChange(id); }}
+                  onClick={() => {
+                    onMetricModeChange(id);
+                  }}
                   title={quotaMetricModeTitle(id)}
                 >
                   {label}
@@ -137,7 +145,9 @@ export function QuotaPane({
                 <button
                   key={h}
                   className={horizon === h ? "active" : ""}
-                  onClick={() =>{  onHorizonChange(h); }}
+                  onClick={() => {
+                    onHorizonChange(h);
+                  }}
                 >
                   {h}
                 </button>

@@ -59,7 +59,10 @@ export function normalizeWikiPath(raw: string): string {
 }
 
 export function joinWikiPath(baseDir: string, href: string): string {
-  const parts = [...(baseDir !== "" ? baseDir.split("/") : []), ...normalizeWikiPath(href).split("/")];
+  const parts = [
+    ...(baseDir !== "" ? baseDir.split("/") : []),
+    ...normalizeWikiPath(href).split("/"),
+  ];
   const stack: string[] = [];
   for (const part of parts) {
     if (part === "" || part === ".") {

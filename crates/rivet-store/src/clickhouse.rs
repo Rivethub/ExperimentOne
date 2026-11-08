@@ -42,17 +42,11 @@ struct HttpEndpoint {
 impl HttpEndpoint {
     fn parse(raw: &str) -> Result<Self> {
         let raw = raw.trim().trim_end_matches('/');
-        let without = raw
-            .strip_prefix("http://")
-            .or_else(|| raw.strip_prefix("https://"))
-            .unwrap_or(raw);
+        let without =
+            raw.strip_prefix("http://").or_else(|| raw.strip_prefix("https://")).unwrap_or(raw);
         let (host, port) = if let Some((h, p)) = without.split_once(':') {
-            let port: u16 = p
-                .split('/')
-                .next()
-                .unwrap_or("8123")
-                .parse()
-                .context("clickhouse port")?;
+            let port: u16 =
+                p.split('/').next().unwrap_or("8123").parse().context("clickhouse port")?;
             (h.to_string(), port)
         } else {
             let host = without.split('/').next().unwrap_or("127.0.0.1").to_string();
@@ -81,10 +75,7 @@ pub struct ClickHouseTrafficStore {
 
 impl ClickHouseTrafficStore {
     pub fn new(http_base: impl AsRef<str>) -> Result<Self> {
-        Ok(Self {
-            endpoint: HttpEndpoint::parse(http_base.as_ref())?,
-            database: "rivet".into(),
-        })
+        Ok(Self { endpoint: HttpEndpoint::parse(http_base.as_ref())?, database: "rivet".into() })
     }
 
     pub fn from_env() -> Option<Self> {
@@ -93,7 +84,7 @@ impl ClickHouseTrafficStore {
             Err(err) => {
                 warn!(?err, "invalid RIVET_CLICKHOUSE_URL");
                 None
-            }
+            },
         })
     }
 
@@ -109,37 +100,29 @@ impl ClickHouseTrafficStore {
     }
 
     pub async fn ensure_schema(&self) -> Result<()> {
-        self.exec_sql_on(
-            "default",
-            &format!("CREATE DATABASE IF NOT EXISTS {}", self.database),
-        )
-        .await?;
+        self.exec_sql_on("default", &format!("CREATE DATABASE IF NOT EXISTS {}", self.database))
+            .await?;
         self.exec_sql_on(&self.database, TRAFFIC_EVENTS_DDL).await?;
         Ok(())
     }
 
     async fn exec_sql_on(&self, database: &str, sql: &str) -> Result<()> {
         let path = format!("/?database={database}");
-        self.http_post(&path, "text/plain; charset=utf-8", sql.as_bytes())
-            .await?;
+        self.http_post(&path, "text/plain; charset=utf-8", sql.as_bytes()).await?;
         Ok(())
     }
 
     async fn query_json_rows(&self, sql: &str) -> Result<String> {
         let path = format!("/?database={}", self.database);
         let body = format!("{sql} FORMAT JSONEachRow");
-        self.http_post(&path, "text/plain; charset=utf-8", body.as_bytes())
-            .await
+        self.http_post(&path, "text/plain; charset=utf-8", body.as_bytes()).await
     }
 
     async fn http_post(&self, path: &str, content_type: &str, body: &[u8]) -> Result<String> {
         let mut stream = TcpStream::connect((self.endpoint.host.as_str(), self.endpoint.port))
             .await
             .with_context(|| {
-                format!(
-                    "connect clickhouse {}:{}",
-                    self.endpoint.host, self.endpoint.port
-                )
+                format!("connect clickhouse {}:{}", self.endpoint.host, self.endpoint.port)
             })?;
         // HTTP/1.0 avoids Transfer-Encoding: chunked from ClickHouse; our tiny
         // client otherwise treats chunk-size lines (e.g. "38081") as JSON rows.
@@ -172,10 +155,7 @@ impl ClickHouseTrafficStore {
 
     fn event_row(event: &TrafficEvent) -> Result<String> {
         let provider = event.provider.as_str();
-        let role = serde_json::to_value(event.role)?
-            .as_str()
-            .unwrap_or("unknown")
-            .to_string();
+        let role = serde_json::to_value(event.role)?.as_str().unwrap_or("unknown").to_string();
         let row = serde_json::json!({
             "id": event.id.to_string(),
             "ts": event.ts.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
@@ -284,9 +264,7 @@ fn decode_http_body(headers: &str, body: &str) -> String {
             return false;
         };
         name.eq_ignore_ascii_case("transfer-encoding")
-            && value
-                .split(',')
-                .any(|p| p.trim().eq_ignore_ascii_case("chunked"))
+            && value.split(',').any(|p| p.trim().eq_ignore_ascii_case("chunked"))
     });
     if !chunked {
         return body.to_string();
@@ -344,8 +322,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             "/?database={}&query=INSERT%20INTO%20traffic_events%20FORMAT%20JSONEachRow",
             self.database
         );
-        self.http_post(&path, "application/json", row.as_bytes())
-            .await?;
+        self.http_post(&path, "application/json", row.as_bytes()).await?;
         Ok(())
     }
 
@@ -362,8 +339,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             "/?database={}&query=INSERT%20INTO%20traffic_events%20FORMAT%20JSONEachRow",
             self.database
         );
-        self.http_post(&path, "application/json", body.as_bytes())
-            .await?;
+        self.http_post(&path, "application/json", body.as_bytes()).await?;
         Ok(())
     }
 
@@ -444,11 +420,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             .await?;
         let line = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("{}");
         let t: UsageTotalsRow = serde_json::from_str(line).unwrap_or_default();
-        Ok(UsageTotals {
-            events: t.events,
-            tokens_in: t.tokens_in,
-            tokens_out: t.tokens_out,
-        })
+        Ok(UsageTotals { events: t.events, tokens_in: t.tokens_in, tokens_out: t.tokens_out })
     }
 
     async fn export_all(&self) -> Result<Vec<TrafficEvent>> {

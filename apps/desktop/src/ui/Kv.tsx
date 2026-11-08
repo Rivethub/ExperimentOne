@@ -14,7 +14,14 @@ export type KvRowProps = HTMLAttributes<HTMLDivElement> & {
   bare?: boolean;
 };
 
-export function KvRow({ label, value, bare, className, children, ...rest }: KvRowProps): ReactElement {
+export function KvRow({
+  label,
+  value,
+  bare,
+  className,
+  children,
+  ...rest
+}: KvRowProps): ReactElement {
   return (
     <div className={cx(styles.row, bare === true && styles.bare, className)} {...rest}>
       {isDefined(label) ? <span className={styles.k}>{label}</span> : null}

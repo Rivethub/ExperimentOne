@@ -1,7 +1,13 @@
 import { useCallback, useMemo } from "react";
 import { detectLimitHit, type QuotaAccountUx } from "../quota";
 import { providerKey, type CatalogProvider } from "../lib/provider-utils";
-import type { Account, ProviderFilter, QuotaAccount, QuotaSnapshot, TrafficEvent } from "../lib/types";
+import type {
+  Account,
+  ProviderFilter,
+  QuotaAccount,
+  QuotaSnapshot,
+  TrafficEvent,
+} from "../lib/types";
 
 export type UseQuotaDerivedResult = {
   providerIds: string[];

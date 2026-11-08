@@ -36,9 +36,7 @@ pub struct WorkerPool {
 
 impl std::fmt::Debug for WorkerPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorkerPool")
-            .field("paths", &self.paths)
-            .finish_non_exhaustive()
+        f.debug_struct("WorkerPool").field("paths", &self.paths).finish_non_exhaustive()
     }
 }
 
@@ -68,11 +66,8 @@ impl WorkerPool {
     }
 
     pub fn spawn(self: Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
-        let watcher = spawn_wiki_watcher(
-            self.paths.clone(),
-            self.meta.clone(),
-            self.wiki_revision.clone(),
-        );
+        let watcher =
+            spawn_wiki_watcher(self.paths.clone(), self.meta.clone(), self.wiki_revision.clone());
         let ticks = tokio::spawn({
             let this = self;
             async move {
@@ -101,8 +96,7 @@ impl WorkerPool {
         // Always keep meta ↔ disk aligned (covers edits while wiki worker is off).
         if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
             if upserts > 0 || removed > 0 {
-                self.wiki_revision
-                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }
 
@@ -114,8 +108,7 @@ impl WorkerPool {
             // Worker writes new files; re-index so titles/previews match.
             if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
                 if upserts > 0 || removed > 0 {
-                    self.wiki_revision
-                        .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 }
             }
         }
@@ -150,17 +143,13 @@ impl WorkerPool {
         if n > 0 {
             info!(n, mode = "lexical", "vector worker embedded events");
         }
-        self.meta
-            .set_job_cursor("vectorize", &Utc::now().to_rfc3339())?;
+        self.meta.set_job_cursor("vectorize", &Utc::now().to_rfc3339())?;
         Ok(())
     }
 
     #[allow(dead_code)]
     async fn proxy_embed(&self, cfg: &RivetConfig, text: &str) -> Result<Vec<f32>> {
-        let model = cfg
-            .embedding_model
-            .as_deref()
-            .ok_or_else(|| anyhow!("no embedding_model"))?;
+        let model = cfg.embedding_model.as_deref().ok_or_else(|| anyhow!("no embedding_model"))?;
         let url = format!("{}/v1/embeddings", cfg.proxy_base_url());
         let res = self
             .http
@@ -220,24 +209,15 @@ impl WorkerPool {
         // --- Sessions ---
         let mut by_session: BTreeMap<String, Vec<&TrafficEvent>> = BTreeMap::new();
         for e in &recent {
-            let key = e
-                .session_id
-                .clone()
-                .unwrap_or_else(|| "(no-session)".into());
+            let key = e.session_id.clone().unwrap_or_else(|| "(no-session)".into());
             by_session.entry(key).or_default().push(e);
         }
         let mut sessions = String::from("# Sessions\n\n");
         for (sid, events) in by_session.iter().take(40) {
-            let tokens: u64 = events
-                .iter()
-                .map(|e| u64::from(e.tokens_in) + u64::from(e.tokens_out))
-                .sum();
-            let _ = writeln!(
-                sessions,
-                "## `{sid}`\n\n_{} events · {} tokens_\n",
-                events.len(),
-                tokens
-            );
+            let tokens: u64 =
+                events.iter().map(|e| u64::from(e.tokens_in) + u64::from(e.tokens_out)).sum();
+            let _ =
+                writeln!(sessions, "## `{sid}`\n\n_{} events · {} tokens_\n", events.len(), tokens);
             sessions.push('\n');
             for e in events.iter().take(8) {
                 let _ = writeln!(sessions, "- {}", format_event_line(e));
@@ -254,11 +234,7 @@ impl WorkerPool {
         for (topic, events) in &topics {
             let slug = slugify(topic);
             let rel = format!("topics/{slug}.md");
-            let _ = writeln!(
-                topics_index,
-                "- [{topic}]({slug}.md) — {} events",
-                events.len()
-            );
+            let _ = writeln!(topics_index, "- [{topic}]({slug}.md) — {} events", events.len());
             let mut page = format!("# {topic}\n\n");
             for e in events.iter().take(30) {
                 let _ = writeln!(page, "- {}", format_event_line(e));
@@ -269,13 +245,7 @@ impl WorkerPool {
         if topics.is_empty() {
             topics_index.push_str("\n_No topics yet — capture more traffic._\n");
         }
-        self.write_wiki_page(
-            project,
-            "topics/index",
-            "Topics",
-            "topics/index.md",
-            &topics_index,
-        )?;
+        self.write_wiki_page(project, "topics/index", "Topics", "topics/index.md", &topics_index)?;
         toc.push(("Topics".into(), "topics/index.md".into()));
 
         // --- Providers (any prox-supported id seen in traffic) ---
@@ -307,14 +277,10 @@ impl WorkerPool {
                 .flatten()
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|d| d.with_timezone(&Utc));
-            let stale_hour = last_at
-                .is_none_or(|t| Utc::now() - t > chrono::Duration::hours(1));
+            let stale_hour = last_at.is_none_or(|t| Utc::now() - t > chrono::Duration::hours(1));
             let traffic_changed = last_fp.as_deref() != Some(fingerprint.as_str());
             if traffic_changed && stale_hour && totals.events > 0 {
-                match self
-                    .generate_llm_overview(cfg, model, &recent, &totals)
-                    .await
-                {
+                match self.generate_llm_overview(cfg, model, &recent, &totals).await {
                     Ok(markdown) => {
                         self.write_wiki_page(
                             project,
@@ -325,14 +291,12 @@ impl WorkerPool {
                         )?;
                         toc.push(("LLM overview".into(), "overview-llm.md".into()));
                         let _ = self.meta.set_job_cursor("wiki_llm_fp", &fingerprint);
-                        let _ = self
-                            .meta
-                            .set_job_cursor("wiki_llm_at", &Utc::now().to_rfc3339());
+                        let _ = self.meta.set_job_cursor("wiki_llm_at", &Utc::now().to_rfc3339());
                         info!(model, "wiki worker wrote LLM overview");
-                    }
+                    },
                     Err(err) => {
                         warn!(?err, "wiki LLM overview skipped (proxy/model unavailable)");
-                    }
+                    },
                 }
             } else if self
                 .paths
@@ -360,18 +324,11 @@ impl WorkerPool {
         );
         readme.push('\n');
         readme.push_str("## Traffic snapshot\n\n");
-        let _ = writeln!(
-            readme,
-            "- Events: **{}**",
-            totals.events
-        );
+        let _ = writeln!(readme, "- Events: **{}**", totals.events);
         let _ = writeln!(readme, "- Tokens in: **{}**", totals.tokens_in);
         let _ = writeln!(readme, "- Tokens out: **{}**", totals.tokens_out);
-        let _ = writeln!(
-            readme,
-            "- Embeddings: **{}**\n",
-            self.meta.embedding_count().unwrap_or(0)
-        );
+        let _ =
+            writeln!(readme, "- Embeddings: **{}**\n", self.meta.embedding_count().unwrap_or(0));
         readme.push_str("## Table of contents\n\n");
         if toc.is_empty() {
             readme.push_str("_No pages yet — capture traffic to populate this wiki._\n");
@@ -402,9 +359,7 @@ impl WorkerPool {
         let _ = writeln!(
             digest,
             "Totals: {} events, {} tokens in, {} tokens out.\n",
-            totals.events,
-            totals.tokens_in,
-            totals.tokens_out
+            totals.events, totals.tokens_in, totals.tokens_out
         );
         digest.push_str("\nRecent traffic:\n");
         for e in recent.iter().take(40) {
@@ -440,12 +395,8 @@ impl WorkerPool {
             anyhow::bail!("chat HTTP {status}: {body}");
         }
         let parsed: ChatResponse = res.json().await.context("chat json")?;
-        let content = parsed
-            .choices
-            .into_iter()
-            .next()
-            .and_then(|c| c.message.content)
-            .unwrap_or_default();
+        let content =
+            parsed.choices.into_iter().next().and_then(|c| c.message.content).unwrap_or_default();
         if content.trim().is_empty() {
             anyhow::bail!("empty chat completion");
         }
@@ -552,8 +503,7 @@ fn cluster_topics(events: &[TrafficEvent]) -> BTreeMap<String, Vec<&TrafficEvent
         }
         let mut scored: Vec<(String, usize)> = counts.into_iter().collect();
         scored.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-        let topic = scored
-            .first().map_or_else(|| "general".into(), |(t, _)| t.clone());
+        let topic = scored.first().map_or_else(|| "general".into(), |(t, _)| t.clone());
         buckets.entry(topic).or_default().push(event);
     }
     let mut ordered: Vec<_> = buckets.into_iter().collect();

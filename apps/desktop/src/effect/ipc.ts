@@ -147,7 +147,5 @@ export const apiText = (
     return res.body;
   });
 
-export const invokeCommand = <T>(
-  command: string,
-  args?: JsonObject,
-): Effect.Effect<T, IpcError> => invokeRaw<T>(command, args);
+export const invokeCommand = <T>(command: string, args?: JsonObject): Effect.Effect<T, IpcError> =>
+  invokeRaw<T>(command, args);

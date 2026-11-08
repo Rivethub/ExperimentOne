@@ -138,10 +138,7 @@ impl ProxySupervisor {
         cmd.current_dir(self.paths.proxy_dir().as_std_path())
             .arg("-config")
             .arg(self.paths.proxy_config_file().as_std_path())
-            .env(
-                "RIVET_INGEST_URL",
-                format!("http://127.0.0.1:{}", self.config.api_port),
-            )
+            .env("RIVET_INGEST_URL", format!("http://127.0.0.1:{}", self.config.api_port))
             .env("RIVET_INGEST_KEY", &self.config.proxy_access_key);
         Ok(cmd)
     }
@@ -155,14 +152,14 @@ impl ProxySupervisor {
                     *child_slot = None;
                     crate::pids::clear_proxy_pid(&self.paths);
                     false
-                }
+                },
                 Ok(None) => true,
                 Err(err) => {
                     warn!(?err, "proxy status check failed");
                     *child_slot = None;
                     crate::pids::clear_proxy_pid(&self.paths);
                     false
-                }
+                },
             }
         } else {
             false
@@ -197,9 +194,7 @@ impl ProxySupervisor {
             cmd.process_group(0);
         }
 
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("spawn proxy {}", bin.display()))?;
+        let child = cmd.spawn().with_context(|| format!("spawn proxy {}", bin.display()))?;
         info!(path = %bin.display(), pid = child.id(), "proxy sidecar started");
         crate::pids::write_proxy_pid(&self.paths, child.id());
         {
@@ -243,13 +238,9 @@ impl ProxySupervisor {
             // Sidecar was started in its own process group — signal the group first.
             #[cfg(unix)]
             {
-                let _ = Command::new("kill")
-                    .args(["-TERM", &format!("-{pid}")])
-                    .status();
+                let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
                 thread::sleep(Duration::from_millis(150));
-                let _ = Command::new("kill")
-                    .args(["-KILL", &format!("-{pid}")])
-                    .status();
+                let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
             }
             #[cfg(windows)]
             {
@@ -336,9 +327,7 @@ impl ProxySupervisor {
             cmd.process_group(0);
         }
 
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn login {}", bin.display()))?;
+        let mut child = cmd.spawn().with_context(|| format!("spawn login {}", bin.display()))?;
 
         let output = Arc::new(Mutex::new(String::new()));
         let done = Arc::new(Mutex::new(false));
@@ -351,23 +340,14 @@ impl ProxySupervisor {
             spawn_reader(stderr, output.clone());
         }
 
-        let mode = if flag.contains("device") {
-            "device"
-        } else {
-            "browser"
-        };
+        let mode = if flag.contains("device") { "device" } else { "browser" };
         append_login_log(&output, &format!("Starting {} {mode} login…", entry.label));
         if let Some(h) = hint.as_deref() {
             append_login_log(&output, h);
         }
 
-        *self.login.lock().expect("login lock") = Some(LoginSession {
-            provider: provider.clone(),
-            child,
-            output,
-            done,
-            success,
-        });
+        *self.login.lock().expect("login lock") =
+            Some(LoginSession { provider: provider.clone(), child, output, done, success });
 
         Ok(LoginStartResponse {
             provider,
@@ -410,9 +390,8 @@ impl ProxySupervisor {
             cmd.process_group(0);
         }
 
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn vertex import {}", bin.display()))?;
+        let mut child =
+            cmd.spawn().with_context(|| format!("spawn vertex import {}", bin.display()))?;
         let output = Arc::new(Mutex::new(String::new()));
         let done = Arc::new(Mutex::new(false));
         let success = Arc::new(Mutex::new(false));
@@ -423,13 +402,8 @@ impl ProxySupervisor {
             spawn_reader(stderr, output.clone());
         }
         append_login_log(&output, &format!("Importing Vertex service account from {path}…"));
-        let login_session = LoginSession {
-            provider: "vertex".into(),
-            child,
-            output,
-            done,
-            success,
-        };
+        let login_session =
+            LoginSession { provider: "vertex".into(), child, output, done, success };
         *self.login.lock().expect("login lock") = Some(login_session);
 
         Ok(LoginStartResponse {
@@ -469,13 +443,7 @@ impl ProxySupervisor {
         let output = session.output.lock().expect("output").clone();
         let provider = session.provider.clone();
         drop(login_guard);
-        LoginStatusResponse {
-            active: !done,
-            provider: Some(provider),
-            output,
-            done,
-            success,
-        }
+        LoginStatusResponse { active: !done, provider: Some(provider), output, done, success }
     }
 
     pub fn cancel_login(&self) -> Result<()> {
@@ -502,11 +470,7 @@ impl ProxySupervisor {
             if path.extension().and_then(|s| s.to_str()) != Some("json") {
                 continue;
             }
-            let id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
             let raw = std::fs::read_to_string(&path).unwrap_or_default();
             let meta: serde_json::Value =
                 serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}));
@@ -597,8 +561,7 @@ impl ControlApi for ProxySupervisor {
         provider: &str,
         method: Option<&str>,
     ) -> Result<LoginStartResponse, String> {
-        self.start_login(provider, method)
-            .map_err(|e| e.to_string())
+        self.start_login(provider, method).map_err(|e| e.to_string())
     }
 
     fn import_vertex(&self, path: &str) -> Result<LoginStartResponse, String> {
@@ -662,7 +625,7 @@ fn spawn_reader(mut pipe: impl Read + Send + 'static, output: Arc<Mutex<String>>
                             out.drain(..trim);
                         }
                     }
-                }
+                },
             }
         }
     });

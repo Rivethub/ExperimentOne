@@ -104,11 +104,7 @@ export function QuotaProviderCard(props: QuotaProviderCardProps): ReactElement {
         capLabel={quotaCapLabel(metricMode, pq)}
       />
       {metricMode === "limits" && count > 0 && (
-        <PooledWindowCards
-          accounts={accounts}
-          color={color}
-          onAccountSelect={onAccountSelect}
-        />
+        <PooledWindowCards accounts={accounts} color={color} onAccountSelect={onAccountSelect} />
       )}
       {metricMode === "cost" && <p className={styles.costEstimateNote}>{costSummary.note}</p>}
       <QuotaProviderCardStats

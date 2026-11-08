@@ -132,12 +132,8 @@ impl MetaStore {
     pub fn list_wiki_pages(&self, project_id: &str) -> Result<Vec<WikiPageMeta>> {
         let _g = self.lock.lock().expect("meta lock");
         let file: WikiFile = Self::read_json(&self.paths.wiki)?;
-        let mut out: Vec<_> = file
-            .pages
-            .values()
-            .filter(|p| p.project_id == project_id)
-            .cloned()
-            .collect();
+        let mut out: Vec<_> =
+            file.pages.values().filter(|p| p.project_id == project_id).cloned().collect();
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(out)
     }
@@ -146,11 +142,7 @@ impl MetaStore {
         let _g = self.lock.lock().expect("meta lock");
         let file: WikiFile = Self::read_json(&self.paths.wiki)?;
         let mut out: Vec<_> = file.pages.values().cloned().collect();
-        out.sort_by(|a, b| {
-            a.project_id
-                .cmp(&b.project_id)
-                .then_with(|| a.path.cmp(&b.path))
-        });
+        out.sort_by(|a, b| a.project_id.cmp(&b.project_id).then_with(|| a.path.cmp(&b.path)));
         Ok(out)
     }
 
@@ -187,10 +179,7 @@ impl MetaStore {
         let mut file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
         file.by_event.insert(
             event_id.to_string(),
-            EmbeddingEntry {
-                dims: dims.to_vec(),
-                updated_at: Utc::now().to_rfc3339(),
-            },
+            EmbeddingEntry { dims: dims.to_vec(), updated_at: Utc::now().to_rfc3339() },
         );
         Self::write_json_atomic(&self.paths.embeddings, &file)
     }
@@ -204,11 +193,7 @@ impl MetaStore {
     pub fn all_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>> {
         let _g = self.lock.lock().expect("meta lock");
         let file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
-        Ok(file
-            .by_event
-            .into_iter()
-            .map(|(id, e)| (id, e.dims))
-            .collect())
+        Ok(file.by_event.into_iter().map(|(id, e)| (id, e.dims)).collect())
     }
 
     pub fn embedding_count(&self) -> Result<u64> {
@@ -220,11 +205,7 @@ impl MetaStore {
     pub fn wiki_page_count(&self, project_id: &str) -> Result<u64> {
         let _g = self.lock.lock().expect("meta lock");
         let file: WikiFile = Self::read_json(&self.paths.wiki)?;
-        Ok(file
-            .pages
-            .values()
-            .filter(|p| p.project_id == project_id)
-            .count() as u64)
+        Ok(file.pages.values().filter(|p| p.project_id == project_id).count() as u64)
     }
 
     /// Persist live remaining-% samples (throttled per account).
@@ -239,11 +220,7 @@ impl MetaStore {
 
         let mut written = 0usize;
         for row in rows {
-            if let Some(prev) = existing
-                .iter()
-                .rev()
-                .find(|r| r.account_id == row.account_id)
-            {
+            if let Some(prev) = existing.iter().rev().find(|r| r.account_id == row.account_id) {
                 if let Ok(prev_ts) = chrono::DateTime::parse_from_rfc3339(&prev.ts) {
                     let age = now.signed_duration_since(prev_ts.with_timezone(&Utc));
                     if age.num_seconds() < 60
@@ -275,10 +252,7 @@ impl MetaStore {
     pub fn quota_history_since(&self, since_rfc3339: &str) -> Result<Vec<QuotaSnapshotRow>> {
         let _g = self.lock.lock().expect("meta lock");
         let rows = Self::read_quota_lines(&self.paths.quota)?;
-        Ok(rows
-            .into_iter()
-            .filter(|r| r.ts.as_str() >= since_rfc3339)
-            .collect())
+        Ok(rows.into_iter().filter(|r| r.ts.as_str() >= since_rfc3339).collect())
     }
 
     fn read_quota_lines(path: &Path) -> Result<Vec<QuotaSnapshotRow>> {

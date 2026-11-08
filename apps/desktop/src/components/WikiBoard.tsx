@@ -1,12 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { Actions, Banner, Button } from "../ui";
 import styles from "../styles/app.module.css";
-import {
-  buildWikiProjects,
-  ensureReadmeToc,
-  relativeWhen,
-  coverTone,
-} from "./wiki-board-logic";
+import { buildWikiProjects, ensureReadmeToc, relativeWhen, coverTone } from "./wiki-board-logic";
 import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wiki-reader-markdown";
 
 export type WikiPageCard = {

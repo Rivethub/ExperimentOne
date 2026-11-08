@@ -60,7 +60,9 @@ export function AppSidebar({
                   key={tab.id}
                   type="button"
                   className={cx(styles.navSubBtn, settingsTab === tab.id ? styles.active : "")}
-                  onClick={() =>{  onOpenSettings(tab.id); }}
+                  onClick={() => {
+                    onOpenSettings(tab.id);
+                  }}
                 >
                   {tab.label}
                 </button>

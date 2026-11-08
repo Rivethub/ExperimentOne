@@ -173,7 +173,9 @@ export function AccountsTabLoginModal({
             <Button
               variant="ghost"
               disabled={busy}
-              onClick={() => { onRequestLogin("codex", "device"); }}
+              onClick={() => {
+                onRequestLogin("codex", "device");
+              }}
             >
               Use device code instead
             </Button>
@@ -192,11 +194,18 @@ export function AccountsTabLoginModal({
             <Button
               variant="primary"
               disabled={busy}
-              onClick={() => { onRequestLogin("codex", "browser"); }}
+              onClick={() => {
+                onRequestLogin("codex", "browser");
+              }}
             >
               Sign in with browser
             </Button>
-            <Button disabled={busy} onClick={() => { onRequestLogin("codex", "device"); }}>
+            <Button
+              disabled={busy}
+              onClick={() => {
+                onRequestLogin("codex", "device");
+              }}
+            >
               Retry device code
             </Button>
           </Actions>

@@ -1,5 +1,11 @@
 import type { ReactElement } from "react";
-import { getMockScenario, isMockIpc, isMockScenario, setMockScenario, type MockScenario } from "./mode";
+import {
+  getMockScenario,
+  isMockIpc,
+  isMockScenario,
+  setMockScenario,
+  type MockScenario,
+} from "./mode";
 import { resetStore } from "./store";
 import { Button } from "../ui";
 import styles from "../styles/app.module.css";

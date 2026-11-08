@@ -63,10 +63,7 @@ pub fn router(state: IngestState) -> Router {
     Router::new()
         .route("/v1/ingest", post(ingest_one))
         .route("/v1/ingest/batch", post(ingest_batch))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            require_ingest_auth,
-        ))
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_ingest_auth))
         .with_state(state)
 }
 
@@ -85,14 +82,10 @@ async fn ingest_batch(
     State(state): State<IngestState>,
     Json(batch): Json<IngestBatch>,
 ) -> Result<StatusCode, StatusCode> {
-    state
-        .store
-        .insert_batch(&batch.events)
-        .await
-        .map_err(|err| {
-            tracing::error!(?err, "batch ingest failed");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    state.store.insert_batch(&batch.events).await.map_err(|err| {
+        tracing::error!(?err, "batch ingest failed");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(StatusCode::ACCEPTED)
 }
 

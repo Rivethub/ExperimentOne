@@ -17,7 +17,8 @@ export function quotaCardHeadline(args: {
 }): { headline: number; unit: string } {
   const { metricMode, series, knownQuota, capacity, remaining, costHeadline } = args;
   if (metricMode === "limits") {
-    const headline = knownQuota && isDefined(remaining) ? Number(remaining.toFixed(0)) : series.headline;
+    const headline =
+      knownQuota && isDefined(remaining) ? Number(remaining.toFixed(0)) : series.headline;
     const unit = knownQuota ? `% / ${Math.round(capacity)}` : series.headlineUnit;
     return { headline, unit };
   }

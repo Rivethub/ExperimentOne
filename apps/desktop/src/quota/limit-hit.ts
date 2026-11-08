@@ -42,11 +42,7 @@ function nearestAccountReset(accounts: QuotaAccountUx[]): {
 }
 
 function quotaPoolHit(pq: ProviderQuotaUx): boolean {
-  return (
-    pq.capacity_pct > 0 &&
-    pq.remaining_pct <= 0.5 &&
-    pq.pool_empty !== "—"
-  );
+  return pq.capacity_pct > 0 && pq.remaining_pct <= 0.5 && pq.pool_empty !== "—";
 }
 
 export function detectLimitHit(
@@ -73,14 +69,9 @@ export function detectLimitHit(
     windowLabel = accountLabel;
   }
 
-  const accountEmpty = accounts.some(
-    (a) => isDefined(a.remaining_pct) && a.remaining_pct <= 0.5,
-  );
+  const accountEmpty = accounts.some((a) => isDefined(a.remaining_pct) && a.remaining_pct <= 0.5);
 
-  const hit =
-    recent429 !== undefined ||
-    (pq !== null && quotaPoolHit(pq)) ||
-    accountEmpty;
+  const hit = recent429 !== undefined || (pq !== null && quotaPoolHit(pq)) || accountEmpty;
 
   if (!hit) {
     return null;

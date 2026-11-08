@@ -33,7 +33,13 @@ export function MultiAccountWarnModal({
         warn ? (
           <>
             <Button onClick={onDismiss}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() =>{  onConfirm(warn); }}>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => {
+                onConfirm(warn);
+              }}
+            >
               Continue anyway
             </Button>
           </>

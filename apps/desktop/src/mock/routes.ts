@@ -341,7 +341,9 @@ export function matchLogs(ctx: MockRequestContext): MockHttpResult | null {
         "[mock] rivet-proxy listening on :18317",
         `[mock] proxy_running=${store.proxyRunning}`,
         `[mock] accounts loaded: ${store.accounts.length}`,
-        store.scenario === "limit-hit" ? "[mock] WARN quota empty — returning 429" : "[mock] healthy",
+        store.scenario === "limit-hit"
+          ? "[mock] WARN quota empty — returning 429"
+          : "[mock] healthy",
       ].join("\n"),
     });
   }

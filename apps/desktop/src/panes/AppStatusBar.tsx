@@ -117,11 +117,7 @@ export function AppStatusBar({
           <span className={styles.sbShort}>ch</span>
         </span>
       </div>
-      <AppStatusBarMeta
-        statusAction={statusAction}
-        error={error}
-        onDismissError={onDismissError}
-      />
+      <AppStatusBarMeta statusAction={statusAction} error={error} onDismissError={onDismissError} />
     </footer>
   );
 }

@@ -43,7 +43,7 @@ impl Runtime {
             Err(err) => {
                 pids::clear_rivetd_pid(&paths);
                 Err(err)
-            }
+            },
         }
     }
 
@@ -62,14 +62,7 @@ impl Runtime {
         let stores = LocalStores::open(&paths)?;
         let proxy = Arc::new(ProxySupervisor::new(paths.clone(), config.clone())?);
         let clickhouse = Arc::new(ClickHouseSupervisor::new(paths.clone(), config.clone())?);
-        Ok(Self {
-            paths,
-            config,
-            stores,
-            proxy,
-            clickhouse,
-            _instance_lock: instance_lock,
-        })
+        Ok(Self { paths, config, stores, proxy, clickhouse, _instance_lock: instance_lock })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -84,11 +77,8 @@ impl Runtime {
         match self.proxy.start() {
             Ok(()) => info!("proxy sidecar ready"),
             Err(err) => {
-                tracing::warn!(
-                    ?err,
-                    "proxy not started (start from UI when binary is ready)"
-                );
-            }
+                tracing::warn!(?err, "proxy not started (start from UI when binary is ready)");
+            },
         }
 
         let mut clickhouse_url = ClickHouseTrafficStore::from_env_url();
@@ -112,7 +102,7 @@ impl Runtime {
                         info!("clickhouse schema ready (database rivet)");
                     }
                 }
-            }
+            },
             Ok(false) => {
                 if clickhouse_url.is_none() {
                     anyhow::bail!(
@@ -120,22 +110,17 @@ impl Runtime {
                     );
                 }
                 info!("bundled clickhouse skipped — using RIVET_CLICKHOUSE_URL");
-            }
+            },
             Err(err) => {
                 if clickhouse_url.is_none() {
                     return Err(err)
                         .context("ClickHouse sidecar failed and no RIVET_CLICKHOUSE_URL");
                 }
-                tracing::warn!(
-                    ?err,
-                    "bundled clickhouse failed — using RIVET_CLICKHOUSE_URL"
-                );
-            }
+                tracing::warn!(?err, "bundled clickhouse failed — using RIVET_CLICKHOUSE_URL");
+            },
         }
 
-        let store = self
-            .stores
-            .traffic_store_with_clickhouse(clickhouse_url.clone())?;
+        let store = self.stores.traffic_store_with_clickhouse(clickhouse_url.clone())?;
         let meta = self.stores.meta.clone();
         let config = Arc::new(RwLock::new(self.config.clone()));
 
@@ -160,16 +145,11 @@ impl Runtime {
             wiki_revision,
             shutdown: shutdown_tx,
         };
-        let ingest_state = IngestState {
-            store: store.clone(),
-            ingest_key: self.config.proxy_access_key.clone(),
-        };
+        let ingest_state =
+            IngestState { store: store.clone(), ingest_key: self.config.proxy_access_key.clone() };
 
-        let mcp_state = McpState {
-            store: store.clone(),
-            meta: meta.clone(),
-            config: config.clone(),
-        };
+        let mcp_state =
+            McpState { store: store.clone(), meta: meta.clone(), config: config.clone() };
 
         let _worker_handles = worker.spawn();
 

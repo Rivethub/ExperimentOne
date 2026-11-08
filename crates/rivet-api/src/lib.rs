@@ -256,9 +256,7 @@ fn sanitize_wiki_project_id(raw: &str) -> Result<String, String> {
         || s.contains("..")
         || s.contains('/')
         || s.contains('\\')
-        || !s
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        || !s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
     {
         return Err("wiki_project_id must be a short path-safe id (letters, digits, .-_)".into());
     }
@@ -269,17 +267,9 @@ fn localhost_cors() -> CorsLayer {
     use axum::http::{HeaderName, Method};
     CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin, _| {
-            origin
-                .to_str()
-                .is_ok_and(rivet_core::origin_allowed)
+            origin.to_str().is_ok_and(rivet_core::origin_allowed)
         }))
-        .allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             header::CONTENT_TYPE,
             header::AUTHORIZATION,
@@ -301,15 +291,9 @@ fn extract_api_key(headers: &HeaderMap) -> Option<String> {
     if let Some(v) = headers.get("x-rivet-key").and_then(|v| v.to_str().ok()) {
         return Some(v.trim().to_string());
     }
-    if let Some(v) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(v) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
         let v = v.trim();
-        if let Some(rest) = v
-            .strip_prefix("Bearer ")
-            .or_else(|| v.strip_prefix("bearer "))
-        {
+        if let Some(rest) = v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")) {
             return Some(rest.trim().to_string());
         }
     }
@@ -322,9 +306,7 @@ async fn require_api_key(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrBody>)> {
     if !host_is_loopback(req.headers()) {
-        return Err(err_response(
-            "control API only accepts Host: 127.0.0.1 / localhost".into(),
-        ));
+        return Err(err_response("control API only accepts Host: 127.0.0.1 / localhost".into()));
     }
     let expected = state.config.read().await.proxy_access_key.clone();
     let provided = extract_api_key(req.headers()).unwrap_or_default();
@@ -344,9 +326,7 @@ async fn require_loopback_host(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrBody>)> {
     if !host_is_loopback(req.headers()) {
-        return Err(err_response(
-            "control API only accepts Host: 127.0.0.1 / localhost".into(),
-        ));
+        return Err(err_response("control API only accepts Host: 127.0.0.1 / localhost".into()));
     }
     Ok(next.run(req).await)
 }
@@ -364,9 +344,7 @@ async fn local_session(
     if !host_is_loopback(&headers) {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrBody {
-                error: "session bootstrap is localhost-only".into(),
-            }),
+            Json(ErrBody { error: "session bootstrap is localhost-only".into() }),
         ));
     }
     let key = state.config.read().await.proxy_access_key.clone();
@@ -414,15 +392,9 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
         .route("/v1/workers/tick", post(workers_tick))
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            require_api_key,
-        ));
+        .route_layer(middleware::from_fn_with_state(state.clone(), require_api_key));
 
-    public
-        .merge(protected)
-        .layer(localhost_cors())
-        .with_state(state)
+    public.merge(protected).layer(localhost_cors()).with_state(state)
 }
 
 async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
@@ -435,10 +407,7 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     } else {
         "***".into()
     };
-    let account_count = state
-        .control
-        .list_accounts()
-        .map_or(0, |a| a.len() as u64);
+    let account_count = state.control.list_accounts().map_or(0, |a| a.len() as u64);
     let mut warnings = Vec::new();
     if !proxy_running && !localhost_port_free(cfg.proxy_port) {
         warnings.push(format!(
@@ -451,11 +420,7 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     let isolated_claude = state.paths.harness_claude_dir().join("settings.json");
     let _ = migrate_claude_connector_auth(&cfg, Some(isolated_claude.as_std_path()));
     let harness_ready = harness_user_ready()
-        || state
-            .paths
-            .harness_claude_dir()
-            .join("settings.json")
-            .exists()
+        || state.paths.harness_claude_dir().join("settings.json").exists()
         || state.paths.harness_codex_dir().join("config.toml").exists();
     Json(StatusResponse {
         ok: true,
@@ -481,10 +446,7 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             vector_search: cfg.capabilities.vector_search,
             wiki: cfg.capabilities.wiki,
             embeddings: state.meta.embedding_count().unwrap_or(0),
-            wiki_pages: state
-                .meta
-                .wiki_page_count(&cfg.wiki_project_id)
-                .unwrap_or(0),
+            wiki_pages: state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
             vectorize_cursor: state.meta.job_cursor("vectorize").ok().flatten(),
             wiki_cursor: state.meta.job_cursor("wiki").ok().flatten(),
         },
@@ -525,8 +487,7 @@ async fn put_config(
             cfg.capabilities.teams = v;
         }
     }
-    cfg.save(&state.paths)
-        .map_err(|e| err_response(e.to_string()))?;
+    cfg.save(&state.paths).map_err(|e| err_response(e.to_string()))?;
     let response = public_config(&cfg);
     drop(cfg);
     Ok(Json(response))
@@ -551,12 +512,7 @@ async fn recent(
             .map(Json)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR);
     }
-    state
-        .store
-        .recent(limit)
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    state.store.recent(limit).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn search_traffic(
@@ -755,11 +711,7 @@ async fn demo_seed(
     State(state): State<ApiState>,
     Json(body): Json<DemoSeedRequest>,
 ) -> Result<Json<DemoSeedResponse>, (StatusCode, Json<ErrBody>)> {
-    let usage = state
-        .store
-        .usage_totals()
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    let usage = state.store.usage_totals().await.map_err(|e| err_response(e.to_string()))?;
     if usage.events > 0 && !body.force.unwrap_or(false) {
         return Ok(Json(DemoSeedResponse {
             inserted: 0,
@@ -769,11 +721,7 @@ async fn demo_seed(
 
     let events = build_demo_events();
     let n = events.len() as u64;
-    state
-        .store
-        .insert_batch(&events)
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    state.store.insert_batch(&events).await.map_err(|e| err_response(e.to_string()))?;
     Ok(Json(DemoSeedResponse {
         inserted: n,
         note: "Demo traffic seeded for local product walkthrough (no credentials).".into(),
@@ -893,18 +841,14 @@ async fn proxy_start(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     state.control.proxy_start().map_err(err_response)?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "proxy_running": true }),
-    ))
+    Ok(Json(serde_json::json!({ "ok": true, "proxy_running": true })))
 }
 
 async fn proxy_stop(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     state.control.proxy_stop().map_err(err_response)?;
-    Ok(Json(
-        serde_json::json!({ "ok": true, "proxy_running": false }),
-    ))
+    Ok(Json(serde_json::json!({ "ok": true, "proxy_running": false })))
 }
 
 async fn shutdown_all(
@@ -939,7 +883,8 @@ async fn accounts(
                     acct.label = email.clone();
                 }
                 acct.limit_hint = q
-                    .remaining_pct.map_or_else(|| "— pending live".into(), |p| format!("{p:.0}% left"));
+                    .remaining_pct
+                    .map_or_else(|| "— pending live".into(), |p| format!("{p:.0}% left"));
                 acct.reset_hint = q
                     .reset_at
                     .clone()
@@ -955,19 +900,15 @@ async fn accounts(
 async fn quota_snapshot(
     State(state): State<ApiState>,
 ) -> Result<Json<quota::QuotaSnapshot>, (StatusCode, Json<ErrBody>)> {
-    build_quota_snapshot(&state)
-        .await
-        .map(Json)
-        .map_err(err_response)
+    build_quota_snapshot(&state).await.map(Json).map_err(err_response)
 }
 
 async fn quota_refresh(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     let cfg = state.config.read().await.clone();
-    let refreshed = quota::refresh_credentials(&cfg)
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    let refreshed =
+        quota::refresh_credentials(&cfg).await.map_err(|e| err_response(e.to_string()))?;
     let snap = build_quota_snapshot(&state).await.map_err(err_response)?;
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -991,7 +932,7 @@ async fn build_quota_snapshot(state: &ApiState) -> Result<quota::QuotaSnapshot, 
                 .map(|a| (a.id, a.provider, a.label))
                 .collect::<Vec<_>>();
             quota::local_fallback_snapshot(&local, &burn)
-        }
+        },
     };
     record_quota_history(state, &snap);
     Ok(snap)
@@ -1055,21 +996,14 @@ async fn quota_history(
 ) -> Result<Json<QuotaHistoryResponse>, (StatusCode, Json<ErrBody>)> {
     let hours = q.hours.clamp(1, 168);
     let since = (Utc::now() - Duration::hours(i64::from(hours))).to_rfc3339();
-    let rows = state
-        .meta
-        .quota_history_since(&since)
-        .map_err(|e| err_response(e.to_string()))?;
+    let rows = state.meta.quota_history_since(&since).map_err(|e| err_response(e.to_string()))?;
 
     // Bucket by provider + minute so the chart stays readable.
     let mut by_provider: HashMap<String, BTreeMap<String, (f64, u64)>> = HashMap::new();
     for row in rows {
         let provider = rivet_core::normalize_provider_id(&row.provider);
         let bucket = row.ts.get(..16).unwrap_or(row.ts.as_str()).to_string(); // YYYY-MM-DDTHH:MM
-        let entry = by_provider
-            .entry(provider)
-            .or_default()
-            .entry(bucket)
-            .or_insert((0.0, 0));
+        let entry = by_provider.entry(provider).or_default().entry(bucket).or_insert((0.0, 0));
         entry.0 += row.remaining_pct;
         entry.1 += 1;
     }
@@ -1112,8 +1046,7 @@ async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
             earliest = ev.ts;
         }
         let provider = rivet_core::normalize_provider_id(ev.provider.as_str());
-        *out.entry(provider).or_default() +=
-            f64::from(ev.tokens_in) + f64::from(ev.tokens_out);
+        *out.entry(provider).or_default() += f64::from(ev.tokens_in) + f64::from(ev.tokens_out);
     }
     let secs = (Utc::now() - earliest).num_seconds().max(1);
     let secs_f = f64::from(i32::try_from(secs).unwrap_or(i32::MAX));
@@ -1125,8 +1058,10 @@ async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
 }
 
 fn format_account_reset(reset_at: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(reset_at)
-        .ok().map_or_else(|| reset_at.to_string(), |d| d.with_timezone(&Utc).format("%a %H:%M UTC").to_string())
+    chrono::DateTime::parse_from_rfc3339(reset_at).ok().map_or_else(
+        || reset_at.to_string(),
+        |d| d.with_timezone(&Utc).format("%a %H:%M UTC").to_string(),
+    )
 }
 
 async fn account_delete(
@@ -1164,11 +1099,7 @@ async fn import_vertex(
     State(state): State<ApiState>,
     Json(body): Json<VertexImportRequest>,
 ) -> Result<Json<LoginStartResponse>, (StatusCode, Json<ErrBody>)> {
-    state
-        .control
-        .import_vertex(&body.path)
-        .map(Json)
-        .map_err(err_response)
+    state.control.import_vertex(&body.path).map(Json).map_err(err_response)
 }
 
 async fn login_status(State(state): State<ApiState>) -> Json<LoginStatusResponse> {
@@ -1186,24 +1117,14 @@ async fn harness_write(
     State(state): State<ApiState>,
     Json(body): Json<HarnessWriteRequest>,
 ) -> Result<Json<HarnessWriteResponse>, (StatusCode, Json<ErrBody>)> {
-    state
-        .control
-        .write_harness(&body.target, body.mode.as_deref())
-        .map(Json)
-        .map_err(err_response)
+    state.control.write_harness(&body.target, body.mode.as_deref()).map(Json).map_err(err_response)
 }
 
 async fn export_bag(
     State(state): State<ApiState>,
 ) -> Result<Json<ExportResponse>, (StatusCode, Json<ErrBody>)> {
-    state
-        .paths
-        .ensure()
-        .map_err(|e| err_response(e.to_string()))?;
-    let name = format!(
-        "rivet-export-{}.rivetbag",
-        Utc::now().format("%Y%m%d-%H%M%S")
-    );
+    state.paths.ensure().map_err(|e| err_response(e.to_string()))?;
+    let name = format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"));
     let path = state.paths.exports_dir().join(&name);
     let manifest = rivet_export::export_bag(state.store.clone(), path.as_std_path())
         .await
@@ -1224,11 +1145,7 @@ async fn import_bag(
         return Err(err_response(format!("file not found: {}", path.display())));
     }
     if path.extension().and_then(|s| s.to_str()) != Some("rivetbag")
-        && !path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .ends_with(".rivetbag")
+        && !path.file_name().and_then(|s| s.to_str()).unwrap_or("").ends_with(".rivetbag")
     {
         return Err(err_response(
             "expected a .rivetbag file (credentials packages are rejected)".into(),
@@ -1313,19 +1230,12 @@ fn resolve_wiki_abs(
         .canonicalize()
         .map_err(|e| err_response(format!("wiki dir: {e}")))?;
     let canon = abs.canonicalize().map_err(|_| {
-        (
-            StatusCode::NOT_FOUND,
-            Json(ErrBody {
-                error: "wiki page not found".into(),
-            }),
-        )
+        (StatusCode::NOT_FOUND, Json(ErrBody { error: "wiki page not found".into() }))
     })?;
     if !canon.starts_with(&wiki) {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrBody {
-                error: "wiki path escapes wiki dir".into(),
-            }),
+            Json(ErrBody { error: "wiki path escapes wiki dir".into() }),
         ));
     }
     Ok(canon)
@@ -1343,10 +1253,7 @@ fn read_wiki_preview(paths: &RivetPaths, stored_path: &str) -> String {
     if raw.chars().count() <= WIKI_PREVIEW_MAX_CHARS {
         return raw;
     }
-    raw.chars()
-        .take(WIKI_PREVIEW_MAX_CHARS)
-        .collect::<String>()
-        + "\n…"
+    raw.chars().take(WIKI_PREVIEW_MAX_CHARS).collect::<String>() + "\n…"
 }
 
 fn page_to_card(paths: &RivetPaths, project: &str, page: WikiPageMeta) -> WikiPageCard {
@@ -1398,10 +1305,7 @@ async fn wiki_page(
     State(state): State<ApiState>,
     Query(q): Query<WikiPageQuery>,
 ) -> Result<Json<WikiPageBody>, (StatusCode, Json<ErrBody>)> {
-    let pages = state
-        .meta
-        .list_all_wiki_pages()
-        .map_err(|e| err_response(e.to_string()))?;
+    let pages = state.meta.list_all_wiki_pages().map_err(|e| err_response(e.to_string()))?;
     let page = pages
         .into_iter()
         .find(|p| {
@@ -1409,12 +1313,7 @@ async fn wiki_page(
                 || q.path.as_deref().is_some_and(|path| path == p.path)
         })
         .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrBody {
-                    error: "wiki page not found".into(),
-                }),
-            )
+            (StatusCode::NOT_FOUND, Json(ErrBody { error: "wiki page not found".into() }))
         })?;
     let abs = resolve_wiki_abs(&state.paths, &page.path)?;
     let content = std::fs::read_to_string(&abs).map_err(|e| err_response(e.to_string()))?;
@@ -1436,10 +1335,7 @@ async fn workers_tick(
     let Some(workers) = state.workers.clone() else {
         return Err(err_response("workers unavailable".into()));
     };
-    workers
-        .tick_once()
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    workers.tick_once().await.map_err(|e| err_response(e.to_string()))?;
     let cfg = state.config.read().await;
     Ok(Json(serde_json::json!({
         "ok": true,
@@ -1476,19 +1372,15 @@ async fn tail_logs(
             } else {
                 newest_log_file(dir.as_std_path(), "clickhouse.err.log")
             }
-        }
+        },
         other => {
             return Err(err_response(format!(
                 "unknown log kind '{other}' (use proxy or clickhouse)"
             )));
-        }
+        },
     };
     let text = tail_file(&path, lines).unwrap_or_else(|e| format!("(could not read log: {e})"));
-    Ok(Json(LogTail {
-        kind,
-        path: path.display().to_string(),
-        text,
-    }))
+    Ok(Json(LogTail { kind, path: path.display().to_string(), text }))
 }
 
 fn newest_log_file(dir: &std::path::Path, fallback_name: &str) -> PathBuf {
@@ -1509,7 +1401,7 @@ fn newest_log_file(dir: &std::path::Path, fallback_name: &str) -> PathBuf {
         match &best {
             None => best = Some((modified, path)),
             Some((t, _)) if modified > *t => best = Some((modified, path)),
-            _ => {}
+            _ => {},
         }
     }
     best.map(|(_, p)| p).unwrap_or(fallback)

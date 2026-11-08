@@ -28,9 +28,7 @@ pub fn cosine(a: &[f32], b: &[f32]) -> f32 {
 }
 
 fn tokenize(text: &str) -> impl Iterator<Item = String> + '_ {
-    text.split(|c: char| !c.is_alphanumeric())
-        .filter(|t| t.len() > 2)
-        .map(str::to_ascii_lowercase)
+    text.split(|c: char| !c.is_alphanumeric()).filter(|t| t.len() > 2).map(str::to_ascii_lowercase)
 }
 
 fn hash64(s: &str) -> u64 {

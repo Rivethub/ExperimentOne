@@ -27,7 +27,15 @@ export function RuntimePaneCard({
   );
 }
 
-export function RuntimeKv({ label, value, title }: { label: string; value: string; title?: string }): ReactElement {
+export function RuntimeKv({
+  label,
+  value,
+  title,
+}: {
+  label: string;
+  value: string;
+  title?: string;
+}): ReactElement {
   return (
     <div className={styles.kvRow}>
       <span className={styles.k}>{label}</span>

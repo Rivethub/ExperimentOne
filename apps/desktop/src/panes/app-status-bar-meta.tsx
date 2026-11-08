@@ -49,18 +49,11 @@ export function AppStatusBarProxyPill({
   const url = isDefined(proxyBaseUrl) && proxyBaseUrl !== "" ? proxyBaseUrl : null;
 
   return (
-    <button
-      type="button"
-      className={styles.sbPill}
-      title={url ?? "Proxy"}
-      onClick={onOpenRuntime}
-    >
+    <button type="button" className={styles.sbPill} title={url ?? "Proxy"} onClick={onOpenRuntime}>
       <span className={cx(styles.sbDot, live ? styles.on : styles.off)} />
       <span className={styles.sbFull}>proxy {live ? "live" : "stopped"}</span>
       <span className={styles.sbShort}>{live ? "proxy" : "proxy↓"}</span>
-      {url !== null ? (
-        <span className={styles.sbMuted}>{url.replace("http://", "")}</span>
-      ) : null}
+      {url !== null ? <span className={styles.sbMuted}>{url.replace("http://", "")}</span> : null}
     </button>
   );
 }

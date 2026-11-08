@@ -4,9 +4,7 @@ import { Actions, Banner, Button, Input, Panel } from "../../ui";
 import { cx } from "../../styles/cx";
 import styles from "../../styles/app.module.css";
 
-function capabilityEnabled(
-  value: boolean | undefined,
-): boolean {
+function capabilityEnabled(value: boolean | undefined): boolean {
   return value === true;
 }
 
@@ -80,7 +78,9 @@ export function IntelligenceTab({
             id="intelligence-wiki-model"
             placeholder="optional, e.g. claude-sonnet-4-5"
             value={intelligence.wikiModel}
-            onChange={(e) => { intelligence.onWikiModelChange(e.target.value); }}
+            onChange={(e) => {
+              intelligence.onWikiModelChange(e.target.value);
+            }}
           />
         </label>
       </div>

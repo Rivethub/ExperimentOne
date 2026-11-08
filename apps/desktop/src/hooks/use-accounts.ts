@@ -5,11 +5,7 @@ import { rivetErrorMessage, runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
 import { providerKey } from "../lib/provider-utils";
 import type { Account, HarnessWrite, LoginStatus, SettingsTab } from "../lib/types";
-import {
-  useAccountsHarness,
-  useAccountsLogin,
-  useAccountsVertex,
-} from "./use-accounts.parts";
+import { useAccountsHarness, useAccountsLogin, useAccountsVertex } from "./use-accounts.parts";
 
 type AccountsOpts = {
   accounts: Account[];

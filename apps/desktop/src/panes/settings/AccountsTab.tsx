@@ -12,8 +12,7 @@ export function AccountsTab({
   login,
   ...accounts
 }: SettingsAccountsProps & { hidden?: boolean }): React.ReactElement {
-  const showLoginModal =
-    isDefined(login) && (login.active || login.output !== "");
+  const showLoginModal = isDefined(login) && (login.active || login.output !== "");
 
   const panelActions = useMemo(
     () => (
@@ -41,7 +40,9 @@ export function AccountsTab({
         catalog={accounts.catalog}
         busy={accounts.busy}
         loginActive={accounts.loginActive}
-        onReconnect={(provider) => { accounts.onRequestLogin(provider); }}
+        onReconnect={(provider) => {
+          accounts.onRequestLogin(provider);
+        }}
         onRemove={accounts.onRemoveAccount}
         onOpenHarness={accounts.onOpenHarness}
       />

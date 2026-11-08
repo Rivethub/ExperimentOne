@@ -6,11 +6,7 @@ export function WikiMarkdownAnchor(props: ComponentPropsWithoutRef<"a">): ReactE
   const ctx = useContext(WikiLinkContext);
   if (ctx === null) {
     const { children, ...rest } = props;
-    return (
-      <a {...rest}>
-        {children}
-      </a>
-    );
+    return <a {...rest}>{children}</a>;
   }
   return (
     <WikiMarkdownLink

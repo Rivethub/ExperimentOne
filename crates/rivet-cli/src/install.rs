@@ -104,13 +104,7 @@ pub async fn install(version: Option<&str>) -> Result<InstallReport> {
 
     let linked_cli = link_cli_to_user_bin(&dest)?;
 
-    Ok(InstallReport {
-        tag,
-        asset: asset_name,
-        root,
-        binaries,
-        linked_cli,
-    })
+    Ok(InstallReport { tag, asset: asset_name, root, binaries, linked_cli })
 }
 
 pub fn print_install_report(report: &InstallReport) {
@@ -121,10 +115,7 @@ pub fn print_install_report(report: &InstallReport) {
     if let Some(link) = &report.linked_cli {
         println!("  cli: {}", path_display(link));
     } else {
-        println!(
-            "  cli: {} (add this directory to PATH)",
-            path_display(&report.root.join("bin"))
-        );
+        println!("  cli: {} (add this directory to PATH)", path_display(&report.root.join("bin")));
     }
 }
 
@@ -145,7 +136,7 @@ async fn fetch_release(repo: &str, version: Option<&str>) -> Result<Release> {
                 }
             }
             return Err(last_err.unwrap_or_else(|| anyhow!("release not found")));
-        }
+        },
         None => format!("https://api.github.com/repos/{repo}/releases/latest"),
     };
     github_get_json(&url).await.with_context(|| {
@@ -240,9 +231,7 @@ fn unpack_tar_gz(bytes: &[u8], dest: &Path) -> Result<Vec<String>> {
             continue;
         };
         let out = dest.join(&canonical);
-        entry
-            .unpack(&out)
-            .with_context(|| format!("unpack {file_name} → {canonical}"))?;
+        entry.unpack(&out).with_context(|| format!("unpack {file_name} → {canonical}"))?;
         names.push(canonical);
     }
     if names.is_empty() {
@@ -263,10 +252,7 @@ fn unpack_zip(bytes: &[u8], dest: &Path) -> Result<Vec<String>> {
             .enclosed_name()
             .and_then(|p| p.file_name().map(|s| s.to_owned()))
             .ok_or_else(|| anyhow!("invalid zip entry name"))?;
-        let file_name = name
-            .to_str()
-            .ok_or_else(|| anyhow!("non-utf8 zip name"))?
-            .to_string();
+        let file_name = name.to_str().ok_or_else(|| anyhow!("non-utf8 zip name"))?.to_string();
         if file.is_dir() {
             continue;
         }
@@ -319,7 +305,7 @@ fn link_cli_to_user_bin(bin_dir: &Path) -> Result<Option<PathBuf>> {
                 fs::copy(&cli_src, &dest)
                     .with_context(|| format!("copy CLI to {}", dest.display()))?;
                 Ok(Some(dest))
-            }
+            },
         }
     }
     #[cfg(windows)]

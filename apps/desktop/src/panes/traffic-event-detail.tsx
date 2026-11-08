@@ -98,7 +98,9 @@ export function TrafficEventRow({
   return (
     <button
       className={cx(styles.trafficRow, selected ? styles.active : "")}
-      onClick={() => { onSelect(ev); }}
+      onClick={() => {
+        onSelect(ev);
+      }}
     >
       <span className={styles.mono}>
         {new Date(ev.ts).toLocaleTimeString([], {

@@ -94,10 +94,7 @@ pub fn read_pidfile(path: &Path) -> Option<(u32, Option<String>)> {
     if pid == 0 {
         return None;
     }
-    let expected = lines
-        .next()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let expected = lines.next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     Some((pid, expected))
 }
 
@@ -178,10 +175,8 @@ fn process_exe_lsof(pid: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn process_exe_from_ps(pid: u32) -> Option<String> {
-    let output = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-ww", "-o", "args="])
-        .output()
-        .ok()?;
+    let output =
+        Command::new("ps").args(["-p", &pid.to_string(), "-ww", "-o", "args="]).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -248,10 +243,7 @@ pub fn identity_matches(live: &str, expected: Option<&str>, legacy_hints: &[&str
     if live.is_empty() {
         return false;
     }
-    let live_base = Path::new(live)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(live);
+    let live_base = Path::new(live).file_name().and_then(|s| s.to_str()).unwrap_or(live);
 
     if let Some(exp) = expected.map(str::trim).filter(|s| !s.is_empty()) {
         if exp.contains('/') || exp.contains('\\') {
@@ -305,22 +297,14 @@ pub fn reclaim_proxy_orphan(paths: &RivetPaths) {
     }
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
-            .status();
+        let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
         std::thread::sleep(std::time::Duration::from_millis(150));
-        let _ = Command::new("kill")
-            .args(["-KILL", &format!("-{pid}")])
-            .status();
-        let _ = Command::new("kill")
-            .args(["-KILL", &pid.to_string()])
-            .status();
+        let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .status();
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
     }
     clear_proxy_pid(paths);
 }
@@ -366,25 +350,15 @@ mod tests {
 
     #[test]
     fn short_expected_matches_basename() {
-        assert!(identity_matches(
-            "/tmp/rivet-proxy",
-            Some("rivet-proxy"),
-            &["nope"],
-        ));
+        assert!(identity_matches("/tmp/rivet-proxy", Some("rivet-proxy"), &["nope"],));
     }
 
     #[test]
     fn legacy_hints_do_not_substring_match() {
-        assert!(!identity_matches(
-            "/opt/homebrew/bin/my-clickhouse-helper",
-            None,
-            &["clickhouse"],
-        ));
-        assert!(identity_matches(
-            "/usr/local/bin/clickhouse",
-            None,
-            &["clickhouse"],
-        ));
+        assert!(
+            !identity_matches("/opt/homebrew/bin/my-clickhouse-helper", None, &["clickhouse"],)
+        );
+        assert!(identity_matches("/usr/local/bin/clickhouse", None, &["clickhouse"],));
     }
 
     #[test]
@@ -413,10 +387,7 @@ mod tests {
             "/Users/me/Library/Application Support/Rivet/bin/clickhouse --cfg x",
         )
         .unwrap();
-        assert_eq!(
-            got,
-            "/Users/me/Library/Application Support/Rivet/bin/clickhouse"
-        );
+        assert_eq!(got, "/Users/me/Library/Application Support/Rivet/bin/clickhouse");
     }
 
     #[test]

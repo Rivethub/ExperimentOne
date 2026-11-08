@@ -44,7 +44,9 @@ function SegmentBar({
             )}
             title={label}
             aria-label={label}
-            onClick={() => { onSelect(a); }}
+            onClick={() => {
+              onSelect(a);
+            }}
           >
             <div className={styles.poolSegFill} style={{ flexGrow: Math.max(0.05, remaining) }}>
               <span className={styles.poolSegRemain} style={{ background: color }} />
