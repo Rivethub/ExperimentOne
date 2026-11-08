@@ -94,10 +94,10 @@ func flattenContent(v any) string {
 		for _, item := range c {
 			switch t := item.(type) {
 			case string:
-				b.WriteString(t)
+				_, _ = b.WriteString(t)
 			case map[string]any:
 				if s, ok := t["text"].(string); ok {
-					b.WriteString(s)
+					_, _ = b.WriteString(s)
 				}
 			}
 		}

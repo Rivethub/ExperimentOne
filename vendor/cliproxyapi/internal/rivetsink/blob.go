@@ -80,8 +80,8 @@ func (w *Wrapper) openSpill(eventID string) (file *os.File, rel, abs string, err
 		eventID+".txt",
 	))
 	abs = filepath.Join(dir, filepath.FromSlash(rel))
-	if err = os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
-		return nil, "", "", err
+	if mkdirErr := os.MkdirAll(filepath.Dir(abs), 0o755); mkdirErr != nil {
+		return nil, "", "", mkdirErr
 	}
 	file, err = os.OpenFile(abs, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {

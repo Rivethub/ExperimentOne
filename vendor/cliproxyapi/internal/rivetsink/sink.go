@@ -248,14 +248,14 @@ type streamWrapper struct {
 	wsTimeline []byte // upstream/downstream websocket event log
 }
 
-// appendHeadTail keeps the first headBytes and last tailBytes of a stream so
+// appendHeadTail keeps the first and last previewRespBytes of a stream so
 // long responses retain both the start (prompt context) and end (usage).
-func appendHeadTail(head, tail *[]byte, chunk []byte, headBytes, tailBytes int) {
+func appendHeadTail(head, tail *[]byte, chunk []byte) {
 	if len(chunk) == 0 {
 		return
 	}
-	if len(*head) < headBytes {
-		need := headBytes - len(*head)
+	if len(*head) < previewRespBytes {
+		need := previewRespBytes - len(*head)
 		if len(chunk) <= need {
 			*head = append(*head, chunk...)
 			return
@@ -264,8 +264,8 @@ func appendHeadTail(head, tail *[]byte, chunk []byte, headBytes, tailBytes int) 
 		chunk = chunk[need:]
 	}
 	*tail = append(*tail, chunk...)
-	if len(*tail) > tailBytes {
-		*tail = append([]byte(nil), (*tail)[len(*tail)-tailBytes:]...)
+	if len(*tail) > previewRespBytes {
+		*tail = append([]byte(nil), (*tail)[len(*tail)-previewRespBytes:]...)
 	}
 }
 
@@ -278,7 +278,7 @@ func (s *streamWrapper) WriteChunkAsync(chunk []byte) {
 			log.Warnf("rivet sink spill write: %v", err)
 		}
 	}
-	appendHeadTail(&s.head, &s.tail, chunk, previewRespBytes, previewRespBytes)
+	appendHeadTail(&s.head, &s.tail, chunk)
 	// Parse complete SSE lines; keep a partial trailing frame across writes.
 	buf := s.partial + string(chunk)
 	lines := strings.Split(buf, "\n")
@@ -345,12 +345,12 @@ func (s *streamWrapper) WriteAPIWebsocketTimeline(apiWebsocketTimeline []byte) e
 	// Prefer WS frames for the Rivet preview when HTTP chunk body is empty
 	// (Codex Responses WebSocket path).
 	if len(s.head) == 0 && len(s.tail) == 0 {
-		appendHeadTail(&s.head, &s.tail, apiWebsocketTimeline, previewRespBytes, previewRespBytes)
+		appendHeadTail(&s.head, &s.tail, apiWebsocketTimeline)
 	} else {
 		// Keep a truncated WS appendix in the preview so sessions aren't HTTP-only.
 		marker := []byte("\n=== API WEBSOCKET TIMELINE ===\n")
-		appendHeadTail(&s.head, &s.tail, marker, previewRespBytes, previewRespBytes)
-		appendHeadTail(&s.head, &s.tail, apiWebsocketTimeline, previewRespBytes, previewRespBytes)
+		appendHeadTail(&s.head, &s.tail, marker)
+		appendHeadTail(&s.head, &s.tail, apiWebsocketTimeline)
 	}
 	meta := parsedMeta{TokensIn: s.tokensIn, TokensOut: s.tokensOut, Model: s.model}
 	parseStreamMeta(&meta, s.provider, string(apiWebsocketTimeline))
@@ -472,7 +472,7 @@ func (w *Wrapper) forwardStream(url string, headers map[string][]string, reqBody
 	if modelHint != "" && meta.Model == "" {
 		meta.Model = modelHint
 	}
-	w.emit(url, headers, reqBody, respPreview, statusCode, requestID, started, finished, provider, meta, eventID, bodyRef, true, apiRequest)
+	w.emit(url, headers, reqBody, respPreview, statusCode, requestID, started, finished, provider, &meta, eventID, bodyRef, true, apiRequest)
 }
 
 func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, apiRequest []byte) {
@@ -481,10 +481,13 @@ func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, resp
 	}
 	provider := inferProviderFromCapture(url, reqBody, apiRequest)
 	meta := parseMeta(provider, headers, reqBody, respBody)
-	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, meta, "", "", false, apiRequest)
+	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, &meta, "", "", false, apiRequest)
 }
 
-func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, meta parsedMeta, eventID, existingBodyRef string, previewOnly bool, apiRequest []byte) {
+func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, meta *parsedMeta, eventID, existingBodyRef string, previewOnly bool, apiRequest []byte) {
+	if meta == nil {
+		meta = &parsedMeta{}
+	}
 	eventID = strings.TrimSpace(eventID)
 	if eventID == "" {
 		eventID = uuid.NewString()
