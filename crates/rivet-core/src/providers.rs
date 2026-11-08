@@ -147,6 +147,11 @@ pub fn find_provider(raw: &str) -> Option<&'static ProviderCatalogEntry> {
 /// Normalize traffic / credential provider labels into a stable id.
 pub fn normalize_provider_id(raw: &str) -> String {
     let s = raw.trim().to_ascii_lowercase();
+    // Keep Gemini traffic on its own pool. `gemini` remains an Antigravity login
+    // alias for the Accounts UI, but must not fold burn/quota into antigravity.
+    if s == "gemini" || s == "gemini-cli" || s.starts_with("gemini-") {
+        return "gemini".into();
+    }
     if let Some(p) = find_provider(&s) {
         return p.id.clone();
     }

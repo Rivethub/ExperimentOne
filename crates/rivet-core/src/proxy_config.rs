@@ -38,6 +38,8 @@ observability:
     debug: false
     logging-to-file: true
     request-log: true
+    # Cap on-disk request logs (full prompts); cleaner is off when unset/0.
+    logs-max-total-size-mb: 256
   usage:
     usage-statistics-enabled: true
 "#,
@@ -87,12 +89,13 @@ experimental_bearer_token = "{}"
     )
 }
 
-/// Claude Code MCP server entry for Rivet's local history tools.
+/// Claude Code MCP server entry for Rivet's local history tools (streamable HTTP).
 pub fn claude_mcp_json(config: &RivetConfig) -> String {
     format!(
         r#"{{
   "mcpServers": {{
     "rivet": {{
+      "type": "http",
       "url": "{}"
     }}
   }}

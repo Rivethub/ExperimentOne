@@ -1106,6 +1106,7 @@ name = "rivet-export"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "camino",
  "chrono",
  "flate2",

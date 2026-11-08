@@ -58,8 +58,8 @@ flowchart TB
 | Proxy | Sidecar process | Deployment |
 | ClickHouse | Bundled single-node | Cluster / managed CH |
 | Workers | Tokio tasks in-process | Job pods / queue consumers |
-| Bus | In-memory + file WAL | NATS or Redpanda |
-| Auth for UI | Local only | OIDC + admin portal |
+| Bus | Polling workers (local) | NATS or Redpanda |
+| Auth for UI | Loopback Host + `X-Rivet-Key` | OIDC + admin portal |
 | Tenancy | Single user | Org / team namespaces |
 
 Interfaces stay the same: ingest protocol, store schemas, MCP tools, export package format.
@@ -76,9 +76,9 @@ Routing features Theo cares about (session affinity, soonest-reset-first) live i
 
 ## Data plane
 
-**ClickHouse** — high-frequency append for traffic events, usage rollups, session timelines.
+**SQLite** (via `rivet-store`) — primary local traffic store, app config, wiki page index, job cursors.
 
-**SQLite** (via `rivet-store`) — app config, account registry metadata pointers, wiki page index, job cursors. Not for hot traffic.
+**ClickHouse** (optional sidecar) — dual-write analytics when the binary is present; UI reads still prefer SQLite.
 
 **Object/blob dir** — large bodies / export packages under `~/Library/Application Support/Rivet/` (macOS).
 
@@ -91,7 +91,7 @@ Routing features Theo cares about (session affinity, soonest-reset-first) live i
 
 ## Workers
 
-Local: `rivet-worker` as Tokio consumers on an ingest notification channel.
+Local: `rivet-worker` Tokio tasks polled on a timer (vectorize + wiki); not a push bus yet.
 
 Enterprise: same crate, pull from NATS/Redpanda.
 
@@ -105,11 +105,11 @@ MCP works without 2–3 (SQL + full-text). Quality jumps with vectors + wiki.
 
 ## Export / import
 
-Package format: `.rivetbag` (tar.zst)
+Package format: `.rivetbag` (tar + gzip)
 
-Contains: traffic events, optional embeddings, wiki pages, manifest (schema version, redaction policy).
+Contains: `manifest.json` + `traffic_events.json` (embeddings/wiki optional later).
 
-Excludes: credentials, keys, Tailscale config.
+Excludes: OAuth credential directories, proxy access keys, management secrets. Captured content may still hold sensitive text after best-effort redaction.
 
 ## Desktop UX (Docker Desktop–like)
 

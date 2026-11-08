@@ -26,7 +26,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app"],
+    "targets": ["dmg", "app", "deb", "appimage", "nsis"],
     "icon": [
       "icons/icon.png"
     ],
@@ -34,6 +34,16 @@
       "minimumSystemVersion": "12.0",
       "entitlements": "entitlements.plist",
       "exceptionDomain": "127.0.0.1"
+    },
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
     },
     "externalBin": [
       "binaries/rivetd",

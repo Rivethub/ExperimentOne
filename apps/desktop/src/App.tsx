@@ -1,23 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { WikiBoard, type WikiInfo, type WikiPageCard } from "./WikiBoard";
 
-type Page =
-  | "quota"
-  | "traffic"
-  | "runtime"
-  | "accounts"
-  | "harness"
-  | "export"
-  | "wiki"
-  | "intelligence";
+type Page = "quota" | "traffic" | "runtime" | "wiki" | "export" | "settings";
 
-type MetricMode = "remaining" | "drain" | "burn";
+type SettingsTab = "accounts" | "intelligence" | "harness";
 
-type Onboarding = {
-  proxy_running: boolean;
-  has_accounts: boolean;
-  has_traffic: boolean;
-  harness_ready: boolean;
-};
+type MetricMode = "remaining" | "burn";
 
 type Status = {
   ok: boolean;
@@ -31,7 +19,6 @@ type Status = {
   embedding_model?: string | null;
   wiki_model?: string | null;
   warnings?: string[];
-  onboarding?: Onboarding;
   workers?: {
     vector_search: boolean;
     wiki: boolean;
@@ -84,6 +71,7 @@ type QuotaAccount = {
 type ProviderQuota = {
   provider: string;
   account_count: number;
+  known_count?: number;
   remaining_pct: number;
   capacity_pct: number;
   pool_empty: string;
@@ -132,20 +120,6 @@ type TrafficEvent = {
   latency_ms?: number | null;
 };
 
-type WikiPage = {
-  id: string;
-  project_id: string;
-  title: string;
-  path: string;
-  updated_at: string;
-};
-
-type WikiInfo = {
-  path: string;
-  project_id: string;
-  pages: WikiPage[];
-};
-
 type ProviderFilter = string; // "all" or provider id from catalog
 
 type CatalogProvider = {
@@ -159,7 +133,14 @@ type CatalogProvider = {
   color: string;
 };
 
-const API = "http://127.0.0.1:8741";
+let API = "http://127.0.0.1:8741";
+
+async function resolveApiBase() {
+  const base = await invokeTauri<string>("api_base_url");
+  if (base && /^https?:\/\//.test(base)) {
+    API = base.replace(/\/$/, "");
+  }
+}
 
 const FALLBACK_PROVIDERS: CatalogProvider[] = [
   {
@@ -188,11 +169,15 @@ const NAV: { id: Page; label: string; icon: string }[] = [
   { id: "quota", label: "Quota", icon: "◈" },
   { id: "traffic", label: "Traffic", icon: "◫" },
   { id: "runtime", label: "Runtime", icon: "⏻" },
-  { id: "accounts", label: "Accounts", icon: "◎" },
-  { id: "harness", label: "Harness", icon: "⎇" },
   { id: "wiki", label: "Wiki", icon: "☰" },
-  { id: "intelligence", label: "Intelligence", icon: "✦" },
   { id: "export", label: "Export", icon: "⇪" },
+  { id: "settings", label: "Settings", icon: "⚙" },
+];
+
+const SETTINGS_TABS: { id: SettingsTab; label: string; hint: string }[] = [
+  { id: "accounts", label: "Accounts", hint: "Provider credentials" },
+  { id: "intelligence", label: "Intelligence", hint: "Models & workers" },
+  { id: "harness", label: "Harness", hint: "Claude / Codex config" },
 ];
 
 async function invokeTauri<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
@@ -251,6 +236,32 @@ function providerLabel(id: string, catalog: CatalogProvider[]) {
   return catalog.find((p) => p.id === id)?.label ?? id;
 }
 
+/** Short chip label; keeps suffixes when two providers share a base name. */
+function providerChipLabel(id: string, catalog: CatalogProvider[]) {
+  if (id === "kimi") return "kimi.com";
+  if (id === "kimi-ai") return "kimi.ai";
+  const label = providerLabel(id, catalog);
+  const match = label.match(/^(.+?)\s*\((.+)\)$/);
+  if (!match) return label;
+  const [, base, suffix] = match;
+  const clash = catalog.some(
+    (p) => p.id !== id && (p.label === base || p.label.startsWith(`${base} (`)),
+  );
+  return clash ? suffix : base;
+}
+
+function formatRelativeIso(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return iso;
+  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (sec < 45) return "just now";
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+  if (sec < 86400 * 14) return `${Math.round(sec / 86400)}d ago`;
+  return new Date(t).toLocaleDateString();
+}
+
 function horizonMs(h: "1h" | "3h" | "6h") {
   return ({ "1h": 1, "3h": 3, "6h": 6 }[h] * 60 * 60 * 1000);
 }
@@ -271,7 +282,7 @@ type Series = {
   eventsInWindow: number;
 };
 
-/** Build chart series from real local traffic for the selected metric. */
+/** Build chart series from measured traffic burn (not invented remaining history). */
 function seriesFromEvents(
   events: TrafficEvent[],
   provider: string,
@@ -302,84 +313,49 @@ function seriesFromEvents(
   }
 
   const totalTokens = tokensPerBucket.reduce((a, b) => a + b, 0);
-  const burnPerHour = hours > 0 ? totalTokens / hours : totalTokens;
-  const capacity = Math.max(100, liveCapacityPct ?? 100);
-  // Tokens assumed for the full pool so burn maps into % of capacity.
-  const assumedPool = Math.max(80_000 * (capacity / 100), totalTokens * 2.2 + 40_000);
+  // Divide by the span actually covered by samples (not the full horizon if truncated).
+  const sampleTs = filtered
+    .map((e) => Date.parse(e.ts))
+    .filter((t) => !Number.isNaN(t));
+  const sampleSpanH =
+    sampleTs.length >= 2
+      ? Math.max(0.05, (Math.max(...sampleTs) - Math.min(...sampleTs)) / 3_600_000)
+      : hours;
+  const burnPerHour = sampleSpanH > 0 ? totalTokens / sampleSpanH : totalTokens;
+  const capacity = Math.max(0, liveCapacityPct ?? 0);
   const endRemaining =
     liveRemainingPct != null && Number.isFinite(liveRemainingPct)
       ? Math.max(0, liveRemainingPct)
       : null;
 
-  const burnSeries: number[] = [];
-  const drainSeries: number[] = [];
-  const remaining: number[] = [];
-  let remainingCursor = endRemaining ?? capacity;
-  // Walk backward from live remaining so the chart ends on the real watermark.
-  const burnPctPerBucket = tokensPerBucket.map((tok) => (tok / assumedPool) * 100);
-  for (let i = points - 1; i >= 0; i--) {
-    remaining[i] = Number(remainingCursor.toFixed(2));
-    remainingCursor = Math.min(
-      capacity,
-      remainingCursor + burnPctPerBucket[i],
-    );
-  }
-  let prev = remaining[0] ?? capacity;
-  for (let i = 0; i < points; i++) {
-    burnSeries.push(tokensPerBucket[i]);
-    const cur = remaining[i] ?? capacity;
-    drainSeries.push(Number(Math.max(0, prev - cur).toFixed(2)));
-    prev = cur;
-  }
-
+  const burnSeries = tokensPerBucket.slice();
   const maxBurn = Math.max(1, ...burnSeries);
   const normalize = (vals: number[], max: number) =>
     vals.map((v) => Number(((v / max) * 100).toFixed(1)));
 
-  // Chart Y is always 0–100 of capacity for remaining; scale absolute % down.
-  const remainingChart = remaining.map((v) =>
-    Number(Math.min(100, (v / capacity) * 100).toFixed(2)),
-  );
-
-  let recorded: number[];
+  // Chart always shows measured token burn. Live remaining is headline-only.
+  const recorded = normalize(burnSeries, maxBurn);
+  const projected = recorded.slice(); // no fabricated forward curve
   let headline: number;
   let headlineUnit: string;
-
-  if (mode === "burn") {
-    recorded = normalize(burnSeries, maxBurn);
-    headline = Math.round(burnPerHour);
-    headlineUnit = "tok/h";
-  } else if (mode === "drain") {
-    const maxDrain = Math.max(1, ...drainSeries);
-    recorded = normalize(drainSeries, maxDrain);
-    headline = Number(drainSeries.reduce((a, b) => a + b, 0).toFixed(1));
-    headlineUnit = "% pts";
-  } else {
-    recorded = remainingChart;
-    headline = Number((remaining.at(-1) ?? capacity).toFixed(0));
+  if (mode === "remaining" && endRemaining != null && capacity > 0) {
+    headline = Number(endRemaining.toFixed(0));
     headlineUnit = `% / ${Math.round(capacity)}`;
+  } else {
+    headline = Math.round(burnPerHour);
+    headlineUnit = mode === "remaining" ? "tok/h · no live %" : "tok/h";
   }
 
-  const last = recorded[recorded.length - 1] ?? 40;
-  const burnPctPerHour = assumedPool > 0 ? (burnPerHour / assumedPool) * 100 : 0;
-  const projected = recorded.map((_, i) => {
-    if (i < points - 6) return recorded[i];
-    const t = (i - (points - 6)) / 6;
-    if (mode === "remaining") {
-      const projectedAbs = Math.max(
-        0,
-        (remaining.at(-1) ?? 0) - burnPctPerHour * t * (hours / 6) * 6,
-      );
-      return Number(Math.min(100, (projectedAbs / capacity) * 100).toFixed(1));
-    }
-    return Math.max(0, Number((last * (1 - t * 0.25)).toFixed(1)));
-  });
-
+  // remaining_pct is the sum of per-account percentages.
+  const remainingTokens =
+    endRemaining != null ? (endRemaining / 100) * 80_000 : null;
   let emptyAt = "—";
-  if (mode === "remaining" && burnPctPerHour > 0.01) {
-    const hoursLeft = (remaining.at(-1) ?? 0) / burnPctPerHour;
-    if (hoursLeft < 1) emptyAt = `~${Math.round(hoursLeft * 60)}m`;
-    else emptyAt = `~${hoursLeft.toFixed(1)}h`;
+  if (remainingTokens != null && burnPerHour > 1) {
+    const hoursLeft = remainingTokens / burnPerHour;
+    emptyAt =
+      hoursLeft < 1
+        ? `est. ~${Math.round(hoursLeft * 60)}m @ 80k/acct`
+        : `est. ~${hoursLeft.toFixed(1)}h @ 80k/acct`;
   } else if (filtered.length === 0 && endRemaining == null) {
     emptyAt = "Sign in to track";
   } else {
@@ -408,17 +384,29 @@ function accountDisplay(a: QuotaAccount) {
 
 function QuotaChart({
   recorded,
-  projected,
   color,
+  empty,
+  emptyLabel,
 }: {
   recorded: number[];
-  projected: number[];
+  projected?: number[];
   color: string;
+  empty?: boolean;
+  emptyLabel?: string;
 }) {
+  if (empty) {
+    return (
+      <div className="chart-wrap chart-wrap-empty">
+        <p>{emptyLabel ?? "No captured traffic in this window"}</p>
+      </div>
+    );
+  }
+
   const w = 640;
   const h = 160;
   const pad = 8;
-  const nowIdx = Math.floor(recorded.length * 0.72);
+  // "Now" is the latest measured bucket — never clip the historical series.
+  const nowIdx = Math.max(0, recorded.length - 1);
 
   const toPath = (vals: number[], from: number, to: number) => {
     const slice = vals.slice(from, to + 1);
@@ -467,15 +455,6 @@ function QuotaChart({
           strokeLinecap="round"
           strokeLinejoin="round"
         />
-        <path
-          d={toPath(projected, nowIdx, projected.length - 1)}
-          fill="none"
-          stroke={color}
-          strokeWidth="2"
-          strokeDasharray="5 5"
-          strokeLinecap="round"
-          opacity="0.85"
-        />
         <line
           x1={nowX}
           x2={nowX}
@@ -486,7 +465,7 @@ function QuotaChart({
           opacity="0.35"
         />
         <text
-          x={nowX + 4}
+          x={Math.max(pad, nowX - 28)}
           y={pad + 10}
           fill="#a1a1aa"
           fontSize="10"
@@ -497,10 +476,7 @@ function QuotaChart({
       </svg>
       <div className="chart-legend" style={{ color }}>
         <span>
-          <i className="swatch" /> Recorded
-        </span>
-        <span>
-          <i className="swatch dashed" /> Projected
+          <i className="swatch" /> Measured traffic burn
         </span>
       </div>
     </div>
@@ -511,6 +487,36 @@ function trunc(s: string | null | undefined, n = 120) {
   if (!s) return "—";
   const t = s.replace(/\s+/g, " ").trim();
   return t.length > n ? `${t.slice(0, n)}…` : t;
+}
+
+function prettyJsonChunk(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "(empty)";
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return trimmed;
+  }
+}
+
+/** Stored traffic bodies are `request\\n---\\nresponse`. */
+function splitTrafficBody(raw: string | null | undefined): { request: string; response: string | null } {
+  if (!raw?.trim()) return { request: "(empty)", response: null };
+  const parts = raw.split(/\n---\n/);
+  if (parts.length >= 2) {
+    return {
+      request: prettyJsonChunk(parts[0] ?? ""),
+      response: prettyJsonChunk(parts.slice(1).join("\n---\n")),
+    };
+  }
+  return { request: prettyJsonChunk(raw), response: null };
+}
+
+function trafficTokenLabel(ev: TrafficEvent): string {
+  const code = ev.status_code ?? 0;
+  const failed = code > 0 && (code < 200 || code >= 300);
+  if (failed && ev.tokens_in === 0 && ev.tokens_out === 0) return "—";
+  return `${fmt(ev.tokens_in)}/${fmt(ev.tokens_out)}`;
 }
 
 function QuotaProviderCard({
@@ -524,6 +530,7 @@ function QuotaProviderCard({
   pq,
   accounts,
   horizon,
+  onAddCredentials,
 }: {
   name: string;
   ico: string;
@@ -535,23 +542,51 @@ function QuotaProviderCard({
   pq: ProviderQuota | null;
   accounts: QuotaAccount[];
   horizon: string;
+  onAddCredentials: () => void;
 }) {
-  const capacity = pq?.capacity_pct ?? count * 100;
-  const remaining = pq?.remaining_pct ?? series.headline;
+  const knownQuota =
+    pq != null && pq.capacity_pct > 0 && Number.isFinite(pq.remaining_pct);
+  const capacity = knownQuota ? pq!.capacity_pct : 0;
+  const remaining = knownQuota ? pq!.remaining_pct : null;
   const headline =
-    metricMode === "remaining" && pq
-      ? Number(remaining.toFixed(0))
+    metricMode === "remaining"
+      ? knownQuota
+        ? Number(remaining!.toFixed(0))
+        : series.headline
       : series.headline;
   const unit =
     metricMode === "remaining"
-      ? count > 0
-        ? `% / ${Math.round(capacity || count * 100)}`
-        : "% left"
+      ? knownQuota
+        ? `% / ${Math.round(capacity)}`
+        : series.headlineUnit
       : series.headlineUnit;
   const poolEmpty = pq?.pool_empty && pq.pool_empty !== "—" ? pq.pool_empty : series.emptyAt;
   const firstEmpty = pq?.first_empty ?? "—";
-  const nextReset = pq?.next_reset ?? "— pending live quota";
-  const burn = pq?.burn_last_horizon ?? series.burnLabel;
+  const nextReset = pq?.next_reset ?? "—";
+  // Always match the selected horizon label — backend burn_last_horizon is fixed 3h.
+  const burn = series.burnLabel;
+
+  if (count === 0) {
+    return (
+      <section className="card quota-empty-card">
+        <div className="card-head">
+          <div className="card-title">
+            <div className={`provider-ico ${icoClass}`}>{ico}</div>
+            <div>
+              <h2>{name}</h2>
+              <div className="meta">No credentials yet</div>
+            </div>
+          </div>
+          <button type="button" className="btn primary" onClick={onAddCredentials}>
+            Add credentials
+          </button>
+        </div>
+        <p className="quota-empty-copy">
+          Sign in under Settings → Accounts to track live quota and burn for {name}.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="card">
@@ -562,7 +597,10 @@ function QuotaProviderCard({
             <h2>{name}</h2>
             <div className="meta">
               {count} account{count === 1 ? "" : "s"}
-              {capacity > 0 ? ` · pool ${Math.round(capacity)}%` : ""} · {metricMode}
+              {pq
+                ? ` · ${(pq.known_count ?? 0)}/${count} reporting`
+                : ""}
+              {knownQuota ? ` · pool ${Math.round(capacity)}%` : ""} · {metricMode}
             </div>
           </div>
         </div>
@@ -594,47 +632,48 @@ function QuotaProviderCard({
           <div className="v">{burn}</div>
         </div>
       </div>
-      <QuotaChart recorded={series.recorded} projected={series.projected} color={color} />
+      <QuotaChart
+        recorded={series.recorded}
+        color={color}
+        empty={!knownQuota && series.eventsInWindow === 0}
+        emptyLabel={`No captured traffic in the last ${horizon}`}
+      />
       <div className="quota-accounts">
-        {accounts.length === 0 ? (
-          <div className="quota-account empty-row">No credentials yet — sign in under Accounts.</div>
-        ) : (
-          accounts.map((a) => {
-            const rem = a.remaining_pct;
-            const empty = rem != null && rem <= 0.5;
-            return (
-              <div
-                key={a.id}
-                className={`quota-account ${empty ? "is-empty" : ""} ${a.loaded ? "" : "is-down"}`}
-                title={
-                  a.cooldown_seconds
-                    ? `Cooldown ${a.cooldown_seconds}s · ${a.status}`
-                    : a.status
-                }
-              >
-                <div className="qa-main">
-                  <span className={`qa-dot ${empty ? "empty" : a.loaded ? "ok" : "down"}`} />
-                  <span className="qa-email">{accountDisplay(a)}</span>
-                  {!a.loaded && <span className="qa-tag">unavailable</span>}
-                  {empty && <span className="qa-tag empty">empty</span>}
-                </div>
-                <div className="qa-meta">
-                  <span title="Remaining quota for this credential">{fmtPct(rem ?? null)}</span>
-                  <span className="qa-sep">·</span>
-                  <span title="Next reset">
-                    {a.reset_at
-                      ? new Date(a.reset_at).toLocaleString(undefined, {
-                          weekday: "short",
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })
-                      : "—"}
-                  </span>
-                </div>
+        {accounts.map((a) => {
+          const rem = a.remaining_pct;
+          const empty = rem != null && rem <= 0.5;
+          return (
+            <div
+              key={a.id}
+              className={`quota-account ${empty ? "is-empty" : ""} ${a.loaded ? "" : "is-down"}`}
+              title={
+                a.cooldown_seconds
+                  ? `Cooldown ${a.cooldown_seconds}s · ${a.status}`
+                  : a.status
+              }
+            >
+              <div className="qa-main">
+                <span className={`qa-dot ${empty ? "empty" : a.loaded ? "ok" : "down"}`} />
+                <span className="qa-email">{accountDisplay(a)}</span>
+                {!a.loaded && <span className="qa-tag">unavailable</span>}
+                {empty && <span className="qa-tag empty">empty</span>}
               </div>
-            );
-          })
-        )}
+              <div className="qa-meta">
+                <span title="Remaining quota for this credential">{fmtPct(rem ?? null)}</span>
+                <span className="qa-sep">·</span>
+                <span title="Next reset">
+                  {a.reset_at
+                    ? new Date(a.reset_at).toLocaleString(undefined, {
+                        weekday: "short",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })
+                    : "—"}
+                </span>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -642,6 +681,12 @@ function QuotaProviderCard({
 
 export default function App() {
   const [page, setPage] = useState<Page>("quota");
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("accounts");
+
+  const openSettings = useCallback((tab: SettingsTab = "accounts") => {
+    setSettingsTab(tab);
+    setPage("settings");
+  }, []);
   const [filter, setFilter] = useState<ProviderFilter>("all");
   const [horizon, setHorizon] = useState<"1h" | "3h" | "6h">("3h");
   const [metricMode, setMetricMode] = useState<MetricMode>("remaining");
@@ -660,6 +705,7 @@ export default function App() {
   const [harnessNote, setHarnessNote] = useState<HarnessWrite | null>(null);
   const [login, setLogin] = useState<LoginStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [apiOnline, setApiOnline] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [statusAction, setStatusAction] = useState<string | null>(null);
@@ -667,26 +713,61 @@ export default function App() {
   const [tosAck, setTosAck] = useState(false);
   const [vertexPath, setVertexPath] = useState("");
   const [bagNote, setBagNote] = useState<string | null>(null);
+  const [bagPath, setBagPath] = useState<string | null>(null);
   const [importPath, setImportPath] = useState("");
   const [embedModel, setEmbedModel] = useState("");
   const [wikiModel, setWikiModel] = useState("");
+  const modelsHydrated = useRef(false);
+  const [apiKey, setApiKey] = useState<string | null>(null);
   const [wiki, setWiki] = useState<WikiInfo | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<TrafficEvent | null>(null);
+  const refreshInFlight = useRef(false);
+  const apiKeyRef = useRef<string | null>(null);
+  apiKeyRef.current = apiKey;
+
+  const authHeaders = useCallback((extra?: HeadersInit): HeadersInit => {
+    const headers: Record<string, string> = {};
+    if (extra) {
+      const h = new Headers(extra);
+      h.forEach((v, k) => {
+        headers[k] = v;
+      });
+    }
+    if (apiKeyRef.current) headers["X-Rivet-Key"] = apiKeyRef.current;
+    return headers;
+  }, []);
+
+  const ensureSession = useCallback(async () => {
+    if (apiKeyRef.current) return apiKeyRef.current;
+    const res = await fetch(`${API}/v1/session`);
+    if (!res.ok) throw new Error(`session ${res.status}`);
+    const body = (await res.json()) as { api_key: string };
+    setApiKey(body.api_key);
+    apiKeyRef.current = body.api_key;
+    return body.api_key;
+  }, []);
 
   const refresh = useCallback(async () => {
+    if (refreshInFlight.current) return;
+    refreshInFlight.current = true;
     try {
+      await ensureSession();
+      const hdrs = authHeaders();
       const [statusRes, accountsRes, recentRes, quotaRes, providersRes] = await Promise.all([
         fetch(`${API}/v1/status`),
-        fetch(`${API}/v1/accounts`),
-        fetch(`${API}/v1/traffic/recent?limit=200`),
-        fetch(`${API}/v1/quota`),
-        fetch(`${API}/v1/providers`),
+        fetch(`${API}/v1/accounts`, { headers: hdrs }),
+        fetch(`${API}/v1/traffic/recent?limit=200`, { headers: hdrs }),
+        fetch(`${API}/v1/quota`, { headers: hdrs }),
+        fetch(`${API}/v1/providers`, { headers: hdrs }),
       ]);
       if (!statusRes.ok) throw new Error(`status ${statusRes.status}`);
       const st: Status = await statusRes.json();
       setStatus(st);
-      setEmbedModel(st.embedding_model ?? "");
-      setWikiModel(st.wiki_model ?? "");
+      if (!modelsHydrated.current) {
+        setEmbedModel(st.embedding_model ?? "");
+        setWikiModel(st.wiki_model ?? "");
+        modelsHydrated.current = true;
+      }
       if (accountsRes.ok) setAccounts(await accountsRes.json());
       if (quotaRes.ok) setQuota(await quotaRes.json());
       if (providersRes.ok) {
@@ -702,7 +783,17 @@ export default function App() {
       }
       setApiOnline(true);
       setLastSyncedAt(Date.now());
-      setError(null);
+      // Clear connectivity banners only; leave user-action errors until dismissed.
+      setError((prev) =>
+        prev &&
+        (prev.includes("Could not reach rivetd") ||
+          prev.startsWith("status ") ||
+          prev.includes("Failed to fetch") ||
+          prev.includes("Load failed") ||
+          prev.includes("NetworkError"))
+          ? null
+          : prev,
+      );
     } catch (err) {
       setApiOnline(false);
       setError(
@@ -710,14 +801,20 @@ export default function App() {
           ? err.message
           : "Could not reach rivetd — start it with cargo run -p rivet-runtime",
       );
+    } finally {
+      refreshInFlight.current = false;
     }
-  }, [trafficQuery]);
+  }, [trafficQuery, ensureSession]);
 
   async function refreshCredentials() {
     setBusy(true);
     setStatusAction("Updating credentials…");
     try {
-      const res = await fetch(`${API}/v1/quota/refresh`, { method: "POST" });
+      await ensureSession();
+      const res = await fetch(`${API}/v1/quota/refresh`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? `refresh failed (${res.status})`);
       if (body.quota) setQuota(body.quota);
@@ -732,7 +829,10 @@ export default function App() {
 
   const refreshLogin = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/v1/accounts/login/status`);
+      await ensureSession();
+      const res = await fetch(`${API}/v1/accounts/login/status`, {
+        headers: authHeaders(),
+      });
       if (!res.ok) return;
       const body: LoginStatus = await res.json();
       setLogin(body.active || body.output ? body : null);
@@ -740,23 +840,43 @@ export default function App() {
     } catch {
       /* rivetd down */
     }
-  }, [refresh]);
+  }, [refresh, ensureSession, authHeaders]);
 
   const refreshWiki = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/v1/wiki`);
+      await ensureSession();
+      const res = await fetch(`${API}/v1/wiki`, { headers: authHeaders() });
       if (res.ok) setWiki(await res.json());
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [ensureSession, authHeaders]);
 
+  const loadWikiPage = useCallback(
+    async (page: WikiPageCard) => {
+      await ensureSession();
+      const qs = new URLSearchParams({ id: page.id });
+      const res = await fetch(`${API}/v1/wiki/page?${qs}`, { headers: authHeaders() });
+      if (!res.ok) throw new Error(await res.text());
+      const body = (await res.json()) as { content: string };
+      return body.content;
+    },
+    [ensureSession, authHeaders],
+  );
+
+  // Boot rivetd once — not on every page change or traffic-search keystroke.
   useEffect(() => {
     void (async () => {
+      await resolveApiBase();
       await invokeTauri("ensure_rivetd");
+      await resolveApiBase();
       await refresh();
       await refreshWiki();
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only boot
+  }, []);
+
+  useEffect(() => {
     const id = setInterval(() => {
       refresh();
       if (page === "wiki") refreshWiki();
@@ -843,17 +963,18 @@ export default function App() {
     setBusy(true);
     setStatusAction(path === "restart" ? "Restarting proxy…" : path === "start" ? "Starting proxy…" : "Stopping proxy…");
     try {
+      await ensureSession();
       if (path === "restart") {
         if (status?.proxy_running) {
-          const stop = await fetch(`${API}/v1/proxy/stop`, { method: "POST" });
+          const stop = await fetch(`${API}/v1/proxy/stop`, { method: "POST", headers: authHeaders() });
           const stopBody = await stop.json().catch(() => ({}));
           if (!stop.ok) throw new Error(stopBody.error ?? "proxy stop failed");
         }
-        const start = await fetch(`${API}/v1/proxy/start`, { method: "POST" });
+        const start = await fetch(`${API}/v1/proxy/start`, { method: "POST", headers: authHeaders() });
         const startBody = await start.json().catch(() => ({}));
         if (!start.ok) throw new Error(startBody.error ?? "proxy start failed");
       } else {
-        const res = await fetch(`${API}/v1/proxy/${path}`, { method: "POST" });
+        const res = await fetch(`${API}/v1/proxy/${path}`, { method: "POST", headers: authHeaders() });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.error ?? `proxy ${path} failed`);
       }
@@ -867,19 +988,22 @@ export default function App() {
   }
 
   async function loadClaude() {
-    const res = await fetch(`${API}/v1/harness/claude.env`);
+    await ensureSession();
+    const res = await fetch(`${API}/v1/harness/claude.env`, { headers: authHeaders() });
     setSnippet(await res.text());
     setHarnessNote(null);
   }
 
   async function loadCodex() {
-    const res = await fetch(`${API}/v1/harness/codex.toml`);
+    await ensureSession();
+    const res = await fetch(`${API}/v1/harness/codex.toml`, { headers: authHeaders() });
     setSnippet(await res.text());
     setHarnessNote(null);
   }
 
   async function loadMcp() {
-    const res = await fetch(`${API}/v1/harness/mcp.json`);
+    await ensureSession();
+    const res = await fetch(`${API}/v1/harness/mcp.json`, { headers: authHeaders() });
     setSnippet(await res.text());
     setHarnessNote(null);
   }
@@ -887,9 +1011,10 @@ export default function App() {
   async function writeHarness(target: "claude" | "codex") {
     setBusy(true);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/harness/write`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ target }),
       });
       const body = await res.json();
@@ -897,8 +1022,8 @@ export default function App() {
       setHarnessNote(body);
       setSnippet(
         target === "claude"
-          ? await (await fetch(`${API}/v1/harness/claude.env`)).text()
-          : await (await fetch(`${API}/v1/harness/codex.toml`)).text(),
+          ? await (await fetch(`${API}/v1/harness/claude.env`, { headers: authHeaders() })).text()
+          : await (await fetch(`${API}/v1/harness/codex.toml`, { headers: authHeaders() })).text(),
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -915,9 +1040,10 @@ export default function App() {
     setBusy(true);
     setStatusAction(`Starting ${provider} login…`);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/accounts/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ provider }),
       });
       const body = await res.json();
@@ -929,7 +1055,7 @@ export default function App() {
         done: false,
         success: false,
       });
-      setPage("accounts");
+      openSettings("accounts");
       await refreshLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -966,9 +1092,10 @@ export default function App() {
     setBusy(true);
     setStatusAction("Importing Vertex credentials…");
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/accounts/import/vertex`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ path }),
       });
       const body = await res.json();
@@ -980,7 +1107,7 @@ export default function App() {
         done: false,
         success: false,
       });
-      setPage("accounts");
+      openSettings("accounts");
       await refreshLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -991,16 +1118,30 @@ export default function App() {
   }
 
   async function cancelLogin() {
-    await fetch(`${API}/v1/accounts/login/cancel`, { method: "POST" });
+    await ensureSession();
+    await fetch(`${API}/v1/accounts/login/cancel`, { method: "POST", headers: authHeaders() });
     await refreshLogin();
   }
 
   async function removeAccount(id: string) {
-    if (!confirm(`Remove account “${id}”? This deletes the local credential file.`)) return;
+    let ok = false;
+    try {
+      const { ask } = await import("@tauri-apps/plugin-dialog");
+      ok = await ask(`Remove account “${id}”? This deletes the local credential file.`, {
+        title: "Remove account",
+        kind: "warning",
+      });
+    } catch {
+      // Browser/dev fallback when the Tauri dialog plugin is unavailable.
+      ok = window.confirm(`Remove account “${id}”? This deletes the local credential file.`);
+    }
+    if (!ok) return;
     setBusy(true);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/accounts/${encodeURIComponent(id)}`, {
         method: "DELETE",
+        headers: authHeaders(),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "remove failed");
@@ -1033,9 +1174,11 @@ export default function App() {
   async function exportBag() {
     setBusy(true);
     try {
-      const res = await fetch(`${API}/v1/export`, { method: "POST" });
+      await ensureSession();
+      const res = await fetch(`${API}/v1/export`, { method: "POST", headers: authHeaders() });
       const body: BagResult & { error?: string } = await res.json();
       if (!res.ok) throw new Error(body.error ?? "export failed");
+      setBagPath(body.path);
       setBagNote(
         `Exported ${body.event_count} events → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
       );
@@ -1054,9 +1197,10 @@ export default function App() {
     }
     setBusy(true);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/import`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ path: importPath.trim() }),
       });
       const body: BagResult & { error?: string } = await res.json();
@@ -1073,8 +1217,11 @@ export default function App() {
   async function searchTraffic() {
     setBusy(true);
     try {
+      await ensureSession();
       const q = encodeURIComponent(trafficQuery.trim());
-      const res = await fetch(`${API}/v1/traffic/search?limit=100&q=${q}`);
+      const res = await fetch(`${API}/v1/traffic/search?limit=100&q=${q}`, {
+        headers: authHeaders(),
+      });
       if (!res.ok) throw new Error("search failed");
       setTrafficRows(await res.json());
     } catch (err) {
@@ -1087,9 +1234,10 @@ export default function App() {
   async function seedDemo() {
     setBusy(true);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/demo/seed`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ force: false }),
       });
       const body = await res.json();
@@ -1108,32 +1256,37 @@ export default function App() {
     quota: "Quota Management",
     traffic: "Traffic",
     runtime: "Runtime",
-    accounts: "Accounts",
-    harness: "Harness",
     wiki: "Wiki",
-    intelligence: "Intelligence",
     export: "Export / import",
+    settings: "Settings",
   };
   const title = titleMap[page];
 
+  const credentialCount =
+    quota?.credentials_total ?? status?.account_count ?? accounts.length;
   const subtitle =
     page === "quota"
-      ? `${quota?.credentials_loaded ?? status?.account_count ?? accounts.length} credentials · ${
-          quota?.source === "management" ? "live quota" : "local estimates"
-        } · proxy ${status?.proxy_running ? "running" : "stopped"}`
+      ? credentialCount === 0
+        ? `No credentials · proxy ${status?.proxy_running ? "running" : "stopped"}`
+        : `${credentialCount} credential${credentialCount === 1 ? "" : "s"} · ${
+            quota?.source === "management" ? "live quota" : "local estimates"
+          } · proxy ${status?.proxy_running ? "running" : "stopped"}`
       : page === "traffic"
         ? `${fmt(status?.usage.events ?? recent.length)} captured events`
         : page === "runtime"
-          ? status?.proxy_base_url ?? "rivetd control plane"
-          : page === "accounts"
-            ? "OAuth stays local — never exported"
-            : page === "harness"
-              ? "Isolated config dirs for Claude Code / Codex"
-              : page === "wiki"
-                ? wiki?.path ?? status?.wiki_dir ?? "Project markdown tree"
-                : page === "intelligence"
-                  ? "Vectors + wiki workers (optional)"
-                  : "Traffic packages only — no secrets";
+          ? status?.proxy_base_url ?? "Control plane · workers · logs"
+          : page === "wiki"
+            ? (() => {
+                const n = new Set(
+                  (wiki?.pages ?? [])
+                    .filter((p) => /(^|\/)README\.md$/i.test(p.relative_path))
+                    .map((p) => p.project_id || "project"),
+                ).size;
+                return `${n} project${n === 1 ? "" : "s"}`;
+              })()
+            : page === "settings"
+              ? SETTINGS_TABS.find((t) => t.id === settingsTab)?.hint ?? "Configure Rivet"
+              : `${fmt(status?.usage.events ?? 0)} events ready · credentials excluded`;
 
   async function openWiki() {
     const path = wiki?.path ?? (status?.wiki_dir ? `${status.wiki_dir}/default` : null);
@@ -1149,8 +1302,7 @@ export default function App() {
   }
 
   async function revealExport() {
-    const match = bagNote?.match(/→\s+(\/\S+\.rivetbag)/);
-    const path = match?.[1];
+    const path = bagPath;
     if (!path) {
       setError("Export a package first");
       return;
@@ -1165,9 +1317,10 @@ export default function App() {
   async function saveIntelligence() {
     setBusy(true);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/config`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           embedding_model: embedModel,
           wiki_model: wikiModel,
@@ -1190,9 +1343,10 @@ export default function App() {
   async function toggleCapability(key: "vector_search" | "wiki", value: boolean) {
     setBusy(true);
     try {
+      await ensureSession();
       const res = await fetch(`${API}/v1/config`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ capabilities: { [key]: value } }),
       });
       if (!res.ok) {
@@ -1212,7 +1366,8 @@ export default function App() {
     setBusy(true);
     setStatusAction("Updating wiki & vectors…");
     try {
-      const res = await fetch(`${API}/v1/workers/tick`, { method: "POST" });
+      await ensureSession();
+      const res = await fetch(`${API}/v1/workers/tick`, { method: "POST", headers: authHeaders() });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "worker tick failed");
       setBagNote(
@@ -1238,9 +1393,11 @@ export default function App() {
 
   async function loadLogs() {
     try {
+      await ensureSession();
+      const hdrs = authHeaders();
       const [proxyRes, chRes] = await Promise.all([
-        fetch(`${API}/v1/logs/proxy?lines=80`),
-        fetch(`${API}/v1/logs/clickhouse?lines=80`),
+        fetch(`${API}/v1/logs/proxy?lines=80`, { headers: hdrs }),
+        fetch(`${API}/v1/logs/clickhouse?lines=80`, { headers: hdrs }),
       ]);
       if (proxyRes.ok) {
         const body = await proxyRes.json();
@@ -1273,11 +1430,6 @@ export default function App() {
     });
   }, [trafficRows, trafficProvider, trafficStatus]);
 
-  const onboard = status?.onboarding;
-  const needsOnboarding =
-    !!status &&
-    (!onboard?.proxy_running || !onboard?.has_accounts || !onboard?.harness_ready);
-
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -1296,7 +1448,7 @@ export default function App() {
           >
             <span className="ico">{item.icon}</span>
             {item.label}
-            {item.id === "accounts" && (
+            {item.id === "settings" && accounts.length > 0 && (
               <span className="badge">{accounts.length}</span>
             )}
             {item.id === "traffic" && (status?.usage.events ?? 0) > 0 && (
@@ -1327,31 +1479,53 @@ export default function App() {
                 <button className="btn" disabled={busy} onClick={() => void refreshCredentials()}>
                   Refresh credentials
                 </button>
-                <button className="btn primary" disabled={busy} onClick={() => setPage("accounts")}>
+                <button className="btn primary" disabled={busy} onClick={() => openSettings("accounts")}>
                   Manage credentials
                 </button>
               </>
             )}
             {page === "wiki" && (
-              <button className="btn primary" onClick={openWiki}>
-                Open wiki
-              </button>
+              <>
+                <button
+                  className="btn"
+                  disabled={busy}
+                  onClick={() => openSettings("intelligence")}
+                >
+                  {status?.capabilities.wiki ? "Settings" : "Enable wiki"}
+                </button>
+                <button className="btn primary" onClick={openWiki}>
+                  Open folder
+                </button>
+              </>
             )}
             {page === "runtime" && (
               <>
+                {status?.proxy_running ? (
+                  <button
+                    className="btn"
+                    disabled={busy}
+                    onClick={() => proxyAction("stop")}
+                  >
+                    Stop proxy
+                  </button>
+                ) : (
+                  <button
+                    className="btn primary"
+                    disabled={busy || !apiOnline}
+                    onClick={() => proxyAction("start")}
+                  >
+                    Start proxy
+                  </button>
+                )}
                 <button
-                  className="btn primary"
-                  disabled={busy || !!status?.proxy_running}
-                  onClick={() => proxyAction("start")}
+                  className="btn"
+                  disabled={busy || !apiOnline}
+                  onClick={() => proxyAction("restart")}
                 >
-                  Start proxy
+                  Restart
                 </button>
-                <button
-                  className="btn danger"
-                  disabled={busy || !status?.proxy_running}
-                  onClick={() => proxyAction("stop")}
-                >
-                  Stop proxy
+                <button className="btn" disabled={busy || !apiOnline} onClick={runWorkers}>
+                  Run workers
                 </button>
               </>
             )}
@@ -1365,150 +1539,134 @@ export default function App() {
           </div>
         ))}
 
-        {needsOnboarding && (page === "quota" || page === "runtime" || page === "accounts") && (
-          <div className="onboard">
-            <div>
-              <strong>First-run checklist</strong>
-              <ol className="onboard-steps">
-                <li className={onboard?.proxy_running ? "done" : ""}>
-                  Start proxy {onboard?.proxy_running ? "✓" : ""}
-                </li>
-                <li className={onboard?.has_accounts ? "done" : ""}>
-                  Sign in a provider {onboard?.has_accounts ? "✓" : ""}
-                </li>
-                <li className={onboard?.harness_ready ? "done" : ""}>
-                  Write harness config {onboard?.harness_ready ? "✓" : ""}
-                </li>
-                <li className={onboard?.has_traffic ? "done" : ""}>
-                  Capture traffic {onboard?.has_traffic ? "✓" : ""}
-                </li>
-              </ol>
-            </div>
-            <div className="actions" style={{ marginTop: 0 }}>
-              <button
-                className="btn primary"
-                disabled={busy || !!onboard?.proxy_running}
-                onClick={() => proxyAction("start")}
-              >
-                Start proxy
-              </button>
-              <button className="btn" disabled={busy} onClick={() => setPage("accounts")}>
-                Sign in
-              </button>
-              <button className="btn" disabled={busy} onClick={() => setPage("harness")}>
-                Harness
-              </button>
-              <button className="btn" disabled={busy} onClick={seedDemo}>
-                Load demo traffic
-              </button>
-            </div>
-          </div>
-        )}
-
         <div className="content">
           {page === "quota" && (
             <>
-              <div className="filters">
-                <button
-                  className={`chip ${filter === "all" ? "active" : ""}`}
-                  onClick={() => setFilter("all")}
-                >
-                  All
-                  <span className="count">{counts.all ?? 0}</span>
-                </button>
-                {providerIds.map((id) => (
-                  <button
-                    key={id}
-                    className={`chip ${filter === id ? "active" : ""}`}
-                    onClick={() => setFilter(id)}
-                  >
-                    <span className="dot" style={{ background: providerColor(id, catalog) }} />
-                    {providerLabel(id, catalog).split(" (")[0]}
-                    <span className="count">{counts[id] ?? 0}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="toolbar">
-                <div className="seg">
-                  {(
-                    [
-                      ["remaining", "Remaining"],
-                      ["drain", "Drain rate"],
-                      ["burn", "Burn rate"],
-                    ] as const
-                  ).map(([id, label]) => (
+              {counts.all > 0 ? (
+                <>
+                  <div className="filters">
                     <button
-                      key={id}
-                      className={metricMode === id ? "active" : ""}
-                      onClick={() => setMetricMode(id)}
-                      title={
-                        id === "remaining"
-                          ? "Pool remaining across loaded accounts"
-                          : id === "drain"
-                            ? "How fast remaining % is falling"
-                            : "Token burn from captured traffic"
-                      }
+                      className={`chip ${filter === "all" ? "active" : ""}`}
+                      onClick={() => setFilter("all")}
                     >
-                      {label}
+                      All
+                      <span className="count">{counts.all ?? 0}</span>
                     </button>
-                  ))}
-                </div>
-                <div className="seg">
-                  {(["1h", "3h", "6h"] as const).map((h) => (
-                    <button
-                      key={h}
-                      className={horizon === h ? "active" : ""}
-                      onClick={() => setHorizon(h)}
-                    >
-                      {h}
-                    </button>
-                  ))}
-                </div>
-                <span className="empty" title={quota?.note}>
-                  {quota?.source === "management"
-                    ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · ${horizon} burn`
-                    : `Local fallback · ${horizon} window · refresh after proxy is up`}
-                </span>
-              </div>
+                    {providerIds.map((id) => (
+                      <button
+                        key={id}
+                        className={`chip ${filter === id ? "active" : ""}`}
+                        onClick={() => setFilter(id)}
+                      >
+                        <span className="dot" style={{ background: providerColor(id, catalog) }} />
+                        {providerChipLabel(id, catalog)}
+                        <span className="count">{counts[id] ?? 0}</span>
+                      </button>
+                    ))}
+                  </div>
 
-              <div className="stack">
-                {visibleProviders.map((id) => {
-                  const pq = providerQuota(id);
-                  const series = seriesFromEvents(
-                    recent,
-                    id,
-                    horizon,
-                    metricMode,
-                    24,
-                    pq?.remaining_pct,
-                    pq?.capacity_pct,
-                  );
-                  return (
-                    <QuotaProviderCard
-                      key={id}
-                      name={providerLabel(id, catalog).split(" (")[0]}
-                      ico={providerBadge(id, catalog)}
-                      icoClass={id === "claude" || id === "codex" ? id : "generic"}
-                      color={providerColor(id, catalog)}
-                      count={counts[id] ?? 0}
-                      metricMode={metricMode}
-                      series={series}
-                      pq={pq}
-                      accounts={accountsFor(id)}
-                      horizon={horizon}
-                    />
-                  );
-                })}
-              </div>
+                  <div className="toolbar">
+                    <div className="seg">
+                      {(
+                        [
+                          ["remaining", "Remaining"],
+                          ["burn", "Burn rate"],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          className={metricMode === id ? "active" : ""}
+                          onClick={() => setMetricMode(id)}
+                          title={
+                            id === "remaining"
+                              ? "Live remaining % when available; chart shows measured burn"
+                              : "Token burn from captured traffic (sample span)"
+                          }
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="seg">
+                      {(["1h", "3h", "6h"] as const).map((h) => (
+                        <button
+                          key={h}
+                          className={horizon === h ? "active" : ""}
+                          onClick={() => setHorizon(h)}
+                        >
+                          {h}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="empty" title={quota?.note}>
+                      {quota?.source === "management"
+                        ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · ${horizon} burn`
+                        : `Local fallback · ${horizon} window · refresh after proxy is up`}
+                    </span>
+                  </div>
+
+                  <div className="stack">
+                    {visibleProviders.map((id) => {
+                      const pq = providerQuota(id);
+                      const series = seriesFromEvents(
+                        recent,
+                        id,
+                        horizon,
+                        metricMode,
+                        24,
+                        pq?.remaining_pct,
+                        pq?.capacity_pct,
+                      );
+                      return (
+                        <QuotaProviderCard
+                          key={id}
+                          name={providerChipLabel(id, catalog)}
+                          ico={providerBadge(id, catalog)}
+                          icoClass={id === "claude" || id === "codex" ? id : "generic"}
+                          color={providerColor(id, catalog)}
+                          count={counts[id] ?? 0}
+                          metricMode={metricMode}
+                          series={series}
+                          pq={pq}
+                          accounts={accountsFor(id)}
+                          horizon={horizon}
+                          onAddCredentials={() => openSettings("accounts")}
+                        />
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <section className="card quota-empty-card">
+                  <div className="card-head">
+                    <div className="card-title">
+                      <div>
+                        <h2>No credentials yet</h2>
+                        <div className="meta">Live quota needs at least one signed-in account</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn primary"
+                      onClick={() => openSettings("accounts")}
+                    >
+                      Add credentials
+                    </button>
+                  </div>
+                  <p className="quota-empty-copy">
+                    Sign in under Settings → Accounts. Burn and remaining charts appear once
+                    credentials (and traffic) land.
+                  </p>
+                </section>
+              )}
             </>
           )}
 
           {page === "traffic" && (
-            <section className="panel-block">
+            <section className="panel-block traffic-page">
               <h2>Captured requests</h2>
               <p className="lede">
-                Search local traffic history. Bodies are redacted for obvious secrets before
+                Search local traffic history. Bodies get best-effort secret redaction before
                 store and export.
               </p>
               <div className="filters" style={{ marginBottom: 10 }}>
@@ -1525,7 +1683,7 @@ export default function App() {
                     onClick={() => setTrafficProvider(id)}
                   >
                     <span className="dot" style={{ background: providerColor(id, catalog) }} />
-                    {providerLabel(id, catalog).split(" (")[0]}
+                    {providerChipLabel(id, catalog)}
                   </button>
                 ))}
                 <div className="seg" style={{ marginLeft: 4 }}>
@@ -1565,523 +1723,765 @@ export default function App() {
                   </button>
                 )}
               </div>
-              <div className="traffic-table">
-                <div className="traffic-head">
-                  <span>When</span>
-                  <span>Provider</span>
-                  <span>Model</span>
-                  <span>Tokens</span>
-                  <span>Preview</span>
-                </div>
-                {filteredTraffic.length === 0 ? (
-                  <p className="empty">
-                    {trafficRows.length === 0
-                      ? "No events yet — start the proxy or load demo traffic."
-                      : "No events match these filters."}
-                  </p>
-                ) : (
-                  filteredTraffic.map((ev) => (
-                    <button
-                      key={ev.id}
-                      className={`traffic-row ${selectedEvent?.id === ev.id ? "active" : ""}`}
-                      onClick={() => setSelectedEvent(ev)}
-                    >
-                      <span className="mono">
-                        {new Date(ev.ts).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
-                      <span>
-                        <span
-                          className="pill"
-                          style={{
-                            background: `${providerColor(providerKey(ev.provider), catalog)}22`,
-                            color: providerColor(providerKey(ev.provider), catalog),
-                          }}
-                        >
-                          {providerKey(ev.provider)}
+              <div className={`traffic-layout ${selectedEvent ? "has-detail" : ""}`}>
+                <div className="traffic-table">
+                  <div className="traffic-head">
+                    <span>When</span>
+                    <span>Provider</span>
+                    <span>Model</span>
+                    <span className="traffic-tokens">Tokens</span>
+                    <span>Preview</span>
+                  </div>
+                  {filteredTraffic.length === 0 ? (
+                    <p className="empty">
+                      {trafficRows.length === 0
+                        ? "No events yet — start the proxy or load demo traffic."
+                        : "No events match these filters."}
+                    </p>
+                  ) : (
+                    filteredTraffic.map((ev) => (
+                      <button
+                        key={ev.id}
+                        className={`traffic-row ${selectedEvent?.id === ev.id ? "active" : ""}`}
+                        onClick={() => setSelectedEvent(ev)}
+                      >
+                        <span className="mono">
+                          {new Date(ev.ts).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
                         </span>
-                        {ev.status_code != null && ev.status_code >= 400 && (
-                          <span className="pill bad" style={{ marginLeft: 6 }}>
-                            {ev.status_code}
+                        <span className="traffic-provider">
+                          <span
+                            className="pill"
+                            style={{
+                              background: `${providerColor(providerKey(ev.provider), catalog)}22`,
+                              color: providerColor(providerKey(ev.provider), catalog),
+                            }}
+                          >
+                            {providerChipLabel(providerKey(ev.provider), catalog)}
                           </span>
-                        )}
-                      </span>
-                      <span className="mono">{ev.model ?? "—"}</span>
-                      <span className="mono">
-                        {fmt(ev.tokens_in)}/{fmt(ev.tokens_out)}
-                      </span>
-                      <span className="preview">{trunc(ev.content, 80)}</span>
-                    </button>
-                  ))
-                )}
-              </div>
-              {selectedEvent && (
-                <div className="event-detail">
-                  <div className="kv">
-                    <div className="kv-row">
-                      <span className="k">Status</span>
-                      <span className="v">{selectedEvent.status_code ?? "—"}</span>
+                          {ev.status_code != null && ev.status_code >= 400 && (
+                            <span className="pill bad">{ev.status_code}</span>
+                          )}
+                        </span>
+                        <span className="mono">{ev.model ?? "—"}</span>
+                        <span className="mono traffic-tokens">{trafficTokenLabel(ev)}</span>
+                        <span className="preview">{trunc(ev.content, 80)}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                {selectedEvent && (() => {
+                  const bodies = splitTrafficBody(selectedEvent.content);
+                  return (
+                  <div className="event-detail">
+                    <div className="event-detail-head">
+                      <div className="event-detail-title">
+                        <strong>
+                          {providerChipLabel(providerKey(selectedEvent.provider), catalog)}
+                        </strong>
+                        <span className="mono">{selectedEvent.model ?? "—"}</span>
+                        <span className="event-detail-when">
+                          {new Date(selectedEvent.ts).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn ghost"
+                        onClick={() => setSelectedEvent(null)}
+                      >
+                        Close
+                      </button>
                     </div>
-                    <div className="kv-row">
-                      <span className="k">Latency</span>
-                      <span className="v">
-                        {selectedEvent.latency_ms != null
-                          ? `${selectedEvent.latency_ms} ms`
-                          : "—"}
-                      </span>
+                    <div className="event-detail-meta">
+                      <div className="item">
+                        <span className="k">Status</span>
+                        <span className="v">{selectedEvent.status_code ?? "—"}</span>
+                      </div>
+                      <div className="item">
+                        <span className="k">Latency</span>
+                        <span className="v">
+                          {selectedEvent.latency_ms != null
+                            ? `${selectedEvent.latency_ms} ms`
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className="item">
+                        <span className="k">Account</span>
+                        <span className="v">{selectedEvent.account_label ?? "—"}</span>
+                      </div>
+                      <div className="item">
+                        <span className="k">Role</span>
+                        <span className="v">{selectedEvent.role ?? "—"}</span>
+                      </div>
                     </div>
-                    <div className="kv-row">
-                      <span className="k">Account</span>
-                      <span className="v">{selectedEvent.account_label ?? "—"}</span>
-                    </div>
-                    <div className="kv-row">
-                      <span className="k">Role</span>
-                      <span className="v">{selectedEvent.role ?? "—"}</span>
+                    <div className="event-detail-bodies">
+                      <div className="event-body-block">
+                        <div className="event-body-label">Request</div>
+                        <pre className="snippet">{bodies.request}</pre>
+                      </div>
+                      {bodies.response != null && (
+                        <div className="event-body-block">
+                          <div className="event-body-label">Response</div>
+                          <pre className="snippet">{bodies.response}</pre>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <pre className="snippet">{selectedEvent.content || "(empty)"}</pre>
-                </div>
-              )}
+                  );
+                })()}
+              </div>
             </section>
           )}
 
           {page === "runtime" && (
-            <section className="panel-block">
-              <h2>Control plane</h2>
-              <p className="lede">
-                rivetd supervises the Go proxy sidecar, ClickHouse (when bundled), ingest, and
-                MCP on localhost.
-              </p>
-              <div className="kv">
-                <div className="kv-row">
-                  <span className="k">Proxy</span>
-                  <span className="v">
-                    <span
-                      className={`status-dot ${status?.proxy_running ? "on" : "off"}`}
-                    />
-                    {status?.proxy_running ? "running" : "stopped"}
-                  </span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Base URL</span>
-                  <span className="v">{status?.proxy_base_url ?? "—"}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Access key</span>
-                  <span className="v">{status?.access_key_hint ?? "—"}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">MCP</span>
-                  <span className="v">{status?.mcp_url ?? "—"}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Store</span>
-                  <span className="v">{status?.traffic_backend ?? "sqlite"}</span>
-                </div>
-              </div>
-              <div className="actions">
-                <button
-                  className="btn primary"
-                  disabled={busy || !!status?.proxy_running}
-                  onClick={() => proxyAction("start")}
-                >
-                  Start proxy
-                </button>
-                <button
-                  className="btn"
-                  disabled={busy || !status?.proxy_running}
-                  onClick={() => proxyAction("stop")}
-                >
-                  Stop proxy
-                </button>
-                <button
-                  className="btn"
-                  onClick={() => copyText(status?.proxy_base_url ?? "")}
-                >
-                  Copy base URL
-                </button>
-                <button className="btn" onClick={loadLogs}>
-                  Refresh logs
-                </button>
-              </div>
-              <h2 style={{ marginTop: 20 }}>Proxy log</h2>
-              <pre className="snippet">{proxyLog || "No proxy log yet."}</pre>
-              <h2 style={{ marginTop: 16 }}>ClickHouse log</h2>
-              <pre className="snippet">{chLog || "No ClickHouse log yet."}</pre>
-            </section>
-          )}
-
-          {page === "accounts" && (
-            <section className="panel-block">
-              <h2>Provider sign-in</h2>
-              <p className="lede">
-                Triggers rivet-proxy OAuth / device flows. Tokens stay under Application
-                Support and are never included in `.rivetbag` exports.
-              </p>
-              <label className="tos">
-                <input
-                  type="checkbox"
-                  checked={tosAck}
-                  onChange={(e) => setTosAck(e.target.checked)}
-                />
-                <span>
-                  I understand multi-account pooling may conflict with provider Terms of
-                  Service. Rivet does not encourage reselling subscription traffic as a
-                  public API.
-                </span>
-              </label>
-              <div className="provider-grid">
-                {catalog
-                  .filter((p) => p.login_kind !== "file_import")
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      className="btn provider-login"
-                      style={{ borderColor: `${p.color}55` }}
-                      disabled={busy || !tosAck || !!login?.active}
-                      title={p.hint}
-                      onClick={() => void startLogin(p.id)}
-                    >
-                      <span className="provider-ico" style={{ background: `${p.color}22`, color: p.color }}>
-                        {p.badge}
-                      </span>
-                      <span>
-                        <strong>{p.label}</strong>
-                        <span className="hint">
-                          {p.login_kind === "oauth_device" ? "device / OAuth" : "browser OAuth"}
-                        </span>
-                      </span>
-                    </button>
-                  ))}
-              </div>
-              <div className="vertex-import">
-                <div className="lede" style={{ marginBottom: 8 }}>
-                  Vertex AI — import a Google Cloud service-account JSON (same as prox `-vertex-import`).
-                </div>
-                <div className="import-row">
-                  <input
-                    className="path-input"
-                    placeholder="/path/to/service-account.json"
-                    value={vertexPath}
-                    onChange={(e) => setVertexPath(e.target.value)}
-                  />
-                  <button
-                    className="btn"
-                    disabled={busy || !tosAck || !!login?.active}
-                    onClick={() => void importVertex()}
-                  >
-                    Import Vertex
-                  </button>
-                </div>
-              </div>
-              <div className="actions">
-                {login?.active && (
-                  <button className="btn danger" onClick={cancelLogin}>
-                    Cancel login
-                  </button>
-                )}
-              </div>
-
-              {accounts.length === 0 ? (
-                <p className="empty">No accounts yet — sign in above.</p>
-              ) : (
-                <ul className="account-list">
-                  {accounts.map((a) => (
-                    <li key={a.id}>
-                      <div>
-                        <strong>{a.label}</strong>
-                        <div className="mono">{a.provider}</div>
-                      </div>
-                      <div className="account-actions">
-                        <span className="mono">
-                          limit {a.limit_hint} · reset {a.reset_hint}
-                        </span>
-                        <button
-                          className="btn danger"
-                          disabled={busy}
-                          onClick={() => removeAccount(a.id)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {login && (login.active || login.output) && (
-                <div style={{ marginTop: 16 }}>
-                  <div className="kv-row" style={{ border: 0, padding: 0 }}>
-                    <span className="k">Login log ({login.provider ?? "—"})</span>
-                    <span
-                      className={`pill ${login.success ? "ok" : login.done ? "bad" : ""}`}
-                    >
-                      {login.active
-                        ? "in progress"
-                        : login.success
-                          ? "done"
-                          : "ended"}
+            <div className="runtime">
+              <div className="runtime-grid">
+                <div className="runtime-card">
+                  <div className="runtime-card-head">
+                    <span>Proxy</span>
+                    <span className={`pill ${status?.proxy_running ? "ok" : "bad"}`}>
+                      {status?.proxy_running ? "live" : "stopped"}
                     </span>
                   </div>
-                  <pre className="snippet">
-                    {login.output || "Waiting for proxy output…"}
-                  </pre>
+                  <div className="runtime-card-body">
+                    <div className="kv-row">
+                      <span className="k">Base URL</span>
+                      <span className="v">{status?.proxy_base_url ?? "—"}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Access key</span>
+                      <span className="v">{status?.access_key_hint ?? "—"}</span>
+                    </div>
+                  </div>
+                  <div className="runtime-card-foot">
+                    <button className="btn" onClick={() => copyText(status?.proxy_base_url ?? "")}>
+                      Copy URL
+                    </button>
+                  </div>
                 </div>
-              )}
-            </section>
-          )}
 
-          {page === "harness" && (
-            <section className="panel-block">
-              <h2>Point harnesses at Rivet</h2>
-              <p className="lede">
-                Copy snippets or write isolated config directories so default Claude / Codex
-                installs stay untouched.
-              </p>
-              <div className="actions">
-                <button className="btn" onClick={loadClaude}>
-                  Claude settings.json
-                </button>
-                <button className="btn" onClick={loadCodex}>
-                  Codex config.toml
-                </button>
-                <button className="btn" onClick={loadMcp}>
-                  MCP servers.json
-                </button>
-                <button
-                  className="btn primary"
-                  disabled={busy}
-                  onClick={() => writeHarness("claude")}
-                >
-                  Write Claude config dir
-                </button>
-                <button
-                  className="btn primary"
-                  disabled={busy}
-                  onClick={() => writeHarness("codex")}
-                >
-                  Write Codex config dir
-                </button>
-              </div>
-              {harnessNote && (
-                <div style={{ marginTop: 16 }}>
-                  <p className="note">{harnessNote.note}</p>
-                  <div className="kv">
+                <div className="runtime-card">
+                  <div className="runtime-card-head">
+                    <span>Store</span>
+                    <span className="pill ok">{status?.traffic_backend ?? "sqlite"}</span>
+                  </div>
+                  <div className="runtime-card-body">
                     <div className="kv-row">
-                      <span className="k">Path</span>
-                      <span className="v">{harnessNote.path}</span>
+                      <span className="k">Events</span>
+                      <span className="v">{fmt(status?.usage.events ?? 0)}</span>
                     </div>
                     <div className="kv-row">
-                      <span className="k">Env</span>
-                      <span className="v">{harnessNote.env_hint}</span>
+                      <span className="k">Tokens</span>
+                      <span className="v">
+                        {fmt(status?.usage.tokens_in ?? 0)} in · {fmt(status?.usage.tokens_out ?? 0)}{" "}
+                        out
+                      </span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Accounts</span>
+                      <span className="v">{fmt(status?.account_count ?? accounts.length)}</span>
                     </div>
                   </div>
-                  <div className="actions">
-                    <button
-                      className="btn"
-                      onClick={() => copyText(harnessNote.env_hint)}
+                </div>
+
+                <div className="runtime-card">
+                  <div className="runtime-card-head">
+                    <span>MCP</span>
+                    <span className={`pill ${status?.capabilities.mcp ? "ok" : ""}`}>
+                      {status?.capabilities.mcp ? "enabled" : "off"}
+                    </span>
+                  </div>
+                  <div className="runtime-card-body">
+                    <div className="kv-row">
+                      <span className="k">Endpoint</span>
+                      <span className="v">{status?.mcp_url ?? "—"}</span>
+                    </div>
+                  </div>
+                  <div className="runtime-card-foot">
+                    <button className="btn" onClick={() => copyText(status?.mcp_url ?? "")}>
+                      Copy MCP URL
+                    </button>
+                  </div>
+                </div>
+
+                <div className="runtime-card">
+                  <div className="runtime-card-head">
+                    <span>Vector worker</span>
+                    <span
+                      className={`pill ${
+                        status?.workers?.vector_search || status?.capabilities.vector_search
+                          ? "ok"
+                          : ""
+                      }`}
                     >
-                      Copy env export
+                      {status?.workers?.vector_search || status?.capabilities.vector_search
+                        ? "on"
+                        : "off"}
+                    </span>
+                  </div>
+                  <div className="runtime-card-body">
+                    <div className="kv-row">
+                      <span className="k">Embeddings</span>
+                      <span className="v">{fmt(status?.workers?.embeddings ?? 0)}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Last run</span>
+                      <span
+                        className="v"
+                        title={status?.workers?.vectorize_cursor ?? undefined}
+                      >
+                        {formatRelativeIso(status?.workers?.vectorize_cursor)}
+                      </span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Model</span>
+                      <span className="v">{status?.embedding_model || "lexical (v1)"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="runtime-card">
+                  <div className="runtime-card-head">
+                    <span>Wiki worker</span>
+                    <span
+                      className={`pill ${
+                        status?.workers?.wiki || status?.capabilities.wiki ? "ok" : ""
+                      }`}
+                    >
+                      {status?.workers?.wiki || status?.capabilities.wiki ? "on" : "off"}
+                    </span>
+                  </div>
+                  <div className="runtime-card-body">
+                    <div className="kv-row">
+                      <span className="k">Pages</span>
+                      <span className="v">{fmt(status?.workers?.wiki_pages ?? 0)}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Last run</span>
+                      <span className="v" title={status?.workers?.wiki_cursor ?? undefined}>
+                        {formatRelativeIso(status?.workers?.wiki_cursor)}
+                      </span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Model</span>
+                      <span className="v">{status?.wiki_model || "structure only"}</span>
+                    </div>
+                  </div>
+                  <div className="runtime-card-foot">
+                    <button className="btn" onClick={() => openSettings("intelligence")}>
+                      Configure
                     </button>
                   </div>
                 </div>
-              )}
-              {snippet && (
-                <div style={{ marginTop: 12 }}>
-                  <div className="actions">
-                    <button className="btn" onClick={() => copyText(snippet)}>
-                      Copy snippet
+
+                <div className="runtime-card">
+                  <div className="runtime-card-head">
+                    <span>rivetd</span>
+                    <span className={`pill ${apiOnline ? "ok" : "bad"}`}>
+                      {apiOnline ? "online" : "offline"}
+                    </span>
+                  </div>
+                  <div className="runtime-card-body">
+                    <div className="kv-row">
+                      <span className="k">Synced</span>
+                      <span className="v">{formatSynced(lastSyncedAt)}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span className="k">Wiki path</span>
+                      <span className="v" title={status?.wiki_dir ?? undefined}>
+                        {status?.wiki_dir ?? "—"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="runtime-card-foot">
+                    <button className="btn" onClick={() => void refresh()}>
+                      Sync now
+                    </button>
+                    <button className="btn" onClick={() => openSettings("accounts")}>
+                      Accounts
                     </button>
                   </div>
-                  <pre className="snippet">{snippet}</pre>
                 </div>
-              )}
-            </section>
+              </div>
+
+              <div className="runtime-logs">
+                <div className="runtime-log-pane">
+                  <div className="runtime-card-head">
+                    <span>Proxy log</span>
+                    <button className="btn ghost" onClick={loadLogs}>
+                      Refresh
+                    </button>
+                  </div>
+                  <pre className="snippet">{proxyLog || "No proxy log yet."}</pre>
+                </div>
+                <div className="runtime-log-pane">
+                  <div className="runtime-card-head">
+                    <span>ClickHouse log</span>
+                    <button className="btn ghost" onClick={loadLogs}>
+                      Refresh
+                    </button>
+                  </div>
+                  <pre className="snippet">{chLog || "No ClickHouse log yet."}</pre>
+                </div>
+              </div>
+            </div>
           )}
 
           {page === "wiki" && (
-            <section className="panel-block">
-              <h2>Project wiki</h2>
-              <p className="lede">
-                Markdown tree under Application Support. Workers refresh overview pages when
-                the wiki capability is on.
-              </p>
-              <div className="kv">
-                <div className="kv-row">
-                  <span className="k">Path</span>
-                  <span className="v">{wiki?.path ?? `${status?.wiki_dir ?? "—"}/default`}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Capability</span>
-                  <span className="v">
-                    {status?.capabilities.wiki ? "enabled" : "off (seed README only)"}
-                  </span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Pages</span>
-                  <span className="v">{wiki?.pages.length ?? 0}</span>
-                </div>
-              </div>
-              <div className="actions">
-                <button className="btn primary" onClick={openWiki}>
-                  Open wiki
-                </button>
-                <button
-                  className="btn"
-                  disabled={busy || !!status?.capabilities.wiki}
-                  onClick={() => toggleCapability("wiki", true)}
-                >
-                  Enable wiki worker
-                </button>
-                <button className="btn" disabled={busy} onClick={runWorkers}>
-                  Refresh wiki now
-                </button>
-              </div>
-              {wiki && wiki.pages.length > 0 ? (
-                <ul className="account-list">
-                  {wiki.pages.map((p) => (
-                    <li key={p.id}>
-                      <div>
-                        <strong>{p.title}</strong>
-                        <div className="mono">{p.path}</div>
-                      </div>
-                      <div className="mono">{new Date(p.updated_at).toLocaleString()}</div>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="empty">
-                  No indexed pages yet — enable the worker or open the folder to add
-                  markdown.
-                </p>
-              )}
-            </section>
+            <WikiBoard
+              wiki={wiki}
+              busy={busy}
+              wikiEnabled={!!status?.capabilities.wiki}
+              onOpenFolder={openWiki}
+              onEnable={() => openSettings("intelligence")}
+              loadPage={loadWikiPage}
+            />
           )}
 
-          {page === "intelligence" && (
-            <section className="panel-block">
-              <h2>Workers</h2>
-              <p className="lede">
-                The vectorize worker embeds traffic for MCP semantic search (lexical locally,
-                or via the proxy when an embedding model is set). The wiki worker writes a
-                markdown tree from traffic; set a wiki model to also generate an LLM overview.
-              </p>
-              <div className="kv">
-                <div className="kv-row">
-                  <span className="k">Vector worker</span>
-                  <span className="v">
-                    {status?.workers?.vector_search || status?.capabilities.vector_search
-                      ? "on"
-                      : "off"}{" "}
-                    · {fmt(status?.workers?.embeddings ?? 0)} embeddings
-                  </span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Wiki worker</span>
-                  <span className="v">
-                    {status?.workers?.wiki || status?.capabilities.wiki ? "on" : "off"} ·{" "}
-                    {fmt(status?.workers?.wiki_pages ?? 0)} pages
-                  </span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Last vectorize</span>
-                  <span className="v">{status?.workers?.vectorize_cursor ?? "—"}</span>
-                </div>
-                <div className="kv-row">
-                  <span className="k">Last wiki</span>
-                  <span className="v">{status?.workers?.wiki_cursor ?? "—"}</span>
-                </div>
+          {page === "settings" && (
+            <div className="settings">
+              <div className="settings-tabs" role="tablist" aria-label="Settings sections">
+                {SETTINGS_TABS.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={settingsTab === tab.id}
+                    className={`settings-tab ${settingsTab === tab.id ? "active" : ""}`}
+                    onClick={() => setSettingsTab(tab.id)}
+                  >
+                    <strong>{tab.label}</strong>
+                    <span>{tab.hint}</span>
+                  </button>
+                ))}
               </div>
-              <div className="import-row" style={{ marginTop: 14 }}>
-                <input
-                  className="path-input"
-                  placeholder="embedding model id (optional, e.g. text-embedding-3-small)"
-                  value={embedModel}
-                  onChange={(e) => setEmbedModel(e.target.value)}
-                />
-              </div>
-              <div className="import-row">
-                <input
-                  className="path-input"
-                  placeholder="wiki text-gen model id (optional, e.g. claude-sonnet-4-5)"
-                  value={wikiModel}
-                  onChange={(e) => setWikiModel(e.target.value)}
-                />
-              </div>
-              <div className="actions">
-                <button className="btn primary" disabled={busy} onClick={saveIntelligence}>
-                  Save models
-                </button>
-                <button className="btn primary" disabled={busy} onClick={runWorkers}>
-                  Run workers now
-                </button>
-                <button
-                  className="btn"
-                  disabled={busy}
-                  onClick={() =>
-                    toggleCapability(
-                      "vector_search",
-                      !status?.capabilities.vector_search,
-                    )
-                  }
-                >
-                  Toggle vectors
-                </button>
-                <button
-                  className="btn"
-                  disabled={busy}
-                  onClick={() => toggleCapability("wiki", !status?.capabilities.wiki)}
-                >
-                  Toggle wiki
-                </button>
-              </div>
-              <p className="note">
-                Lexical embeddings work offline. Proxy models need the proxy running and a
-                signed-in account. Toggling vectors updates MCP immediately — no restart.
-              </p>
-              {bagNote && <p className="note">{bagNote}</p>}
-            </section>
+
+              {settingsTab === "accounts" && (
+                <section className="panel-block settings-panel">
+                  <h2>Provider sign-in</h2>
+                  <p className="lede">
+                    Triggers rivet-proxy OAuth / device flows. Tokens stay under Application
+                    Support and are never included in `.rivetbag` exports.
+                  </p>
+                  <label className={`tos ${tosAck ? "" : "tos-gated"}`}>
+                    <input
+                      type="checkbox"
+                      checked={tosAck}
+                      onChange={(e) => setTosAck(e.target.checked)}
+                    />
+                    <span>
+                      I understand multi-account pooling may conflict with provider Terms of
+                      Service. Rivet does not encourage reselling subscription traffic as a
+                      public API.
+                      {!tosAck && (
+                        <em className="tos-hint"> Check this to unlock provider sign-in.</em>
+                      )}
+                    </span>
+                  </label>
+                  <div className="provider-grid">
+                    {catalog
+                      .filter((p) => p.login_kind !== "file_import")
+                      .map((p) => (
+                        <button
+                          key={p.id}
+                          className="btn provider-login"
+                          style={{ borderColor: `${p.color}55` }}
+                          disabled={busy || !tosAck || !!login?.active}
+                          title={p.hint}
+                          onClick={() => void startLogin(p.id)}
+                        >
+                          <span
+                            className="provider-ico"
+                            style={{ background: `${p.color}22`, color: p.color }}
+                          >
+                            {p.badge}
+                          </span>
+                          <span>
+                            <strong>{p.label}</strong>
+                            <span className="hint">
+                              {p.login_kind === "oauth_device" ? "device / OAuth" : "browser OAuth"}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                  <div className="vertex-import">
+                    <div className="lede" style={{ marginBottom: 8 }}>
+                      Vertex AI — import a Google Cloud service-account JSON (same as rivet-proxy
+                      `-vertex-import`).
+                    </div>
+                    <div className="import-row">
+                      <input
+                        className="path-input"
+                        placeholder="/path/to/service-account.json"
+                        value={vertexPath}
+                        onChange={(e) => setVertexPath(e.target.value)}
+                      />
+                      <button
+                        className="btn"
+                        disabled={busy || !tosAck || !!login?.active}
+                        onClick={() => void importVertex()}
+                      >
+                        Import Vertex
+                      </button>
+                    </div>
+                  </div>
+                  <div className="actions">
+                    {login?.active && (
+                      <button className="btn danger" onClick={cancelLogin}>
+                        Cancel login
+                      </button>
+                    )}
+                  </div>
+
+                  {accounts.length === 0 ? (
+                    <p className="empty">No accounts yet — sign in above.</p>
+                  ) : (
+                    <ul className="account-list">
+                      {accounts.map((a) => (
+                        <li key={a.id}>
+                          <div>
+                            <strong>{a.label}</strong>
+                            <div className="mono">{a.provider}</div>
+                          </div>
+                          <div className="account-actions">
+                            <span className="mono">
+                              limit {a.limit_hint} · reset {a.reset_hint}
+                            </span>
+                            <button
+                              className="btn danger"
+                              disabled={busy}
+                              onClick={() => removeAccount(a.id)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {login && (login.active || login.output) && (
+                    <div style={{ marginTop: 16 }}>
+                      <div className="kv-row" style={{ border: 0, padding: 0 }}>
+                        <span className="k">Login log ({login.provider ?? "—"})</span>
+                        <span
+                          className={`pill ${login.success ? "ok" : login.done ? "bad" : ""}`}
+                        >
+                          {login.active ? "in progress" : login.success ? "done" : "ended"}
+                        </span>
+                      </div>
+                      <pre className="snippet">
+                        {login.output || "Waiting for proxy output…"}
+                      </pre>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {settingsTab === "intelligence" && (
+                <section className="panel-block settings-panel">
+                  <h2>Intelligence</h2>
+                  <p className="lede">
+                    Choose which workers run and which models they use. Live worker status lives on
+                    the Runtime dashboard.
+                  </p>
+                  <div className="settings-toggle-row">
+                    <div>
+                      <strong>Vector search</strong>
+                      <p>Lexical embeddings for MCP search (offline, no remote model required).</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={`toggle-pill ${status?.capabilities.vector_search ? "on" : ""}`}
+                      disabled={busy}
+                      onClick={() =>
+                        toggleCapability(
+                          "vector_search",
+                          !status?.capabilities.vector_search,
+                        )
+                      }
+                    >
+                      <span className="toggle-dot" aria-hidden />
+                      {status?.capabilities.vector_search ? "Enabled" : "Disabled"}
+                    </button>
+                  </div>
+                  <div className="settings-toggle-row">
+                    <div>
+                      <strong>Wiki worker</strong>
+                      <p>Keep the markdown tree updated from captured traffic.</p>
+                    </div>
+                    <button
+                      type="button"
+                      className={`toggle-pill ${status?.capabilities.wiki ? "on" : ""}`}
+                      disabled={busy}
+                      onClick={() => toggleCapability("wiki", !status?.capabilities.wiki)}
+                    >
+                      <span className="toggle-dot" aria-hidden />
+                      {status?.capabilities.wiki ? "Enabled" : "Disabled"}
+                    </button>
+                  </div>
+                  <div className="settings-fields">
+                    <label>
+                      <span>
+                        Embedding model <em className="field-badge">v1 lexical</em>
+                      </span>
+                      <input
+                        className="path-input"
+                        placeholder="reserved — v1 uses lexical vectors"
+                        value={embedModel}
+                        disabled
+                        readOnly
+                        title="Reserved for a future remote-embedding release; search stays lexical."
+                      />
+                    </label>
+                    <label>
+                      <span>Wiki text model</span>
+                      <input
+                        className="path-input"
+                        placeholder="optional, e.g. claude-sonnet-4-5"
+                        value={wikiModel}
+                        onChange={(e) => setWikiModel(e.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <div className="actions">
+                    <button className="btn primary" disabled={busy} onClick={saveIntelligence}>
+                      Save models
+                    </button>
+                    <button className="btn" disabled={busy} onClick={runWorkers}>
+                      Run workers once
+                    </button>
+                    <button className="btn" onClick={() => setPage("runtime")}>
+                      Open Runtime
+                    </button>
+                  </div>
+                  <p className="note">
+                    Lexical embeddings stay consistent with MCP search. The embedding model field is
+                    reserved for a later remote-vector release.
+                  </p>
+                  {bagNote && <p className="note">{bagNote}</p>}
+                </section>
+              )}
+
+              {settingsTab === "harness" && (
+                <section className="panel-block settings-panel">
+                  <h2>Point harnesses at Rivet</h2>
+                  <p className="lede">
+                    Copy snippets or write isolated config directories so default Claude / Codex
+                    installs stay untouched.
+                  </p>
+                  <div className="actions">
+                    <button className="btn" onClick={loadClaude}>
+                      Claude settings.json
+                    </button>
+                    <button className="btn" onClick={loadCodex}>
+                      Codex config.toml
+                    </button>
+                    <button className="btn" onClick={loadMcp}>
+                      MCP servers.json
+                    </button>
+                    <button
+                      className="btn primary"
+                      disabled={busy}
+                      onClick={() => writeHarness("claude")}
+                    >
+                      Write Claude config dir
+                    </button>
+                    <button
+                      className="btn primary"
+                      disabled={busy}
+                      onClick={() => writeHarness("codex")}
+                    >
+                      Write Codex config dir
+                    </button>
+                  </div>
+                  {harnessNote && (
+                    <div style={{ marginTop: 16 }}>
+                      <p className="note">{harnessNote.note}</p>
+                      <div className="kv">
+                        <div className="kv-row">
+                          <span className="k">Path</span>
+                          <span className="v">{harnessNote.path}</span>
+                        </div>
+                        <div className="kv-row">
+                          <span className="k">Env</span>
+                          <span className="v">{harnessNote.env_hint}</span>
+                        </div>
+                      </div>
+                      <div className="actions">
+                        <button className="btn" onClick={() => copyText(harnessNote.env_hint)}>
+                          Copy env export
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {snippet && (
+                    <div style={{ marginTop: 12 }}>
+                      <div className="actions">
+                        <button className="btn" onClick={() => copyText(snippet)}>
+                          Copy snippet
+                        </button>
+                      </div>
+                      <pre className="snippet">{snippet}</pre>
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
           )}
 
           {page === "export" && (
-            <section className="panel-block">
-              <h2>Traffic packages</h2>
-              <p className="lede">
-                `.rivetbag` contains traffic only — never OAuth, API keys, or proxy secrets.
-                Content is redacted for obvious credential patterns before store and export.
-              </p>
-              <div className="actions">
-                <button className="btn primary" disabled={busy} onClick={exportBag}>
-                  Export .rivetbag
-                </button>
-                <button className="btn" disabled={busy || !bagNote} onClick={revealExport}>
-                  Reveal last export
-                </button>
+            <div className="xfer">
+              <div className="xfer-grid">
+                <section className="xfer-card export">
+                  <div className="xfer-card-top">
+                    <span className="xfer-glyph" aria-hidden>
+                      ⇪
+                    </span>
+                    <div>
+                      <h3>Export</h3>
+                      <p>Write a traffic package from the local store.</p>
+                    </div>
+                  </div>
+                  <ul className="xfer-bullets">
+                    <li>OAuth dirs and proxy secrets excluded</li>
+                    <li>Bodies redacted best-effort before pack</li>
+                    <li>Saved under the local Rivet data directory / exports</li>
+                  </ul>
+                  <div className="xfer-actions">
+                    <button className="btn primary" disabled={busy} onClick={exportBag}>
+                      Export .rivetbag
+                    </button>
+                    <button className="btn" disabled={busy || !bagPath} onClick={revealExport}>
+                      Reveal last
+                    </button>
+                  </div>
+                  {bagPath && (
+                    <div className="xfer-path" title={bagPath}>
+                      <span>Last export</span>
+                      <code>{bagPath}</code>
+                    </div>
+                  )}
+                </section>
+
+                <section className="xfer-card import">
+                  <div className="xfer-card-top">
+                    <span className="xfer-glyph" aria-hidden>
+                      ⇩
+                    </span>
+                    <div>
+                      <h3>Import</h3>
+                      <p>Merge a package into this Rivet store.</p>
+                    </div>
+                  </div>
+                  <div className="xfer-drop">
+                    <input
+                      className="path-input"
+                      placeholder="/absolute/path/to/file.rivetbag"
+                      value={importPath}
+                      onChange={(e) => setImportPath(e.target.value)}
+                    />
+                    <div className="xfer-actions">
+                      <button className="btn" disabled={busy} onClick={pickImport}>
+                        Choose file
+                      </button>
+                      <button
+                        className="btn primary"
+                        disabled={busy || !importPath.trim()}
+                        onClick={importBag}
+                      >
+                        Import
+                      </button>
+                    </div>
+                  </div>
+                </section>
               </div>
-              <div className="import-row">
-                <input
-                  className="path-input"
-                  placeholder="/absolute/path/to/file.rivetbag"
-                  value={importPath}
-                  onChange={(e) => setImportPath(e.target.value)}
-                />
-                <button className="btn" disabled={busy} onClick={pickImport}>
-                  Choose file
-                </button>
-                <button className="btn" disabled={busy} onClick={importBag}>
-                  Import
-                </button>
-              </div>
-              {bagNote && <p className="note">{bagNote}</p>}
-            </section>
+
+              {bagNote && (
+                <div className="xfer-toast" role="status">
+                  <span className="xfer-toast-dot" />
+                  {bagNote}
+                </div>
+              )}
+
+              <aside className="xfer-note">
+                Captured prompt/completion text can still hold secrets. Redaction is pattern
+                matching — treat bags as sensitive.
+              </aside>
+            </div>
           )}
         </div>
       </div>
 
       <footer className="statusbar" aria-label="Server status">
         <div className="sb-group">
+          <button
+            type="button"
+            className={`sb-sync${syncing ? " spinning" : ""}`}
+            disabled={syncing}
+            onClick={() => {
+              void (async () => {
+                setSyncing(true);
+                try {
+                  await refresh();
+                } finally {
+                  setSyncing(false);
+                }
+              })();
+            }}
+            title="Sync status"
+            aria-label="Sync status"
+          >
+            <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden>
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21 3v5h-5"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"
+              />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M8 16H3v5"
+              />
+            </svg>
+          </button>
+          <span className="sb-counts" title="Accounts · events · wiki pages · embeddings">
+            <span>{counts.all} acct{counts.all === 1 ? "" : "s"}</span>
+            <span>{fmt(status?.usage.events ?? 0)} events</span>
+            <span>{status?.workers?.wiki_pages ?? 0} wiki</span>
+            <span>{status?.workers?.embeddings ?? 0} vec</span>
+          </span>
           <button
             type="button"
             className="sb-pill"
@@ -2107,90 +2507,19 @@ export default function App() {
             <span className={`sb-dot ${status?.traffic_backend?.includes("clickhouse") ? "on" : "idle"}`} />
             {status?.traffic_backend ?? "sqlite"}
           </span>
-          <span className="sb-pill static" title="Loaded credentials">
-            {counts.all} acct{counts.all === 1 ? "" : "s"}
-            <span className="sb-muted">
-              · {fmt(status?.usage.events ?? 0)} events
-            </span>
-          </span>
         </div>
 
-        <div className="sb-group center">
-          {statusAction ? (
-            <span className="sb-action">{statusAction}</span>
-          ) : error ? (
-            <button type="button" className="sb-action bad" onClick={() => setError(null)} title={error}>
-              {trunc(error, 64)}
-            </button>
-          ) : (
-            <span className="sb-action muted">
-              synced {formatSynced(lastSyncedAt)}
-              {status?.workers ? (
-                <>
-                  {" "}
-                  · wiki {status.workers.wiki_pages} · vec {status.workers.embeddings}
-                </>
-              ) : null}
-            </span>
-          )}
-        </div>
-
-        <div className="sb-group end">
-          <button
-            type="button"
-            className="sb-btn"
-            disabled={busy || !apiOnline || !!status?.proxy_running}
-            onClick={() => void proxyAction("start")}
-            title="Start proxy sidecar"
-          >
-            Start
-          </button>
-          <button
-            type="button"
-            className="sb-btn"
-            disabled={busy || !apiOnline || !status?.proxy_running}
-            onClick={() => void proxyAction("stop")}
-            title="Stop proxy sidecar"
-          >
-            Stop
-          </button>
-          <button
-            type="button"
-            className="sb-btn"
-            disabled={busy || !apiOnline}
-            onClick={() => void proxyAction("restart")}
-            title="Restart proxy (reload config)"
-          >
-            Restart
-          </button>
-          <button
-            type="button"
-            className="sb-btn"
-            disabled={busy || !apiOnline || !status?.proxy_running}
-            onClick={() => void refreshCredentials()}
-            title="Force-refresh provider credentials / quota"
-          >
-            Update creds
-          </button>
-          <button
-            type="button"
-            className="sb-btn"
-            disabled={busy || !apiOnline}
-            onClick={() => void runWorkers()}
-            title="Run vectorize + wiki workers once"
-          >
-            Update wiki
-          </button>
-          <button
-            type="button"
-            className="sb-btn primary"
-            disabled={busy}
-            onClick={() => void refresh()}
-            title="Refresh status from rivetd"
-          >
-            Sync
-          </button>
-        </div>
+        {(statusAction || error) && (
+          <div className="sb-meta">
+            {statusAction ? (
+              <span className="sb-action">{statusAction}</span>
+            ) : (
+              <button type="button" className="sb-action bad" onClick={() => setError(null)} title={error!}>
+                {trunc(error!, 64)}
+              </button>
+            )}
+          </div>
+        )}
       </footer>
     </div>
   );

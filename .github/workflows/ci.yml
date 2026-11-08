@@ -7,7 +7,11 @@ on:
 
 jobs:
   rust:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -15,15 +19,43 @@ jobs:
           toolchain: "1.90"
       - name: Check control plane
         run: cargo check -p rivet-runtime
+      - name: Unit tests
+        run: cargo test -p rivet-core -p rivet-api -p rivet-export -p rivet-runtime --lib
+
+  sink:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/cliproxyapi/go.mod
+      - name: Rivet sink tests
+        working-directory: vendor/cliproxyapi
+        run: go test ./internal/rivetsink/ -count=1
 
   desktop:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            packages: ""
+          - os: ubuntu-latest
+            packages: "libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf"
+          - os: windows-latest
+            packages: ""
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.90"
+      - name: Install Linux Tauri deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.packages }}
       - name: Install frontend deps
         working-directory: apps/desktop
         run: bun install
