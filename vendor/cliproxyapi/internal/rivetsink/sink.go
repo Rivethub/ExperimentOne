@@ -16,6 +16,12 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
 )
 
+type sinkError string
+
+func (e sinkError) Error() string { return string(e) }
+
+const errNoFileBodySource sinkError = "rivetsink: inner logger does not support file body sources"
+
 // Wrapper dual-writes to an inner RequestLogger and posts events to Rivet.
 // IsEnabled is always true while ingest is configured so middleware keeps
 // capturing traffic even when on-disk request-log is disabled.
@@ -85,12 +91,13 @@ func (w *Wrapper) SetErrorLogsMaxFiles(maxFiles int) {
 }
 
 func (w *Wrapper) NewFileBodySource(prefix string) (*logging.FileBodySource, error) {
-	if factory, ok := w.inner.(interface {
+	factory, ok := w.inner.(interface {
 		NewFileBodySource(string) (*logging.FileBodySource, error)
-	}); ok {
-		return factory.NewFileBodySource(prefix)
+	})
+	if !ok {
+		return nil, errNoFileBodySource
 	}
-	return nil, nil
+	return factory.NewFileBodySource(prefix)
 }
 
 // forceForInner restores CPA's error-only file logging. Middleware only sets
@@ -136,14 +143,14 @@ func mergeAPIRequestCapture(apiRequest []byte, source *logging.FileBodySource) [
 	if len(apiRequest) == 0 {
 		return fromSrc
 	}
-	var buf bytes.Buffer
-	buf.Write(apiRequest)
+	out := make([]byte, 0, len(apiRequest)+len(fromSrc)+2)
+	out = append(out, apiRequest...)
 	if !bytes.HasSuffix(apiRequest, []byte("\n")) {
-		buf.WriteByte('\n')
+		out = append(out, '\n')
 	}
-	buf.WriteByte('\n')
-	buf.Write(fromSrc)
-	return buf.Bytes()
+	out = append(out, '\n')
+	out = append(out, fromSrc...)
+	return out
 }
 
 func (w *Wrapper) LogRequestWithOptionsAndSources(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline []byte, websocketTimelineSource *logging.FileBodySource, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiWebsocketTimelineSource *logging.FileBodySource, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {

@@ -17,7 +17,7 @@ func (s *stubLogger) LogRequest(string, string, map[string][]string, []byte, int
 	return nil
 }
 
-func (s *stubLogger) LogRequestWithOptions(_ string, _ string, _ map[string][]string, _ []byte, _ int, _ map[string][]string, _ []byte, _ []byte, _ []byte, _ []byte, _ []byte, _ []*interfaces.ErrorMessage, force bool, _ string, _ time.Time, _ time.Time) error {
+func (s *stubLogger) LogRequestWithOptions(_, _ string, _ map[string][]string, _ []byte, _ int, _ map[string][]string, _, _, _, _, _ []byte, _ []*interfaces.ErrorMessage, force bool, _ string, _, _ time.Time) error {
 	s.forced = force
 	return nil
 }

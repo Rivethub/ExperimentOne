@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -32,8 +31,6 @@ type queueSender struct {
 	client    *http.Client
 	queue     chan json.RawMessage
 	dropped   atomic.Uint64
-	stopOnce  sync.Once
-	stopped   chan struct{}
 }
 
 func newQueueSender(ingestURL, ingestKey string) *queueSender {
@@ -56,8 +53,7 @@ func newQueueSender(ingestURL, ingestKey string) *queueSender {
 			Timeout:   3 * time.Second,
 			Transport: transport,
 		},
-		queue:   make(chan json.RawMessage, ingestQueueSize),
-		stopped: make(chan struct{}),
+		queue: make(chan json.RawMessage, ingestQueueSize),
 	}
 	go s.loop()
 	return s
@@ -79,7 +75,6 @@ func (s *queueSender) enqueue(payload []byte) {
 }
 
 func (s *queueSender) loop() {
-	defer close(s.stopped)
 	batch := make([]json.RawMessage, 0, ingestBatchMax)
 	batchBytes := 0
 	timer := time.NewTimer(ingestBatchWait)
