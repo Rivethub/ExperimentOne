@@ -96,6 +96,13 @@ export async function handleApiRequest(
 
   // Status / catalog
   if (m === "GET" && base === "/v1/status") return ok(currentStatus(s));
+  if (m === "GET" && base === "/v1/live") {
+    return ok({
+      wiki_revision: s.wiki?.revision ?? 0,
+      traffic_events: s.traffic.length,
+      observed_at: new Date().toISOString(),
+    });
+  }
   if (m === "GET" && base === "/v1/providers") return ok({ providers: s.providers });
   if (m === "GET" && base === "/v1/accounts") return ok(s.accounts);
 

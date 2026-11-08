@@ -20,11 +20,11 @@ export type UseTopicsResult = {
   retryFlagged: (task: string, jobKey: string) => Promise<void>;
 };
 
-export function useTopics(opts: {
-  page: string;
-  ensureSession: () => Promise<void>;
-}): UseTopicsResult {
-  const { page } = opts;
+/**
+ * Topics + tidy/tags/flagged snapshot. Call only from the topics route so polling
+ * runs while the pane is mounted.
+ */
+export function useTopics(): UseTopicsResult {
   const [topics, setTopics] = useState<TopicCard[]>([]);
   const [tidy, setTidy] = useState<TidyProposalCard[]>([]);
   const [tags, setTags] = useState<TagSuggestionCard[]>([]);
@@ -108,11 +108,6 @@ export function useTopics(opts: {
   );
 
   useEffect(() => {
-    if (page !== "topics") {
-      return () => {
-        /* no topics polling */
-      };
-    }
     void refreshTopics();
     const id = setInterval(() => {
       void refreshTopics();
@@ -120,7 +115,7 @@ export function useTopics(opts: {
     return () => {
       clearInterval(id);
     };
-  }, [page, refreshTopics]);
+  }, [refreshTopics]);
 
   return {
     topics,

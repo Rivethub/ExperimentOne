@@ -1,4 +1,5 @@
 import { turnFromTrafficEvent } from "../transcript/parse";
+import { formatRelativeTime } from "./relative-time";
 import { splitTrafficBody, trunc } from "./traffic-utils";
 import type { ConversationSummary, TrafficEvent } from "./types";
 
@@ -189,14 +190,5 @@ export function filterMessages(events: TrafficEvent[], query: string): TrafficEv
 }
 
 export function relativeWhen(iso: string): string {
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (sec < 60) return `${sec}s`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m`;
-  const hr = Math.round(min / 60);
-  if (hr < 48) return `${hr}h`;
-  const day = Math.round(hr / 24);
-  return `${day}d`;
+  return formatRelativeTime(iso, { style: "short" });
 }

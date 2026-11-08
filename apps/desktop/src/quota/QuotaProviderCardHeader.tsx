@@ -2,8 +2,19 @@ import { isDefined } from "../lib/nullish";
 import type { ProviderQuota } from "../lib/types";
 import type { MetricMode } from "./types";
 import { StaleStamp } from "./StaleStamp";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cn } from "#lib/utils";
+
+const icoTone = {
+  claude: "bg-[var(--claude-dim)] text-[var(--claude)]",
+  codex: "bg-[var(--codex-dim)] text-[var(--codex)]",
+  generic: "bg-secondary text-muted-foreground",
+} as const;
+
+const bigTone = {
+  claude: "text-[var(--claude)]",
+  codex: "text-[var(--codex)]",
+  generic: "text-foreground",
+} as const;
 
 export function QuotaProviderCardHeader({
   name,
@@ -33,12 +44,19 @@ export function QuotaProviderCardHeader({
   capLabel: string;
 }): React.ReactElement {
   return (
-    <div className={styles.cardHead}>
-      <div className={styles.cardTitle}>
-        <div className={cx(styles.providerIco, styles[icoClass])}>{ico}</div>
+    <div className="mb-2.5 flex items-start justify-between gap-4">
+      <div className="flex items-center gap-2.5">
+        <div
+          className={cn(
+            "grid size-7 place-items-center rounded-lg text-[13px] font-bold",
+            icoTone[icoClass],
+          )}
+        >
+          {ico}
+        </div>
         <div>
-          <h2>{name}</h2>
-          <div className={styles.meta}>
+          <h2 className="m-0 text-[15px] font-semibold">{name}</h2>
+          <div className="text-xs text-muted-foreground">
             {count} account{count === 1 ? "" : "s"}
             {pq !== null ? ` · ${pq.known_count ?? 0}/${count} reporting` : ""}
             {knownQuota ? ` · pool ${Math.round(capacity)}%` : ""} · {metricMode}
@@ -51,15 +69,19 @@ export function QuotaProviderCardHeader({
           </div>
         </div>
       </div>
-      <div
-        className={styles.poolStat}
-        title="Sum of remaining % across loaded accounts vs capacity"
-      >
-        <div className={cx(styles.big, styles[icoClass])}>
+      <div className="text-right" title="Sum of remaining % across loaded accounts vs capacity">
+        <div
+          className={cn(
+            "text-[28px] leading-none font-bold tracking-tight tabular-nums",
+            bigTone[icoClass],
+          )}
+        >
           {headline}
-          <span className={styles.unit}>{unit}</span>
+          <span className="ml-1.5 text-[13px] font-medium tracking-normal text-muted-foreground">
+            {unit}
+          </span>
         </div>
-        <div className={styles.cap}>{capLabel}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{capLabel}</div>
       </div>
     </div>
   );

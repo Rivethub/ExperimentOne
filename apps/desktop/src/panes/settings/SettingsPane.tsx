@@ -2,8 +2,6 @@ import { AccountsTab } from "./AccountsTab";
 import { HarnessTab } from "./HarnessTab";
 import { IntelligenceTab } from "./IntelligenceTab";
 import type { SettingsPaneProps } from "./types";
-import { cx } from "../../styles/cx";
-import styles from "../../styles/app.module.css";
 
 export type {
   SettingsAccountsProps,
@@ -13,22 +11,17 @@ export type {
 } from "./types";
 
 export function SettingsPane({
-  active,
   settingsTab,
   accounts,
   intelligence,
   harness,
 }: SettingsPaneProps): React.ReactElement {
   return (
-    <div
-      className={cx(styles.viewPane, active ? styles.isActive : "")}
-      hidden={!active}
-      aria-hidden={!active}
-    >
-      <div className={styles.settings}>
-        <AccountsTab {...accounts} hidden={settingsTab !== "accounts"} />
-        <IntelligenceTab {...intelligence} hidden={settingsTab !== "intelligence"} />
-        <HarnessTab {...harness} hidden={settingsTab !== "harness"} />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="flex-1 overflow-auto bg-background px-6 py-4 pb-9">
+        {settingsTab === "accounts" && <AccountsTab {...accounts} />}
+        {settingsTab === "intelligence" && <IntelligenceTab {...intelligence} />}
+        {settingsTab === "harness" && <HarnessTab {...harness} />}
       </div>
     </div>
   );

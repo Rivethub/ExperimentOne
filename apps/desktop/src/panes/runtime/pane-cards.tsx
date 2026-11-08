@@ -1,5 +1,4 @@
 import type { Account, SettingsTab, Status } from "../../lib/types";
-import styles from "../../styles/app.module.css";
 import { RuntimePaneInfraCards } from "./pane-infra-cards";
 import { RuntimePaneWorkerCards } from "./pane-worker-cards";
 
@@ -21,7 +20,7 @@ export function RuntimePaneCards({
   onRefresh: () => void;
 }): React.ReactElement {
   return (
-    <div className={styles.runtimeGrid}>
+    <div className="mb-4.5 grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-3">
       <RuntimePaneInfraCards
         status={status}
         accounts={accounts}

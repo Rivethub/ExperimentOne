@@ -2,14 +2,17 @@
 
 mod clickhouse;
 mod control_ipc;
+mod http_layers;
 mod nats;
 mod pids;
 mod proxy;
+pub mod telemetry;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use rivet_core::LiveBus;
 use rivet_api::ApiState;
 use rivet_ingest::IngestState;
 use rivet_mcp::McpState;
@@ -170,6 +173,7 @@ impl Runtime {
         }
 
         let config = Arc::new(RwLock::new(self.config.clone()));
+        let live = LiveBus::new(256);
 
         let traffic_backend = "clickhouse";
         let wiki_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
@@ -181,6 +185,7 @@ impl Runtime {
             self.paths.clone(),
             config.clone(),
             wiki_revision.clone(),
+            live.clone(),
         ));
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let api_state = ApiState {
@@ -194,6 +199,7 @@ impl Runtime {
             traffic_backend,
             workers: Some(worker.clone()),
             wiki_revision,
+            live: live.clone(),
             shutdown: shutdown_tx,
         };
         let ingest_state = IngestState {
@@ -201,6 +207,7 @@ impl Runtime {
             ingest_key: self.config.proxy_access_key.clone(),
             meta: Some(meta.clone()),
             jobs: Some(jobs.clone()),
+            live: Some(live),
         };
 
         let mcp_state = McpState {
@@ -236,9 +243,17 @@ impl Runtime {
         // TCP keeps ingest (proxy → rivetd) + optional CLI curl on loopback.
         // Desktop never uses TCP — it talks control IPC (UDS / named pipe).
         let control_router = rivet_api::router(api_state.clone());
-        let tcp_router = rivet_api::router(api_state).merge(rivet_ingest::router(ingest_state));
+        let tcp_router = http_layers::apply_loopback_layers(
+            rivet_api::router(api_state).merge(rivet_ingest::router(ingest_state)),
+            &self.config,
+        );
         let api_listener = tokio::net::TcpListener::bind(api_addr).await?;
-        info!(%api_addr, "rivet ingest+control loopback listening");
+        info!(
+            %api_addr,
+            rate_limit_rps = self.config.rate_limit_rps,
+            metrics = self.config.metrics_enabled,
+            "rivet ingest+control loopback listening"
+        );
         info!(%mcp_addr, "rivet mcp listening");
 
         let control_paths = self.paths.clone();
@@ -264,8 +279,10 @@ impl Runtime {
             }
         };
 
+        // ConnectInfo is required by tower-governor's peer-IP key extractor.
+        let tcp_service = tcp_router.into_make_service_with_connect_info::<SocketAddr>();
         let serve_result = tokio::select! {
-            res = axum::serve(api_listener, tcp_router) => res.context("api serve"),
+            res = axum::serve(api_listener, tcp_service) => res.context("api serve"),
             res = control_serve => res.context("control ipc serve"),
             res = rivet_mcp::serve(mcp_addr, mcp_state) => res.context("mcp serve"),
             () = shutdown => {

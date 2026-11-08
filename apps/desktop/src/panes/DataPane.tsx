@@ -12,8 +12,7 @@ import { LimitRecoveryBanner, type LimitHitInfo } from "../quota";
 import { filterTimeline, timelineFromTrafficEvents, TranscriptView } from "../transcript";
 import type { ConversationSummary, SearchMode, TrafficEvent } from "../lib/types";
 import { Button, Empty, Input, Panel, Pill } from "../ui";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cn } from "#lib/utils";
 
 const SEARCH_MODES = [
   ["keyword", "Keyword"],
@@ -21,7 +20,6 @@ const SEARCH_MODES = [
 ] as const;
 
 export type DataPaneProps = {
-  active: boolean;
   limitHit: LimitHitInfo | null;
   limitActions: {
     onRefreshCredentials: () => void;
@@ -59,14 +57,20 @@ function ConversationRow({
   return (
     <button
       type="button"
-      className={cx(styles.conversationRow, selected && styles.active)}
+      className={cn(
+        "flex w-full cursor-pointer flex-col gap-1.5 border-0 border-b border-border/60 bg-transparent px-3.5 py-3 text-left text-foreground",
+        "hover:bg-accent",
+        selected && "bg-secondary",
+      )}
       onClick={onSelect}
     >
-      <div className={styles.conversationRowTop}>
-        <strong className={styles.conversationTitle}>{c.title}</strong>
-        <span className={styles.conversationWhen}>{relativeWhen(c.updated_at)}</span>
+      <div className="flex items-baseline justify-between gap-2.5">
+        <strong className="truncate text-[13px] font-semibold">{c.title}</strong>
+        <span className="shrink-0 text-[11px] text-muted-foreground">
+          {relativeWhen(c.updated_at)}
+        </span>
       </div>
-      <div className={styles.conversationRowMeta}>
+      <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
         <Pill style={{ background: `${color}22`, color }}>
           {providerChipLabel(providerKey(c.provider), catalog)}
         </Pill>
@@ -81,21 +85,23 @@ function ConversationRow({
           </Pill>
         ) : null}
         {(c.tool_names?.length ?? 0) > 0 ? (
-          <Pill>{c.tool_names!.length} tool{c.tool_names!.length === 1 ? "" : "s"}</Pill>
+          <Pill>
+            {c.tool_names!.length} tool{c.tool_names!.length === 1 ? "" : "s"}
+          </Pill>
         ) : null}
         {(c.thinking_events ?? 0) > 0 ? <Pill>thinking</Pill> : null}
         {(c.error_events ?? 0) > 0 ? <Pill tone="warn">errors</Pill> : null}
         {(c.media_count ?? 0) > 0 ? <Pill>{c.media_count} media</Pill> : null}
         {c.git_branch ? <Pill>{c.git_branch}</Pill> : null}
-        <span className={styles.mono}>{c.model ?? "—"}</span>
-        <span className={styles.muted}>
+        <span className="font-mono text-xs">{c.model ?? "—"}</span>
+        <span className="text-muted-foreground">
           {c.message_count} msg · {fmt(c.tokens_in)}/{fmt(c.tokens_out)}
           {(c.cache_read_tokens ?? 0) > 0 ? ` · cache ${fmt(c.cache_read_tokens!)}` : ""}
           {(c.thinking_tokens ?? 0) > 0 ? ` · think ${fmt(c.thinking_tokens!)}` : ""}
           {c.api_format ? ` · ${c.api_format}` : ""}
         </span>
       </div>
-      {c.preview ? <div className={styles.conversationPreview}>{c.preview}</div> : null}
+      {c.preview ? <div className="truncate text-xs text-muted-foreground">{c.preview}</div> : null}
     </button>
   );
 }
@@ -125,13 +131,14 @@ function ConversationVirtualList({
   return (
     <div
       ref={parentRef}
-      className={cx(styles.conversationList, pending && styles.conversationListPending)}
+      className={cn(
+        "mt-3 min-h-0 flex-1 overflow-auto rounded-[10px] border border-border/60 transition-opacity duration-100",
+        pending && "opacity-55",
+      )}
       aria-busy={pending || undefined}
     >
-      <div
-        className={styles.conversationVirtualInner}
-        style={{ height: virtualizer.getTotalSize() }}
-      >
+      {/* relative + absolute rows required by the virtualizer */}
+      <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
         {virtualizer.getVirtualItems().map((row) => {
           const c = conversations[row.index]!;
           const style = {
@@ -142,7 +149,7 @@ function ConversationVirtualList({
               key={row.key}
               data-index={row.index}
               ref={virtualizer.measureElement}
-              className={styles.conversationVirtualRow}
+              className="absolute top-0 left-0 w-full"
               style={style}
             >
               <ConversationRow
@@ -160,7 +167,6 @@ function ConversationVirtualList({
 }
 
 export function DataPane({
-  active,
   limitHit,
   limitActions,
   catalog,
@@ -189,11 +195,7 @@ export function DataPane({
   }, [visibleMessages, deferredThreadQuery]);
 
   return (
-    <div
-      className={cx(styles.viewPane, active ? styles.isActive : "")}
-      hidden={!active}
-      aria-hidden={!active}
-    >
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <LimitRecoveryBanner
         hit={limitHit}
         onRefreshCredentials={limitActions.onRefreshCredentials}
@@ -201,24 +203,37 @@ export function DataPane({
         onWait={limitActions.onWait}
       />
       <Panel
-        className={styles.dataPage}
+        className="mb-0 flex min-h-0 flex-1 flex-col"
         title="Conversations"
         lede="Browse historical conversations captured through the proxy. Search the list or within a thread — vector search is available when Intelligence vectorization is on."
       >
-        <div className={cx(styles.dataLayout, selected ? styles.hasThread : "")}>
-          <div className={styles.dataListPane}>
-            <div className={styles.dataSearchBar}>
+        <div
+          className={cn(
+            "mt-3.5 grid min-h-0 flex-1 gap-3",
+            selected
+              ? "grid-cols-1 md:grid-cols-[minmax(280px,1fr)_minmax(0,1.4fr)]"
+              : "grid-cols-1",
+          )}
+        >
+          <div className="flex min-h-0 min-w-0 flex-col">
+            <div className="flex min-w-0 items-center gap-2">
               {vectorSearchEnabled ? (
-                <div className={styles.searchSegment} role="radiogroup" aria-label="Search mode">
+                <div
+                  className="inline-flex shrink-0 items-stretch gap-px rounded-[9px] border border-border/60 bg-background p-0.5"
+                  role="radiogroup"
+                  aria-label="Search mode"
+                >
                   {SEARCH_MODES.map(([id, label]) => (
                     <button
                       key={id}
                       type="button"
                       role="radio"
                       aria-checked={searchMode === id}
-                      className={cx(
-                        styles.searchSegmentBtn,
-                        searchMode === id && styles.searchSegmentActive,
+                      className={cn(
+                        "cursor-pointer rounded-[7px] border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground",
+                        "hover:bg-white/3 hover:text-foreground",
+                        searchMode === id &&
+                          "bg-secondary text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
                       )}
                       onClick={() => onSearchModeChange(id)}
                     >
@@ -228,7 +243,7 @@ export function DataPane({
                 </div>
               ) : null}
               <Input
-                className={styles.dataSearchInput}
+                className="min-w-0 flex-1"
                 tone="plain"
                 placeholder="Search conversations…"
                 value={listQuery}
@@ -236,12 +251,14 @@ export function DataPane({
                 onChange={(e) => onListQueryChange(e.target.value)}
               />
               {searchModeLabel ? (
-                <span className={styles.dataSearchMeta}>{searchModeLabel}</span>
+                <span className="shrink-0 text-[11px] whitespace-nowrap text-muted-foreground">
+                  {searchModeLabel}
+                </span>
               ) : null}
             </div>
 
             {conversations.length === 0 && !listPending ? (
-              <div className={styles.conversationList}>
+              <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-[10px] border border-border/60">
                 <Empty>
                   {listQuery.trim()
                     ? "No conversations match this search."
@@ -249,7 +266,7 @@ export function DataPane({
                 </Empty>
               </div>
             ) : conversations.length === 0 && listPending ? (
-              <div className={cx(styles.conversationList, styles.conversationListPending)}>
+              <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-[10px] border border-border/60 opacity-55">
                 <Empty>Searching…</Empty>
               </div>
             ) : (
@@ -263,88 +280,86 @@ export function DataPane({
             )}
           </div>
 
-          <div className={styles.dataThreadPane}>
-            {!selected ? (
-              <Empty>Select a conversation to read the transcript.</Empty>
-            ) : (
-              <>
-                <div className={styles.threadHead}>
-                  <div className={styles.threadHeadCopy}>
-                    <strong>{selected.title}</strong>
-                    <span className={styles.muted}>
-                      {providerChipLabel(providerKey(selected.provider), catalog)}
-                      {selected.model ? ` · ${selected.model}` : ""}
-                      {selected.project_id
-                        ? ` · ${selected.project_id}`
-                        : selected.cwd
-                          ? ` · ${selected.cwd}`
-                          : ""}
-                      {(selected.agent_ids?.length ?? 0) > 0
-                        ? ` · ${selected.agent_ids!.length} subagent${selected.agent_ids!.length === 1 ? "" : "s"}`
-                        : (selected.subagent_events ?? 0) > 0
-                          ? ` · ${selected.subagent_events} subagent turns`
-                          : ""}
-                      {selected.git_branch ? ` · ${selected.git_branch}` : ""}
-                      {(selected.tool_names?.length ?? 0) > 0
-                        ? ` · ${selected.tool_names!.slice(0, 4).join(", ")}`
+          {selected ? (
+            <div className="flex min-h-0 min-w-0 flex-col rounded-xl border border-border bg-card/40 px-3.5 py-3">
+              <div className="mb-2.5 flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-col gap-1">
+                  <strong className="text-sm">{selected.title}</strong>
+                  <span className="text-muted-foreground">
+                    {providerChipLabel(providerKey(selected.provider), catalog)}
+                    {selected.model ? ` · ${selected.model}` : ""}
+                    {selected.project_id
+                      ? ` · ${selected.project_id}`
+                      : selected.cwd
+                        ? ` · ${selected.cwd}`
                         : ""}
-                      {(selected.cache_read_tokens ?? 0) > 0
-                        ? ` · cache ${fmt(selected.cache_read_tokens!)}`
+                    {(selected.agent_ids?.length ?? 0) > 0
+                      ? ` · ${selected.agent_ids!.length} subagent${selected.agent_ids!.length === 1 ? "" : "s"}`
+                      : (selected.subagent_events ?? 0) > 0
+                        ? ` · ${selected.subagent_events} subagent turns`
                         : ""}
-                      {(selected.thinking_tokens ?? 0) > 0
-                        ? ` · think ${fmt(selected.thinking_tokens!)}`
-                        : ""}
-                      {selected.api_format ? ` · ${selected.api_format}` : ""}
-                      {(selected.error_events ?? 0) > 0
-                        ? ` · ${selected.error_events} error${selected.error_events === 1 ? "" : "s"}`
-                        : ""}
-                      {(selected.media_count ?? 0) > 0
-                        ? ` · ${selected.media_count} media`
-                        : ""}
-                    </span>
-                    {(selected.agent_ids?.length ?? 0) > 0 ||
-                    (selected.tool_names?.length ?? 0) > 0 ? (
-                      <div className={styles.conversationRowMeta} style={{ marginTop: 6 }}>
-                        {selected.agent_ids?.slice(0, 8).map((id) => (
-                          <Pill key={id}>{id.length > 14 ? `${id.slice(0, 8)}…` : id}</Pill>
-                        ))}
-                        {selected.tool_names?.slice(0, 8).map((name) => (
-                          <Pill key={name}>{name}</Pill>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <Button variant="ghost" onClick={() => onSelectConversation(null)}>
-                    Close
-                  </Button>
+                    {selected.git_branch ? ` · ${selected.git_branch}` : ""}
+                    {(selected.tool_names?.length ?? 0) > 0
+                      ? ` · ${selected.tool_names!.slice(0, 4).join(", ")}`
+                      : ""}
+                    {(selected.cache_read_tokens ?? 0) > 0
+                      ? ` · cache ${fmt(selected.cache_read_tokens!)}`
+                      : ""}
+                    {(selected.thinking_tokens ?? 0) > 0
+                      ? ` · think ${fmt(selected.thinking_tokens!)}`
+                      : ""}
+                    {selected.api_format ? ` · ${selected.api_format}` : ""}
+                    {(selected.error_events ?? 0) > 0
+                      ? ` · ${selected.error_events} error${selected.error_events === 1 ? "" : "s"}`
+                      : ""}
+                    {(selected.media_count ?? 0) > 0 ? ` · ${selected.media_count} media` : ""}
+                  </span>
+                  {(selected.agent_ids?.length ?? 0) > 0 ||
+                  (selected.tool_names?.length ?? 0) > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {selected.agent_ids?.slice(0, 8).map((id) => (
+                        <Pill key={id}>{id.length > 14 ? `${id.slice(0, 8)}…` : id}</Pill>
+                      ))}
+                      {selected.tool_names?.slice(0, 8).map((name) => (
+                        <Pill key={name}>{name}</Pill>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
-                <div className={styles.dataSearchBar}>
-                  <Input
-                    className={styles.dataSearchInput}
-                    tone="plain"
-                    placeholder="Search in this conversation…"
-                    value={threadQuery}
-                    aria-busy={threadPending || undefined}
-                    onChange={(e) => onThreadQueryChange(e.target.value)}
-                  />
-                </div>
-                <div
-                  className={cx(threadPending && styles.conversationListPending)}
-                  aria-busy={threadPending || undefined}
+                <Button
+                  variant="ghost"
+                  aria-label="Close conversation"
+                  onClick={() => onSelectConversation(null)}
                 >
-                  {timeline.length === 0 ? (
-                    <Empty>
-                      {deferredThreadQuery.trim()
-                        ? "No messages match this search."
-                        : "No messages in this conversation."}
-                    </Empty>
-                  ) : (
-                    <TranscriptView items={timeline} />
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+                  ✕
+                </Button>
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                <Input
+                  className="min-w-0 flex-1"
+                  tone="plain"
+                  placeholder="Search in this conversation…"
+                  value={threadQuery}
+                  aria-busy={threadPending || undefined}
+                  onChange={(e) => onThreadQueryChange(e.target.value)}
+                />
+              </div>
+              <div
+                className={cn("mt-2 flex min-h-0 flex-1 flex-col", threadPending && "opacity-55")}
+                aria-busy={threadPending || undefined}
+              >
+                {timeline.length === 0 ? (
+                  <Empty>
+                    {deferredThreadQuery.trim()
+                      ? "No messages match this search."
+                      : "No messages in this conversation."}
+                  </Empty>
+                ) : (
+                  <TranscriptView items={timeline} />
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </Panel>
     </div>

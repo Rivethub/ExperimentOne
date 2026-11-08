@@ -28,8 +28,8 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use rivet_core::{
     chunk_text, hydrate_events, lexical_embed, looks_unembeddable, normalize_event_turns,
-    project_id_from_cwd, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, TurnKind,
-    LEXICAL_SPACE,
+    project_id_from_cwd, LiveBus, LiveEvent, RivetConfig, RivetPaths, TrafficEvent, TrafficRole,
+    TurnKind, LEXICAL_SPACE,
 };
 use rivet_store::{
     ClaimedJob, ClickHouseTrafficStore, MetaStore, NatsJobStore, PlacementBy, SessionBinding,
@@ -56,6 +56,7 @@ pub struct WorkerPool {
     config: Arc<RwLock<RivetConfig>>,
     http: reqwest::Client,
     wiki_revision: Arc<AtomicU64>,
+    live: LiveBus,
 }
 
 impl std::fmt::Debug for WorkerPool {
@@ -65,6 +66,7 @@ impl std::fmt::Debug for WorkerPool {
 }
 
 impl WorkerPool {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         store: Arc<dyn TrafficStore>,
         ch: Arc<ClickHouseTrafficStore>,
@@ -73,6 +75,7 @@ impl WorkerPool {
         paths: RivetPaths,
         config: Arc<RwLock<RivetConfig>>,
         wiki_revision: Arc<AtomicU64>,
+        live: LiveBus,
     ) -> Self {
         Self {
             store,
@@ -86,7 +89,13 @@ impl WorkerPool {
                 .build()
                 .expect("reqwest client"),
             wiki_revision,
+            live,
         }
+    }
+
+    fn bump_wiki_revision(&self) {
+        let revision = self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.live.publish(LiveEvent::Wiki { revision });
     }
 
     pub fn wiki_revision(&self) -> Arc<AtomicU64> {
@@ -96,8 +105,12 @@ impl WorkerPool {
     pub fn spawn(self: Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
         let role = WorkerRole::from_env();
         info!(role = role.as_str(), "starting NATS job workers");
-        let watcher =
-            spawn_wiki_watcher(self.paths.clone(), self.meta.clone(), self.wiki_revision.clone());
+        let watcher = spawn_wiki_watcher(
+            self.paths.clone(),
+            self.meta.clone(),
+            self.wiki_revision.clone(),
+            self.live.clone(),
+        );
         let mut handles = vec![watcher];
         let roles: Vec<WorkerRole> = match role {
             WorkerRole::All => {
@@ -130,7 +143,7 @@ impl WorkerPool {
     pub async fn tick_once(&self) -> Result<()> {
         if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
             if upserts > 0 || removed > 0 {
-                self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.bump_wiki_revision();
             }
         }
         self.enqueue_backstops().await?;
@@ -305,7 +318,7 @@ impl WorkerPool {
     fn reconcile_wiki_after_write(&self) {
         if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
             if upserts > 0 || removed > 0 {
-                self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.bump_wiki_revision();
             }
         }
     }

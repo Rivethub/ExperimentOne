@@ -1,6 +1,5 @@
 import { fmt } from "../../lib/provider-utils";
 import type { Account, Status } from "../../lib/types";
-import styles from "../../styles/app.module.css";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
 export function RuntimeStoreCard({
@@ -14,7 +13,7 @@ export function RuntimeStoreCard({
     <RuntimePaneCard
       title="Store"
       statusLabel={status?.traffic_backend ?? "clickhouse"}
-      statusClass={styles.ok ?? ""}
+      statusTone="ok"
     >
       <RuntimeKv label="Events" value={fmt(status?.usage.events ?? 0)} />
       <RuntimeKv

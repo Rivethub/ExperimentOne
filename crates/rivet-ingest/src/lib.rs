@@ -7,16 +7,18 @@ use axum::{
     extract::State,
     http::{header, Request, StatusCode},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
-use rivet_core::{canonicalize_session_id, native_session_id, TrafficEvent};
-use rivet_core::{normalize_event_turns, TurnKind};
+use rivet_core::{
+    canonicalize_session_id, native_session_id, normalize_event_turns, validate_ingest_batch,
+    validate_traffic_event, LiveBus, LiveEvent, TrafficEvent, TurnKind,
+};
 use rivet_store::{
     MetaStore, NatsJobStore, TrafficStore, WorkerJob, PRIORITY_CLASSIFY, TASK_SYNTHESIZE_TOOL,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 #[derive(Clone)]
@@ -28,6 +30,8 @@ pub struct IngestState {
     pub meta: Option<Arc<MetaStore>>,
     /// NATS `JetStream` job plane for live embed / classify enqueue after insert.
     pub jobs: Option<Arc<NatsJobStore>>,
+    /// Optional live bus so the control API can push traffic updates.
+    pub live: Option<LiveBus>,
 }
 
 impl std::fmt::Debug for IngestState {
@@ -39,6 +43,11 @@ impl std::fmt::Debug for IngestState {
 #[derive(Debug, Deserialize)]
 pub struct IngestBatch {
     pub events: Vec<TrafficEvent>,
+}
+
+#[derive(Debug, Serialize)]
+struct IngestErrorBody {
+    error: String,
 }
 
 async fn require_ingest_auth(
@@ -76,9 +85,7 @@ pub fn router(state: IngestState) -> Router {
 }
 
 fn canonicalize_event_session(event: &mut TrafficEvent) {
-    if let Some(canonical) =
-        canonicalize_session_id(event.provider, event.session_id.as_deref())
-    {
+    if let Some(canonical) = canonicalize_session_id(event.provider, event.session_id.as_deref()) {
         event.session_id = Some(canonical);
     }
 }
@@ -126,11 +133,16 @@ fn prepare_ingest_event(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
 
 /// Persist soft→wire alias when the proxy reports a soft fingerprint alongside a hard id.
 fn record_soft_wire_alias(meta: &MetaStore, event: &TrafficEvent) {
-    let Some(soft) = event.soft_alias.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
+    let Some(soft) =
+        event.soft_alias.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
     else {
         return;
     };
-    let Some(hard) = event.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty() && !s.starts_with("soft:"))
+    let Some(hard) = event
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty() && !s.starts_with("soft:"))
     else {
         return;
     };
@@ -139,7 +151,9 @@ fn record_soft_wire_alias(meta: &MetaStore, event: &TrafficEvent) {
 
 /// Soft→wire upgrade: remap soft session ids via meta aliases; bump quality when hard.
 fn upgrade_soft_session(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
-    if let Some(soft) = event.session_id.as_deref().map(str::trim).filter(|s| s.starts_with("soft:")) {
+    if let Some(soft) =
+        event.session_id.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
+    {
         if let Some(meta) = meta {
             if let Ok(Some(hard)) = meta.resolve_soft_wire(soft) {
                 event.session_id = Some(hard);
@@ -215,33 +229,53 @@ async fn enqueue_followups(jobs: Option<&NatsJobStore>, events: &[TrafficEvent])
     }
 }
 
+fn reject_validation(err: &rivet_core::IngestValidationError) -> Response {
+    tracing::warn!(%err, "rejecting invalid ingest payload");
+    (StatusCode::BAD_REQUEST, Json(IngestErrorBody { error: err.to_string() })).into_response()
+}
+
 async fn ingest_one(
     State(state): State<IngestState>,
     Json(mut event): Json<TrafficEvent>,
-) -> Result<StatusCode, StatusCode> {
+) -> Response {
+    if let Err(err) = validate_traffic_event(&event) {
+        return reject_validation(&err);
+    }
     prepare_ingest_event(state.meta.as_deref(), &mut event);
-    state.store.insert_event(&event).await.map_err(|err| {
+    if let Err(err) = state.store.insert_event(&event).await {
         tracing::error!(?err, "ingest failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     enqueue_followups(state.jobs.as_deref(), std::slice::from_ref(&event)).await;
-    Ok(StatusCode::ACCEPTED)
+    if let Some(live) = state.live.as_ref() {
+        live.publish(LiveEvent::Traffic { count: 1 });
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn ingest_batch(
     State(state): State<IngestState>,
     Json(batch): Json<IngestBatch>,
-) -> Result<StatusCode, StatusCode> {
+) -> Response {
+    if let Err(err) = validate_ingest_batch(&batch.events) {
+        return reject_validation(&err);
+    }
     let mut events = batch.events;
     for event in &mut events {
         prepare_ingest_event(state.meta.as_deref(), event);
     }
-    state.store.insert_batch(&events).await.map_err(|err| {
+    let n = events.len() as u64;
+    if let Err(err) = state.store.insert_batch(&events).await {
         tracing::error!(?err, "batch ingest failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
     enqueue_followups(state.jobs.as_deref(), &events).await;
-    Ok(StatusCode::ACCEPTED)
+    if n > 0 {
+        if let Some(live) = state.live.as_ref() {
+            live.publish(LiveEvent::Traffic { count: n });
+        }
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 pub async fn serve(addr: std::net::SocketAddr, state: IngestState) -> Result<()> {

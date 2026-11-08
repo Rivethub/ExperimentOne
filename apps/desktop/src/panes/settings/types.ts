@@ -31,7 +31,6 @@ export type SettingsIntelligenceProps = {
   onSaveIntelligence: () => void;
   onRunWorkers: () => void;
   onOpenRuntime: () => void;
-  bagNote: string | null;
 };
 
 export type SettingsHarnessProps = {
@@ -49,7 +48,6 @@ export type SettingsHarnessProps = {
 };
 
 export type SettingsPaneProps = {
-  active: boolean;
   settingsTab: SettingsTab;
   accounts: SettingsAccountsProps;
   intelligence: SettingsIntelligenceProps;

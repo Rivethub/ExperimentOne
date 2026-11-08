@@ -1,29 +1,29 @@
-import { Effect } from "effect";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
 import { FALLBACK_PROVIDERS } from "../lib/constants";
-import { rivetErrorMessage, runApp } from "../effect";
+import { isTransientReachabilityMessage, rivetErrorMessage, runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
+import { notify } from "../lib/notify";
+import { queryKeys } from "../lib/query-keys";
 import type { CatalogProvider } from "../lib/provider-utils";
 import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
+import { useLiveEvents } from "./use-live-events";
 import {
+  HOME_REFETCH_MS,
   QUOTA_TTL_MS,
-  applyHomeSnapshot,
   loadHomeSnapshot,
   pullQuotaBundle,
   refreshErrorMessage,
 } from "./use-rivet-data.lib";
+import { useRivetMutations } from "./use-rivet-mutations";
 
 export type UseRivetDataResult = {
   status: Status | null;
-  setStatus: (v: Status | null) => void;
   accounts: Account[];
   quota: QuotaSnapshot | null;
-  setQuota: (v: QuotaSnapshot | null) => void;
   quotaHistory: QuotaHistory | null;
   catalog: CatalogProvider[];
   recent: TrafficEvent[];
-  trafficRows: TrafficEvent[];
-  setTrafficRows: (v: TrafficEvent[]) => void;
   apiOnline: boolean;
   lastSyncedAt: number | null;
   ensureSession: () => Promise<void>;
@@ -32,160 +32,123 @@ export type UseRivetDataResult = {
   refreshCredentials: () => Promise<void>;
 };
 
-function useRivetDataPolling(
-  refresh: () => Promise<void>,
-  fetchQuota: () => Promise<void>,
-  horizon: "1h" | "3h" | "6h",
-) {
-  const refreshRef = useRef(refresh);
-
-  useEffect(() => {
-    refreshRef.current = refresh;
-  }, [refresh]);
-
-  useEffect(() => {
-    void (async () => {
-      await Effect.runPromiseExit(Rivet.requireBackend);
-      await refreshRef.current();
-    })();
-  }, []);
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      void refresh();
-    }, 10_000);
-    return () => {
-      clearInterval(id);
-    };
-  }, [refresh]);
-
-  useEffect(() => {
-    void fetchQuota();
-  }, [horizon, fetchQuota]);
-}
-
 export function useRivetData(opts: {
   horizon: "1h" | "3h" | "6h";
-  trafficQuery: string;
   setBusy: (v: boolean) => void;
-  setStatusAction: (v: string | null) => void;
-  setError: (v: string | null | ((prev: string | null) => string | null)) => void;
   onModelsHydrated: (embed: string, wiki: string) => void;
 }): UseRivetDataResult {
-  const { horizon, trafficQuery, setBusy, setStatusAction, setError, onModelsHydrated } = opts;
-
-  const lastQuotaFetchAt = useRef(0);
-  const refreshInFlight = useRef(false);
+  const { horizon, setBusy, onModelsHydrated } = opts;
+  const queryClient = useQueryClient();
+  const mutations = useRivetMutations({ horizon });
   const modelsHydrated = useRef(false);
+  const lastHomeError = useRef<string | null>(null);
+  const warned = useRef(new Set<string>());
 
-  const [status, setStatus] = useState<Status | null>(null);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [quota, setQuota] = useState<QuotaSnapshot | null>(null);
-  const [quotaHistory, setQuotaHistory] = useState<QuotaHistory | null>(null);
-  const [catalog, setCatalog] = useState<CatalogProvider[]>(FALLBACK_PROVIDERS);
-  const [recent, setRecent] = useState<TrafficEvent[]>([]);
-  const [trafficRows, setTrafficRows] = useState<TrafficEvent[]>([]);
-  const [apiOnline, setApiOnline] = useState(false);
-  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  // Invalidate home/wiki when rivetd publishes live cursor changes.
+  useLiveEvents(true);
+
+  const homeQuery = useQuery({
+    queryKey: queryKeys.home,
+    queryFn: loadHomeSnapshot,
+    // Live events drive most refreshes; keep a slow safety poll.
+    refetchInterval: HOME_REFETCH_MS,
+  });
+
+  const quotaQuery = useQuery({
+    queryKey: queryKeys.quota(horizon),
+    queryFn: () => pullQuotaBundle(horizon),
+    staleTime: QUOTA_TTL_MS,
+    refetchInterval: QUOTA_TTL_MS,
+  });
+
+  useEffect(() => {
+    if (homeQuery.error != null) {
+      const message = refreshErrorMessage(homeQuery.error);
+      if (lastHomeError.current !== message) {
+        lastHomeError.current = message;
+        notify.error(message);
+      }
+      return;
+    }
+    if (homeQuery.isSuccess && lastHomeError.current !== null) {
+      if (isTransientReachabilityMessage(lastHomeError.current)) {
+        lastHomeError.current = null;
+      }
+    }
+  }, [homeQuery.error, homeQuery.isSuccess]);
+
+  useEffect(() => {
+    const warnings = homeQuery.data?.status?.warnings ?? [];
+    for (const warning of warnings) {
+      if (warned.current.has(warning)) continue;
+      warned.current.add(warning);
+      notify.warning(warning);
+    }
+  }, [homeQuery.data?.status?.warnings]);
+
+  useEffect(() => {
+    const st = homeQuery.data?.status;
+    if (st == null || modelsHydrated.current) {
+      return;
+    }
+    onModelsHydrated(st.embedding_model ?? "", st.wiki_model ?? "");
+    modelsHydrated.current = true;
+  }, [homeQuery.data?.status, onModelsHydrated]);
 
   const ensureSession = useCallback(async () => {
     await runApp(Rivet.requireBackend);
   }, []);
 
   const fetchQuota = useCallback(async () => {
-    const { quota: nextQuota, history: nextHistory } = await pullQuotaBundle(horizon);
-    if (nextQuota !== null) {
-      setQuota(nextQuota);
-      lastQuotaFetchAt.current = Date.now();
-    }
-    if (nextHistory !== null) {
-      setQuotaHistory(nextHistory);
-    }
-  }, [horizon]);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.quota(horizon) });
+  }, [queryClient, horizon]);
 
   const refresh = useCallback(
     async (includeQuota?: boolean) => {
-      if (refreshInFlight.current) {
-        return;
+      const tasks = [queryClient.invalidateQueries({ queryKey: queryKeys.home })];
+      if (includeQuota === true) {
+        tasks.push(queryClient.invalidateQueries({ queryKey: queryKeys.quota(horizon) }));
       }
-      refreshInFlight.current = true;
-      try {
-        const quotaStale =
-          includeQuota === true ||
-          Date.now() - lastQuotaFetchAt.current >= QUOTA_TTL_MS ||
-          lastQuotaFetchAt.current === 0;
-        const snapshot = await loadHomeSnapshot();
-        if (quotaStale) {
-          await fetchQuota();
-        }
-        const st = applyHomeSnapshot(snapshot, {
-          trafficQuery,
-          setStatus,
-          setAccounts,
-          setCatalog,
-          setRecent,
-          setTrafficRows,
-          setApiOnline,
-          setLastSyncedAt,
-          setError,
-        });
-        if (!modelsHydrated.current) {
-          onModelsHydrated(st.embedding_model ?? "", st.wiki_model ?? "");
-          modelsHydrated.current = true;
-        }
-      } catch (err) {
-        setApiOnline(false);
-        setError(refreshErrorMessage(err));
-      } finally {
-        refreshInFlight.current = false;
-      }
+      await Promise.all(tasks);
     },
-    [trafficQuery, fetchQuota, setError, onModelsHydrated],
+    [queryClient, horizon],
   );
 
   const refreshCredentials = useCallback(async () => {
+    const toastId = "refresh-credentials";
     setBusy(true);
-    setStatusAction("Updating credentials…");
+    notify.loading("Updating credentials…", toastId);
     try {
-      const body = await runApp(
-        Effect.gen(function* refreshQuotaCredentials() {
-          yield* Rivet.requireBackend;
-          return yield* Rivet.refreshQuota;
-        }),
-      );
+      const body = await mutations.refreshQuota.mutateAsync();
       if (body.error !== undefined && body.error !== "" && body.ok === false) {
         throw new Error(body.error);
       }
-      if (body.quota !== undefined) {
-        setQuota(body.quota);
-        lastQuotaFetchAt.current = Date.now();
-      } else {
-        await fetchQuota();
-      }
-      await refresh();
+      notify.dismiss(toastId);
+      notify.success("Credentials refreshed");
     } catch (err) {
-      setError(rivetErrorMessage(err));
+      notify.dismiss(toastId);
+      notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
-      setStatusAction(null);
     }
-  }, [fetchQuota, refresh, setBusy, setStatusAction, setError]);
+  }, [mutations.refreshQuota, setBusy]);
 
-  useRivetDataPolling(refresh, fetchQuota, horizon);
+  const snapshot = homeQuery.data;
+  const accounts = snapshot?.accounts ?? [];
+  const recent = snapshot?.recent ?? [];
+  const providerList = snapshot?.providers?.providers;
+  const catalog =
+    providerList !== undefined && providerList.length > 0 ? providerList : FALLBACK_PROVIDERS;
 
   return {
-    status,
-    setStatus,
+    status: snapshot?.status ?? null,
     accounts,
-    quota,
-    setQuota,
-    quotaHistory,
+    quota: quotaQuery.data?.quota ?? null,
+    quotaHistory: quotaQuery.data?.history ?? null,
     catalog,
     recent,
-    trafficRows,
-    setTrafficRows,
-    apiOnline,
-    lastSyncedAt,
+    apiOnline: homeQuery.isSuccess,
+    lastSyncedAt: homeQuery.isSuccess ? homeQuery.dataUpdatedAt || null : null,
     ensureSession,
     fetchQuota,
     refresh,

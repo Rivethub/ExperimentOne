@@ -1,3 +1,5 @@
+import { formatCountdownTo as countdownTo, formatRelativeTime } from "./relative-time";
+
 /** Shared provider + formatting helpers for desktop UI. */
 
 export type CatalogProvider = {
@@ -104,43 +106,7 @@ export function fmtPct(n: number | null | undefined): string {
 }
 
 export function formatCheckedAgo(iso: string | null | undefined): string {
-  if (iso === null || iso === undefined || iso === "") {
-    return "—";
-  }
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) {
-    return iso;
-  }
-  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (sec < 45) {
-    return "just now";
-  }
-  if (sec < 3600) {
-    return `${Math.max(1, Math.round(sec / 60))}m ago`;
-  }
-  if (sec < 86_400) {
-    return `${Math.round(sec / 3600)}h ago`;
-  }
-  return `${Math.round(sec / 86_400)}d ago`;
+  return formatRelativeTime(iso, { style: "long" });
 }
 
-export function formatCountdownTo(iso: string | null | undefined): string {
-  if (iso === null || iso === undefined || iso === "") {
-    return "—";
-  }
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) {
-    return iso;
-  }
-  const sec = Math.round((t - Date.now()) / 1000);
-  if (sec <= 0) {
-    return "now";
-  }
-  if (sec < 3600) {
-    return `~${Math.ceil(sec / 60)}m`;
-  }
-  if (sec < 86_400) {
-    return `~${(sec / 3600).toFixed(1)}h`;
-  }
-  return `~${Math.round(sec / 86_400)}d`;
-}
+export { countdownTo as formatCountdownTo };

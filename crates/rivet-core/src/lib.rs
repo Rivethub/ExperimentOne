@@ -11,6 +11,8 @@ mod embed;
 mod fusion;
 mod harness;
 mod http_guard;
+mod ingest_validate;
+mod live;
 mod paths;
 pub mod pids;
 pub mod platform;
@@ -44,6 +46,11 @@ pub use harness::{
     migrate_claude_connector_auth, HarnessInstallMode, HarnessInstallResult,
 };
 pub use http_guard::{host_is_loopback, origin_allowed};
+pub use ingest_validate::{
+    validate_ingest_batch, validate_traffic_event, IngestValidationError, MAX_CONTENT_BYTES,
+    MAX_INGEST_BATCH, MAX_TOKENS_FIELD,
+};
+pub use live::{LiveBus, LiveCursor, LiveEvent};
 pub use paths::RivetPaths;
 pub use platform::{
     exe_name, exe_suffix, resolve_sidecar, sidecar_file_name, target_triple, which_bin,

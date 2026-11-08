@@ -1,29 +1,28 @@
 import type { ReactElement, ReactNode } from "react";
-import { cx } from "../../styles/cx";
-import styles from "../../styles/app.module.css";
+import { KvRow, Panel, Pill, type PillTone } from "../../ui";
 
 export function RuntimePaneCard({
   title,
   statusLabel,
-  statusClass,
+  statusTone = "default",
   children,
   foot,
 }: {
   title: string;
   statusLabel: string;
-  statusClass: string;
+  statusTone?: PillTone;
   children: ReactNode;
   foot?: ReactNode;
 }): ReactElement {
   return (
-    <div className={styles.runtimeCard}>
-      <div className={styles.runtimeCardHead}>
-        <span>{title}</span>
-        <span className={cx(styles.pill, statusClass)}>{statusLabel}</span>
-      </div>
-      <div className={styles.runtimeCardBody}>{children}</div>
-      {foot !== undefined ? <div className={styles.runtimeCardFoot}>{foot}</div> : null}
-    </div>
+    <Panel
+      className="mb-0 min-h-[168px] rounded-[14px] bg-gradient-to-b from-[#121216] to-[#0e0e12] py-4 shadow-none"
+      title={title}
+      actions={<Pill tone={statusTone}>{statusLabel}</Pill>}
+    >
+      <div className="flex flex-1 flex-col gap-0">{children}</div>
+      {foot !== undefined ? <div className="mt-auto flex flex-wrap gap-2 pt-2">{foot}</div> : null}
+    </Panel>
   );
 }
 
@@ -36,12 +35,5 @@ export function RuntimeKv({
   value: string;
   title?: string;
 }): ReactElement {
-  return (
-    <div className={styles.kvRow}>
-      <span className={styles.k}>{label}</span>
-      <span className={styles.v} title={title}>
-        {value}
-      </span>
-    </div>
-  );
+  return <KvRow label={label} value={value} title={title} />;
 }

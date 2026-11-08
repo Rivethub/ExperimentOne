@@ -383,6 +383,9 @@ Bundled `nats-server` (desktop/CLI) or external `RIVET_NATS_URL` (enterprise).
 
 File-backed JetStream store under `{data}/nats/` — same binary path locally and in prod.
 
+Ingest rejects oversized batches / content before insert (`rivet-core`
+`ingest_validate`).
+
 ### Capture vs classification
 
 **Live capture is proxy-only.** Harnesses route through `rivet-proxy`;
@@ -466,7 +469,7 @@ Default data root: macOS
 | ClickHouse | Bundled single-node or URL | Cluster / managed (analytics only) |
 | NATS | Bundled `nats-server` JetStream | Cluster / managed JetStream |
 | Workers | In-process role loops (`RIVET_WORKER_ROLE=all`) | Separate Deployments per role pulling from NATS |
-| Bus | NATS JetStream job plane | Same (shared URL); Redpanda optional later for fan-out |
+| Bus | NATS JetStream job plane + in-process `LiveBus` (`/v1/live` / SSE) | Same JetStream URL; Redpanda optional later for fan-out |
 | UI auth | Loopback + key / control IPC | OIDC + admin portal |
 | Tenancy | Single user | Org / team namespaces |
 
@@ -500,14 +503,19 @@ Close-to-tray; Quit from tray stops `rivetd`.
 - Rust for Rivet backend crates
 - Go only inside the forked proxy sidecar
 - Tauri 2 desktop → DMG / deb+AppImage / NSIS
-- ClickHouse for traffic analytics + embeddings (not jobs)
+- ClickHouse for traffic analytics + embeddings (not jobs; official `clickhouse` Rust client)
 - NATS JetStream for the durable job plane (desktop ≡ prod)
+- MCP via official `rmcp` streamable HTTP; control contracts via `utoipa` (`GET /v1/openapi.json`); desktop Effect schemas mirror exported OpenAPI (`scripts/export-openapi.sh` → `docs/openapi.json`)
+- Live refresh: `LiveBus` → `GET /v1/live` + `GET /v1/events` (SSE); Tauri emits `rivet-live`
+- Loopback API/ingest: `tower-governor` rate limits + optional Prometheus (`GET /metrics`)
+- Optional OTLP tracing when `RIVET_OTLP_ENDPOINT` is set
+- Proxy logrus: Rivet `RedactHook` masks tokens before stdout/file sinks
 - No TigerBeetle; no Flink locally (Rust workers; Redpanda optional later for enterprise fan-out)
 
 ## Implementation notes (doc vs code)
 
-1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`), not Unix-socket NDJSON (`ingest.sock` path may exist unused).
-2. **Embeddings** live in ClickHouse with HNSW; **wiki index** and **quota history** remain meta-file backed.
+1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`), not Unix-socket NDJSON (`ingest.sock` path may exist unused). Batches are size-validated before insert.
+2. **Embeddings** live in ClickHouse with HNSW; **wiki index** and **quota history** remain meta-file backed. Schema evolves via versioned CH migrations.
 3. **`body_ref` / `blobs/`** hold spilled full turns when the preview is short; small bodies stay in `content`.
 4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context when needed.
 5. Helm proxy port may differ from the local default `18317`.

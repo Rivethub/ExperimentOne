@@ -40,7 +40,7 @@ clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-schemars = "1"
+schemars = { version = "1", features = ["chrono04", "uuid1"] }
 # Explicit features (not `full`) — skips unused crates like process/io-std.
 tokio = { version = "1", features = [
   "fs",
@@ -66,6 +66,19 @@ tokio-stream = "0.1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 notify = "8"
 async-nats = "0.42"
+clickhouse = { version = "0.15", features = ["chrono", "uuid", "inserter"] }
+rmcp = { version = "3", default-features = false, features = [
+  "server",
+  "macros",
+  "transport-streamable-http-server",
+] }
+utoipa = { version = "5", features = ["chrono", "uuid"] }
+tower_governor = "0.8"
+axum-prometheus = "0.10"
+opentelemetry = "0.30"
+opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.31"
 
 [workspace.lints.rust]
 unsafe_code = "warn"

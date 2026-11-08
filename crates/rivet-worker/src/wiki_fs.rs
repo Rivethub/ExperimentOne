@@ -166,11 +166,13 @@ pub fn spawn_wiki_watcher(
     paths: RivetPaths,
     meta: Arc<MetaStore>,
     revision: Arc<AtomicU64>,
+    live: rivet_core::LiveBus,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         match reconcile_wiki_dir(&paths, &meta) {
             Ok(_) => {
-                revision.fetch_add(1, Ordering::SeqCst);
+                let rev = revision.fetch_add(1, Ordering::SeqCst) + 1;
+                live.publish(rivet_core::LiveEvent::Wiki { revision: rev });
                 info!("wiki filesystem index ready");
             },
             Err(err) => warn!(?err, "initial wiki reconcile failed"),
@@ -220,7 +222,8 @@ pub fn spawn_wiki_watcher(
             match reconcile_wiki_dir(&paths, &meta) {
                 Ok((upserts, removed)) => {
                     if upserts > 0 || removed > 0 {
-                        revision.fetch_add(1, Ordering::SeqCst);
+                        let rev = revision.fetch_add(1, Ordering::SeqCst) + 1;
+                        live.publish(rivet_core::LiveEvent::Wiki { revision: rev });
                     }
                 },
                 Err(err) => warn!(?err, "wiki reconcile after fs event failed"),

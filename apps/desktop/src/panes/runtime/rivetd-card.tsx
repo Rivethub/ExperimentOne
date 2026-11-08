@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { formatSynced } from "../../lib/format-utils";
 import type { SettingsTab, Status } from "../../lib/types";
 import { Button } from "../../ui";
-import styles from "../../styles/app.module.css";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
 export function RuntimeRivetdCard({
@@ -38,7 +37,7 @@ export function RuntimeRivetdCard({
     <RuntimePaneCard
       title="rivetd"
       statusLabel={apiOnline ? "online" : "offline"}
-      statusClass={apiOnline ? (styles.ok ?? "") : (styles.bad ?? "")}
+      statusTone={apiOnline ? "ok" : "bad"}
       foot={foot}
     >
       <RuntimeKv label="Synced" value={formatSynced(lastSyncedAt)} />

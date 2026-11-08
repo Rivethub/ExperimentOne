@@ -150,6 +150,8 @@ func SetupBaseLogger() {
 		log.SetOutput(os.Stdout)
 		log.SetReportCaller(true)
 		log.SetFormatter(&LogFormatter{})
+		// Register first so later hooks (TUI / Home) only see redacted fields.
+		log.AddHook(&RedactHook{})
 
 		ginInfoWriter = log.StandardLogger().Writer()
 		gin.DefaultWriter = ginInfoWriter

@@ -1,31 +1,41 @@
 //! Local MCP tools for agents.
 //!
-//! Supports Streamable HTTP JSON-RPC on `POST /mcp` (initialize / tools/list /
-//! tools/call / notifications/initialized) plus legacy REST tool routes for
-//! debugging. Keyword search always works; semantic search is gated by
-//! `capabilities.vector_search`.
+//! Streamable HTTP MCP via the official `rmcp` SDK (`GET`/`POST /mcp` with SSE),
+//! plus legacy REST tool routes for debugging. Keyword search always works;
+//! semantic search is gated by `capabilities.vector_search`.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use axum::{
     extract::State,
     http::{header, Request, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::Response,
     routing::{get, post},
     Json, Router,
 };
 use rivet_core::{
-    assemble_startup_memory_with_workspace, hydrate_event_content, hydrate_events,
-    lexical_embed, load_workspace_memory,
-    normalize_event_turns, RivetConfig, RivetPaths, LEXICAL_SPACE,
+    hydrate_event_content, hydrate_events, lexical_embed, normalize_event_turns, RivetConfig,
+    RivetPaths, LEXICAL_SPACE,
 };
-use rivet_store::{
-    fuse_event_id_arms, hybrid_fetch_limit, ClickHouseTrafficStore, MetaStore, TrafficStore,
+use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore};
+use rmcp::transport::streamable_http_server::{
+    session::local::LocalSessionManager,
+    tower::{StreamableHttpServerConfig, StreamableHttpService},
+};
+use rmcp::{
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    model::{
+        CallToolResult, ContentBlock, Implementation, ProtocolVersion, ServerCapabilities,
+        ServerConfig,
+    },
+    schemars, tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -44,15 +54,24 @@ impl std::fmt::Debug for McpState {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SearchRequest {
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+pub struct SearchArgs {
+    /// Search query over captured prompts and completions.
     pub query: String,
+    /// Max results (1–100).
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
 
 const fn default_limit() -> u32 {
     20
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchRequest {
+    pub query: String,
+    #[serde(default = "default_limit")]
+    pub limit: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,15 +86,66 @@ pub struct ToolDescriptor {
     pub description: &'static str,
 }
 
-#[derive(Deserialize)]
-struct JsonRpcRequest {
-    #[serde(default)]
+#[derive(Clone)]
+struct RivetMcp {
+    state: McpState,
+    /// Wired by `#[tool_handler]` for tools/list + tools/call dispatch.
     #[allow(dead_code)]
-    jsonrpc: Option<String>,
-    id: Option<Value>,
-    method: Option<String>,
-    #[serde(default)]
-    params: Value,
+    tool_router: ToolRouter<Self>,
+}
+
+#[tool_router]
+impl RivetMcp {
+    fn new(state: McpState) -> Self {
+        Self { state, tool_router: Self::tool_router() }
+    }
+
+    #[tool(description = "Keyword search over captured prompts and completions")]
+    async fn search_history(
+        &self,
+        Parameters(args): Parameters<SearchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = args.limit.clamp(1, 100);
+        if args.query.trim().is_empty() {
+            return Err(McpError::invalid_params("query is required", None));
+        }
+        match do_search_history(&self.state, &args.query, limit).await {
+            Ok(body) => Ok(CallToolResult::success(vec![
+                ContentBlock::json(body).unwrap_or_else(|_| ContentBlock::text("{}"))
+            ])),
+            Err(()) => Err(McpError::internal_error("search failed", None)),
+        }
+    }
+
+    #[tool(description = "Vector / lexical semantic search over history")]
+    async fn semantic_search(
+        &self,
+        Parameters(args): Parameters<SearchArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        let limit = args.limit.clamp(1, 100);
+        if args.query.trim().is_empty() {
+            return Err(McpError::invalid_params("query is required", None));
+        }
+        match do_semantic_search(&self.state, &args.query, limit).await {
+            Ok(body) => Ok(CallToolResult::success(vec![
+                ContentBlock::json(body).unwrap_or_else(|_| ContentBlock::text("{}"))
+            ])),
+            Err(err) => Err(McpError::internal_error(err, None)),
+        }
+    }
+}
+
+#[allow(clippy::unused_async_trait_impl)] // `#[tool_handler]` generates async stubs.
+#[tool_handler]
+impl ServerHandler for RivetMcp {
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(Implementation::new("rivet", env!("CARGO_PKG_VERSION")))
+            .with_protocol_version(ProtocolVersion::V_2025_03_26)
+            .with_instructions(
+                "Query Rivet-captured AI traffic. Tools: search_history, semantic_search.",
+            )
+    }
 }
 
 async fn require_mcp_loopback(
@@ -102,8 +172,19 @@ pub fn router(state: McpState) -> Router {
     let cors = CorsLayer::new().allow_origin(AllowOrigin::predicate(|origin, _| {
         origin.to_str().is_ok_and(rivet_core::origin_allowed)
     }));
-    Router::new()
-        .route("/mcp", get(mcp_get_not_allowed).post(jsonrpc))
+
+    let mcp_state = state.clone();
+    let service = StreamableHttpService::new(
+        move || Ok(RivetMcp::new(mcp_state.clone())),
+        Arc::new(LocalSessionManager::default()),
+        // Host/origin checks are enforced by `require_mcp_loopback` below.
+        StreamableHttpServerConfig::default()
+            .with_sse_keep_alive(Some(Duration::from_secs(15)))
+            .with_legacy_session_mode(true)
+            .disable_allowed_hosts(),
+    );
+
+    let legacy = Router::new()
         .route("/mcp/info", get(manifest))
         .route("/mcp/tools", get(tools))
         .route("/mcp/tools/search_history", post(search_history))
@@ -113,23 +194,24 @@ pub fn router(state: McpState) -> Router {
         .route("/mcp/tools/get_full", post(get_full_rest))
         .route("/mcp/tools/browse_session", post(browse_session_rest))
         .route("/mcp/tools/memory_stats", post(memory_stats_rest))
+        .with_state(state);
+
+    // `route_service` (not nest) so `/mcp/info` and `/mcp/tools/*` stay available.
+    Router::new()
+        .route_service("/mcp", service)
+        .merge(legacy)
         .route_layer(middleware::from_fn(require_mcp_loopback))
         .layer(cors)
-        .with_state(state)
 }
 
-async fn mcp_get_not_allowed() -> StatusCode {
-    StatusCode::METHOD_NOT_ALLOWED
-}
-
-async fn manifest() -> Json<Value> {
+async fn manifest() -> Json<serde_json::Value> {
     Json(json!({
         "name": "rivet",
-        "version": "0.1.0",
+        "version": env!("CARGO_PKG_VERSION"),
         "description": "Query Rivet-captured AI traffic history, topics, and memory",
         "transport": "streamable-http",
         "protocol": "mcp",
-        "jsonrpc": "2.0",
+        "sdk": "rmcp",
         "methods": ["initialize", "tools/list", "tools/call", "notifications/initialized", "ping"]
     }))
 }
@@ -146,27 +228,23 @@ async fn tool_descriptors(state: &McpState) -> Vec<ToolDescriptor> {
         },
         ToolDescriptor {
             name: "topic_search",
-            description: "Search durable topics derived from captured traffic",
+            description: "Search durable knowledge topics",
         },
         ToolDescriptor {
             name: "topic_get",
-            description: "Get one topic by slug, including event/session citations",
+            description: "Fetch one topic by slug or id",
         },
         ToolDescriptor {
             name: "get_full",
-            description: "Hydrate a traffic event (body_ref) and normalize turns",
+            description: "Hydrate a traffic event or conversation with full bodies",
         },
         ToolDescriptor {
             name: "browse_session",
-            description: "Browse one conversation with turns, enrichments, and summary",
+            description: "Browse normalized turns for a session",
         },
         ToolDescriptor {
             name: "memory_stats",
-            description: "Coverage stats for traffic, topics, summaries, and embeddings",
-        },
-        ToolDescriptor {
-            name: "memory_startup",
-            description: "Assemble budgeted startup memory (workspace SOUL/IDENTITY/MEMORY + topic recall)",
+            description: "Summary stats for memory / topics / wiki",
         },
     ];
     if state.config.read().await.capabilities.vector_search {
@@ -174,201 +252,8 @@ async fn tool_descriptors(state: &McpState) -> Vec<ToolDescriptor> {
             name: "semantic_search",
             description: "Vector / lexical semantic search over history",
         });
-        tools.push(ToolDescriptor {
-            name: "hybrid_search",
-            description: "RRF fusion of keyword + vector search (preferred recall)",
-        });
     }
     tools
-}
-
-fn tool_input_schema(name: &str) -> Value {
-    match name {
-        "memory_stats" => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-        "memory_startup" => json!({
-            "type": "object",
-            "properties": {
-                "topic": { "type": "string", "description": "Topic slug" },
-                "query": { "type": "string", "description": "Optional hybrid query" },
-                "cwd": { "type": "string", "description": "Project root — loads SOUL.md / IDENTITY.md / MEMORY.md" },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 }
-            },
-            "required": []
-        }),
-        "topic_get" | "get_full" | "browse_session" => json!({
-            "type": "object",
-            "properties": {
-                "id": { "type": "string", "description": "Topic slug, event id, or session id" },
-                "query": { "type": "string", "description": "Alias for id" },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 50 }
-            },
-            "required": []
-        }),
-        _ => json!({
-            "type": "object",
-            "properties": {
-                "query": { "type": "string", "description": "Search query" },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
-            },
-            "required": ["query"]
-        }),
-    }
-}
-
-fn tool_list_schema(tools: &[ToolDescriptor]) -> Value {
-    let listed: Vec<Value> = tools
-        .iter()
-        .map(|t| {
-            json!({
-                "name": t.name,
-                "description": t.description,
-                "inputSchema": tool_input_schema(t.name)
-            })
-        })
-        .collect();
-    json!({ "tools": listed })
-}
-
-fn arg_string(args: &Value, keys: &[&str]) -> String {
-    for key in keys {
-        if let Some(v) = args.get(*key).and_then(Value::as_str) {
-            let t = v.trim();
-            if !t.is_empty() {
-                return t.to_string();
-            }
-        }
-    }
-    String::new()
-}
-
-async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>) -> Response {
-    let method = req.method.as_deref().unwrap_or("");
-    let id = req.id.clone().unwrap_or(Value::Null);
-    let is_notification = id.is_null() || method.starts_with("notifications/");
-
-    if is_notification {
-        return StatusCode::ACCEPTED.into_response();
-    }
-
-    let result = match method {
-        "initialize" => Ok(json!({
-            "protocolVersion": "2025-03-26",
-            "capabilities": { "tools": {} },
-            "serverInfo": { "name": "rivet", "version": "0.1.0" }
-        })),
-        "ping" => Ok(json!({})),
-        "tools/list" => {
-            let tools = tool_descriptors(&state).await;
-            Ok(tool_list_schema(&tools))
-        },
-        "tools/call" => {
-            let name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("");
-            let args = req.params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-            match call_tool(&state, name, &args).await {
-                Ok(body) => Ok(json!({
-                    "content": [{ "type": "text", "text": serde_json::to_string_pretty(&body).unwrap_or_default() }],
-                    "isError": false
-                })),
-                Err(err) => Err(rpc_error(err.0, &err.1)),
-            }
-        },
-        "" => Err(rpc_error(-32600, "missing method")),
-        other => Err(rpc_error(-32601, &format!("method not found: {other}"))),
-    };
-
-    match result {
-        Ok(value) => Json(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": value
-        }))
-        .into_response(),
-        Err(err) => Json(json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "error": err
-        }))
-        .into_response(),
-    }
-}
-
-fn rpc_error(code: i64, message: &str) -> Value {
-    json!({ "code": code, "message": message })
-}
-
-async fn call_tool(state: &McpState, name: &str, args: &Value) -> Result<Value, (i64, String)> {
-    let query = arg_string(args, &["query", "id", "slug"]);
-    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20).clamp(1, 500) as u32;
-    match name {
-        "search_history" => {
-            if query.is_empty() {
-                return Err((-32602, "query is required".into()));
-            }
-            do_search_history(state, &query, limit)
-                .await
-                .map(|body| serde_json::to_value(body).unwrap_or_default())
-                .map_err(|()| (-32000, "search failed".into()))
-        },
-        "semantic_search" => {
-            if query.is_empty() {
-                return Err((-32602, "query is required".into()));
-            }
-            do_semantic_search(state, &query, limit)
-                .await
-                .map(|body| serde_json::to_value(body).unwrap_or_default())
-                .map_err(|e| (-32000, e))
-        },
-        "hybrid_search" => {
-            if query.is_empty() {
-                return Err((-32602, "query is required".into()));
-            }
-            do_hybrid_search(state, &query, limit)
-                .await
-                .map(|body| serde_json::to_value(body).unwrap_or_default())
-                .map_err(|e| (-32000, e))
-        },
-        "memory_startup" => {
-            let topic = arg_string(args, &["topic", "slug"]);
-            let cwd = arg_string(args, &["cwd", "path", "project"]);
-            do_memory_startup(state, topic.as_str(), query.as_str(), cwd.as_str(), limit).await
-        },
-        "topic_search" => {
-            let rows = state
-                .meta
-                .search_topics(&query, limit as usize)
-                .map_err(|e| (-32000, e.to_string()))?;
-            Ok(json!({ "topics": rows }))
-        },
-        "topic_get" => {
-            if query.is_empty() {
-                return Err((-32602, "id/slug is required".into()));
-            }
-            let topic = state
-                .meta
-                .get_topic(&query)
-                .map_err(|e| (-32000, e.to_string()))?
-                .ok_or_else(|| (-32000, "topic not found".into()))?;
-            Ok(serde_json::to_value(topic).unwrap_or_default())
-        },
-        "get_full" => {
-            if query.is_empty() {
-                return Err((-32602, "id is required".into()));
-            }
-            do_get_full(state, &query).await
-        },
-        "browse_session" => {
-            if query.is_empty() {
-                return Err((-32602, "id is required".into()));
-            }
-            do_browse_session(state, &query, limit).await
-        },
-        "memory_stats" => do_memory_stats(state).await,
-        _ => Err((-32601, format!("unknown tool '{name}'"))),
-    }
 }
 
 async fn do_search_history(
@@ -378,126 +263,6 @@ async fn do_search_history(
 ) -> Result<SearchResponse, ()> {
     let results = state.store.search_keyword(query, limit).await.map_err(|_| ())?;
     Ok(SearchResponse { mode: "keyword", results })
-}
-
-async fn do_hybrid_search(
-    state: &McpState,
-    query: &str,
-    limit: u32,
-) -> Result<SearchResponse, String> {
-    if !state.config.read().await.capabilities.vector_search {
-        return Err("vector_search capability disabled".into());
-    }
-    let fetch = hybrid_fetch_limit(limit);
-    let keyword = state.store.search_keyword(query, fetch).await.map_err(|e| e.to_string())?;
-    let keyword_ids: Vec<String> = keyword.iter().map(|e| e.id.to_string()).collect();
-    let query_vec = lexical_embed(query);
-    let hits = state
-        .ch
-        .search_embeddings(LEXICAL_SPACE, &query_vec, fetch)
-        .await
-        .map_err(|e| e.to_string())?;
-    let vector_ids: Vec<String> = hits
-        .into_iter()
-        .filter(|h| 1.0 - h.distance > 0.05)
-        .map(|h| {
-            h.event_id
-                .split("#c")
-                .next()
-                .unwrap_or(h.event_id.as_str())
-                .to_string()
-        })
-        .collect();
-    if keyword_ids.is_empty() && vector_ids.is_empty() {
-        return Ok(SearchResponse { mode: "keyword_fallback", results: keyword });
-    }
-    let summary_ids: Vec<String> = state
-        .meta
-        .list_summaries()
-        .unwrap_or_default()
-        .into_iter()
-        .flat_map(|s| s.event_ids)
-        .collect();
-    let fused = fuse_event_id_arms(&keyword_ids, &vector_ids, &summary_ids, limit);
-    let mut fetch_ids = fused.clone();
-    if let Ok(extra) = state.meta.expand_events_via_lineage(&fused, 24) {
-        for id in extra {
-            if !fetch_ids.iter().any(|f| f == &id) {
-                fetch_ids.push(id);
-            }
-        }
-    }
-    let found = state.store.get_by_ids(&fetch_ids).await.map_err(|e| e.to_string())?;
-    let mut by_id = std::collections::HashMap::new();
-    for event in found {
-        by_id.insert(event.id.to_string(), event);
-    }
-    let mut results = Vec::new();
-    // Keep RRF order first, then lineage extras.
-    for id in fetch_ids {
-        if let Some(event) = by_id.remove(&id) {
-            results.push(event);
-        }
-    }
-    if results.len() > limit as usize {
-        results.truncate(limit.max(1) as usize);
-    }
-    Ok(SearchResponse { mode: "hybrid", results })
-}
-
-async fn do_memory_startup(
-    state: &McpState,
-    topic_slug: &str,
-    query: &str,
-    cwd: &str,
-    limit: u32,
-) -> Result<Value, (i64, String)> {
-    let topic = if topic_slug.is_empty() {
-        None
-    } else {
-        state.meta.get_topic(topic_slug).map_err(|e| (-32000, e.to_string()))?
-    };
-    let topic_title = topic.as_ref().map(|t| t.title.clone());
-    let topic_page = topic.as_ref().and_then(|t| t.startup_context.clone().or_else(|| t.summary.clone()));
-    let workspace = if cwd.trim().is_empty() {
-        Vec::new()
-    } else {
-        load_workspace_memory(std::path::Path::new(cwd.trim()))
-    };
-    let recent = state.store.recent(40).await.map_err(|e| (-32000, e.to_string()))?;
-    let recent_lines: Vec<String> = recent
-        .iter()
-        .take(12)
-        .map(|e| {
-            format!(
-                "{} · {}",
-                e.session_id.as_deref().unwrap_or("-"),
-                e.content.as_deref().unwrap_or("").chars().take(100).collect::<String>()
-            )
-        })
-        .collect();
-    let mut hit_lines = Vec::new();
-    if !query.is_empty() {
-        if let Ok(body) = do_hybrid_search(state, query, limit.clamp(1, 20)).await {
-            for e in body.results {
-                hit_lines.push(
-                    e.content.as_deref().unwrap_or("").chars().take(120).collect::<String>(),
-                );
-            }
-        }
-    }
-    let markdown = assemble_startup_memory_with_workspace(
-        topic_title.as_deref(),
-        topic_page.as_deref(),
-        &workspace,
-        &recent_lines,
-        &hit_lines,
-    );
-    Ok(json!({
-        "markdown": markdown,
-        "topic": topic,
-        "workspace_sections": workspace.iter().map(|s| s.title.clone()).collect::<Vec<_>>(),
-    }))
 }
 
 async fn do_semantic_search(
@@ -516,6 +281,7 @@ async fn do_semantic_search(
         .await
         .map_err(|e| e.to_string())?;
 
+    // cosineDistance on unit vectors: similarity ≈ 1 - distance.
     let scored: Vec<(f32, String)> = hits
         .into_iter()
         .map(|h| (1.0 - h.distance, h.event_id))
@@ -542,52 +308,6 @@ async fn do_semantic_search(
     Ok(SearchResponse { mode: "semantic", results })
 }
 
-async fn do_get_full(state: &McpState, id: &str) -> Result<Value, (i64, String)> {
-    let mut events =
-        state.store.get_by_ids(&[id.to_string()]).await.map_err(|e| (-32000, e.to_string()))?;
-    let Some(mut event) = events.pop() else {
-        return Err((-32000, "event not found".into()));
-    };
-    hydrate_event_content(&state.paths, &mut event);
-    let turns = normalize_event_turns(&event);
-    Ok(json!({
-        "event": event,
-        "turns": turns,
-        "hydrated": event.body_ref.is_some(),
-    }))
-}
-
-async fn do_browse_session(state: &McpState, id: &str, limit: u32) -> Result<Value, (i64, String)> {
-    let mut events = state
-        .store
-        .conversation_events(id, limit)
-        .await
-        .map_err(|e| (-32000, e.to_string()))?;
-    hydrate_events(&state.paths, &mut events);
-    let enrichments = state.meta.list_enrichments(id, 200).unwrap_or_default();
-    let summary = state.meta.get_summary_for_session(id).ok().flatten();
-    let turns: Vec<_> = events.iter().flat_map(normalize_event_turns).collect();
-    Ok(json!({
-        "id": id,
-        "events": events,
-        "turns": turns,
-        "enrichments": enrichments,
-        "summary": summary,
-    }))
-}
-
-async fn do_memory_stats(state: &McpState) -> Result<Value, (i64, String)> {
-    let usage = state.store.usage_totals().await.map_err(|e| (-32000, e.to_string()))?;
-    Ok(json!({
-        "events": usage.events,
-        "tokens_in": usage.tokens_in,
-        "tokens_out": usage.tokens_out,
-        "topics": state.meta.list_topics().map_or(0, |t| t.len()),
-        "summaries": state.meta.list_summaries().map_or(0, |s| s.len()),
-        "embeddings": state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0),
-    }))
-}
-
 async fn search_history(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
@@ -611,56 +331,114 @@ async fn semantic_search(
     })
 }
 
+
+fn do_topic_search(state: &McpState, query: &str, limit: u32) -> Result<serde_json::Value, StatusCode> {
+    let topics = state
+        .meta
+        .search_topics(query, usize::try_from(limit).unwrap_or(20))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(json!({ "results": topics }))
+}
+
+fn do_topic_get(state: &McpState, id: &str) -> Result<serde_json::Value, StatusCode> {
+    let topic = state.meta.get_topic(id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(json!({ "topic": topic }))
+}
+
+async fn do_get_full(state: &McpState, id: &str) -> Result<serde_json::Value, StatusCode> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut events = if let Some(eid) = id.strip_prefix("event:") {
+        state.store.get_by_ids(&[eid.to_string()]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else if id.len() == 36 {
+        state.store.get_by_ids(&[id.to_string()]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        state
+            .store
+            .conversation_events(id, 500)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+    if events.len() == 1 {
+        if let Some(event) = events.first_mut() {
+            hydrate_event_content(&state.paths, event);
+            let turns = normalize_event_turns(event);
+            return Ok(json!({
+                "event": event,
+                "turns": turns,
+                "hydrated": event.body_ref.is_some(),
+            }));
+        }
+    }
+    hydrate_events(&state.paths, &mut events);
+    Ok(json!({ "events": events }))
+}
+
+async fn do_browse_session(state: &McpState, id: &str, limit: u32) -> Result<serde_json::Value, StatusCode> {
+    let mut events = state
+        .store
+        .conversation_events(id, limit.clamp(1, 2000))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    hydrate_events(&state.paths, &mut events);
+    let turns: Vec<_> = events.iter().flat_map(normalize_event_turns).collect();
+    Ok(json!({ "turns": turns, "events": events.len() }))
+}
+
+async fn do_memory_stats(state: &McpState) -> Result<serde_json::Value, StatusCode> {
+    let topics = state.meta.list_topics().map_or(0, |t| t.len());
+    let project = state.config.read().await.wiki_project_id.clone();
+    let wiki = state.meta.list_wiki_pages(&project).map_or(0, |p| p.len());
+    let totals = state.store.usage_totals().await.unwrap_or_default();
+    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    Ok(json!({
+        "topics": topics,
+        "wiki_pages": wiki,
+        "traffic_events": totals.events,
+        "tokens_in": totals.tokens_in,
+        "tokens_out": totals.tokens_out,
+        "embeddings": embeddings,
+    }))
+}
+
 async fn topic_search_rest(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    call_tool(&state, "topic_search", &json!({ "query": req.query, "limit": req.limit }))
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_topic_search(&state, &req.query, req.limit.clamp(1, 100)).map(Json)
 }
 
 async fn topic_get_rest(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    call_tool(&state, "topic_get", &json!({ "id": req.query }))
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::NOT_FOUND)
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_topic_get(&state, &req.query).map(Json)
 }
 
 async fn get_full_rest(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    call_tool(&state, "get_full", &json!({ "id": req.query }))
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::NOT_FOUND)
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_get_full(&state, &req.query).await.map(Json)
 }
 
 async fn browse_session_rest(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
-) -> Result<Json<Value>, StatusCode> {
-    call_tool(&state, "browse_session", &json!({ "id": req.query, "limit": req.limit }))
-        .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_browse_session(&state, &req.query, req.limit.clamp(1, 2000)).await.map(Json)
 }
 
-async fn memory_stats_rest(State(state): State<McpState>) -> Result<Json<Value>, StatusCode> {
-    call_tool(&state, "memory_stats", &json!({})).await.map(Json).map_err(|_| {
-        StatusCode::INTERNAL_SERVER_ERROR
-    })
+async fn memory_stats_rest(State(state): State<McpState>) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_memory_stats(&state).await.map(Json)
 }
 
-pub async fn serve(addr: std::net::SocketAddr, state: McpState) -> Result<()> {
+pub async fn serve(addr: SocketAddr, state: McpState) -> Result<()> {
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    tracing::info!(%addr, "rivet mcp listening");
+    tracing::info!(%addr, "rivet mcp listening (rmcp streamable-http)");
     axum::serve(listener, app).await?;
     Ok(())
 }

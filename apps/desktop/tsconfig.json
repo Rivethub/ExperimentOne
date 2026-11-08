@@ -23,10 +23,16 @@
     "verbatimModuleSyntax": true,
     "erasableSyntaxOnly": true,
     "types": ["vite/client", "node"],
+    "paths": {
+      "#*": ["./src/*"]
+    },
     "plugins": [
       {
         "name": "@effect/language-service",
-        "ignoreEffectSuggestionsInTscExitCode": false
+        "ignoreEffectSuggestionsInTscExitCode": false,
+        "diagnosticSeverity": {
+          "unstableApiUsage": "off"
+        }
       }
     ]
   },

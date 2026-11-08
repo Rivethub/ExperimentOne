@@ -1,19 +1,28 @@
 import path from "node:path";
-import { defineConfig, lazyPlugins } from "vite-plus";
+import tailwindcss from "@tailwindcss/vite";
+import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
+import { defineConfig, lazyPlugins } from "vite-plus";
 
 const host = process.env.TAURI_DEV_HOST;
 const mockIpc = process.env.VITE_MOCK_IPC === "1" || process.env.VITE_MOCK_IPC === "true";
 const rootDir = import.meta.dirname;
 
+const alias: Record<string, string> = {};
+if (mockIpc) {
+  alias["@tauri-apps/api/core"] = path.resolve(rootDir, "src/mock/tauri-core.ts");
+  alias["@tauri-apps/plugin-dialog"] = path.resolve(rootDir, "src/mock/tauri-dialog.ts");
+  alias["@tauri-apps/plugin-shell"] = path.resolve(rootDir, "src/mock/tauri-shell.ts");
+}
+
 export default defineConfig({
   // Keep Tauri/Rust tree out of Oxfmt/Oxlint — proto+Vite+ only own the web UI.
   fmt: {
-    ignorePatterns: ["src-tauri/**", "dist/**"],
+    ignorePatterns: ["src-tauri/**", "dist/**", "src/routeTree.gen.ts"],
   },
   // Full Oxlint policy lives in `.oxlintrc.json` (warn-only + type-aware).
   lint: {
-    ignorePatterns: ["src-tauri/**", "dist/**"],
+    ignorePatterns: ["src-tauri/**", "dist/**", "src/routeTree.gen.ts"],
   },
   test: {
     passWithNoTests: true,
@@ -25,17 +34,19 @@ export default defineConfig({
       generateScopedName: "[name]_[local]_[hash:6]",
     },
   },
-  plugins: lazyPlugins(() => [react({ compiler: true })]),
+  plugins: lazyPlugins(() => [
+    TanStackRouterVite({
+      target: "react",
+      quoteStyle: "double",
+      semicolons: true,
+    }),
+    react({ compiler: true }),
+    tailwindcss(),
+  ]),
   clearScreen: false,
-  resolve: mockIpc
-    ? {
-        alias: {
-          "@tauri-apps/api/core": path.resolve(rootDir, "src/mock/tauri-core.ts"),
-          "@tauri-apps/plugin-dialog": path.resolve(rootDir, "src/mock/tauri-dialog.ts"),
-          "@tauri-apps/plugin-shell": path.resolve(rootDir, "src/mock/tauri-shell.ts"),
-        },
-      }
-    : undefined,
+  resolve: {
+    alias,
+  },
   server: {
     port: 1420,
     strictPort: true,

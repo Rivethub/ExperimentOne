@@ -17,6 +17,7 @@ workspace = true
 anyhow.workspace = true
 async-nats.workspace = true
 chrono.workspace = true
+clickhouse.workspace = true
 futures.workspace = true
 rivet-core.workspace = true
 serde.workspace = true

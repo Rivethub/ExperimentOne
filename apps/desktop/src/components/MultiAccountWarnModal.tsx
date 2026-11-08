@@ -23,6 +23,9 @@ export function MultiAccountWarnModal({
   onDismiss: () => void;
   onConfirm: (pending: NonNullable<MultiAccountWarnState>) => void;
 }): ReactElement {
+  const count = warn ? providerAccountCount(warn.provider) : 0;
+  const label = warn ? providerLabel(warn.provider, catalog) : "";
+
   return (
     <Modal
       open={Boolean(warn)}
@@ -32,31 +35,27 @@ export function MultiAccountWarnModal({
       footer={
         warn ? (
           <>
-            <Button onClick={onDismiss}>Cancel</Button>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => {
-                onConfirm(warn);
-              }}
-            >
+            <Button variant="ghost" disabled={busy} onClick={() => onConfirm(warn)}>
               Continue anyway
+            </Button>
+            <Button variant="primary" onClick={onDismiss}>
+              Cancel
             </Button>
           </>
         ) : null
       }
     >
       {warn ? (
-        <p>
-          You already have{" "}
-          <strong>
-            {providerAccountCount(warn.provider)} {providerLabel(warn.provider, catalog)}
-          </strong>{" "}
-          account
-          {providerAccountCount(warn.provider) === 1 ? "" : "s"} linked. Pooling multiple accounts
-          of the same provider may conflict with that provider&apos;s Terms of Service. Rivet does
-          not encourage reselling subscription traffic as a public API.
-        </p>
+        <div className="space-y-2 text-[13.5px] leading-relaxed text-muted-foreground">
+          <p className="m-0 text-foreground">
+            You already have {count} {label} account{count === 1 ? "" : "s"} linked.
+          </p>
+          <p className="m-0">
+            Pooling multiple accounts of the same provider may conflict with that provider&apos;s
+            Terms of Service. Rivet does not encourage reselling subscription traffic as a public
+            API.
+          </p>
+        </div>
       ) : null}
     </Modal>
   );

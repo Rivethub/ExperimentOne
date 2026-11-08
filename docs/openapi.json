@@ -1,0 +1,744 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Rivet Control API",
+    "description": "Local control plane for the Rivet desktop app, CLI, and ingest.",
+    "contact": {
+      "name": "Rivet"
+    },
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/config": {
+      "get": {
+        "tags": [
+          "control"
+        ],
+        "operationId": "get_config",
+        "responses": {
+          "200": {
+            "description": "Public config (no secrets)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicConfig"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events": {
+      "get": {
+        "tags": [
+          "live"
+        ],
+        "operationId": "live_events_doc",
+        "responses": {
+          "200": {
+            "description": "Server-Sent Events stream (`text/event-stream`) of live bus updates"
+          }
+        }
+      }
+    },
+    "/v1/live": {
+      "get": {
+        "tags": [
+          "live"
+        ],
+        "operationId": "live_cursor_doc",
+        "responses": {
+          "200": {
+            "description": "Live refresh cursor",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveCursor"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/openapi.json": {
+      "get": {
+        "tags": [
+          "control"
+        ],
+        "operationId": "openapi_json",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3 document for the control API"
+          }
+        }
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "tags": [
+          "control"
+        ],
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "Control plane status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/traffic/recent": {
+      "get": {
+        "tags": [
+          "traffic"
+        ],
+        "operationId": "recent",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Max events (default 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Optional keyword filter",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recent traffic events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TrafficEvent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AccountInfo": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "label",
+          "limit_hint",
+          "reset_hint"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "limit_hint": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "reset_hint": {
+            "type": "string"
+          }
+        }
+      },
+      "Capabilities": {
+        "type": "object",
+        "description": "Feature flags driven by what the user has configured.",
+        "required": [
+          "mcp",
+          "vector_search",
+          "wiki",
+          "teams"
+        ],
+        "properties": {
+          "mcp": {
+            "type": "boolean",
+            "description": "Keyword/SQL history via MCP always on once traffic exists."
+          },
+          "teams": {
+            "type": "boolean",
+            "description": "Enterprise / multi-user (disabled in local MVP)."
+          },
+          "vector_search": {
+            "type": "boolean",
+            "description": "Requires an embedding model routed through the proxy (or local lexical fallback)."
+          },
+          "wiki": {
+            "type": "boolean",
+            "description": "Requires a text-generation model routed through the proxy (or stub wiki pages)."
+          }
+        }
+      },
+      "CaptureQuality": {
+        "type": "string",
+        "description": "How the event was captured / how trustworthy the session linkage is.",
+        "enum": [
+          "wire",
+          "soft",
+          "imported"
+        ]
+      },
+      "ConversationSummary": {
+        "type": "object",
+        "description": "One historical conversation, projected from traffic events sharing a session.",
+        "required": [
+          "id",
+          "title",
+          "provider",
+          "started_at",
+          "updated_at",
+          "message_count",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "properties": {
+          "capture_quality": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaptureQuality",
+                "description": "Worst fidelity seen in the conversation (`soft` < `imported` < `wire`)."
+              }
+            ]
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Latest captured cwd signal for the conversation (not a classified project)."
+          },
+          "id": {
+            "type": "string",
+            "description": "`session_id`, or `event:{uuid}` when the event has no session."
+          },
+          "message_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preview": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderKind"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tokens_in": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tokens_out": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LiveCursor": {
+        "type": "object",
+        "description": "Cheap snapshot for long-poll / Tauri watchers (no stream required).",
+        "required": [
+          "wiki_revision",
+          "traffic_events",
+          "observed_at"
+        ],
+        "properties": {
+          "observed_at": {
+            "type": "string"
+          },
+          "traffic_events": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "wiki_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LocalSession": {
+        "type": "object",
+        "required": [
+          "api_key",
+          "note"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "OnboardingStatus": {
+        "type": "object",
+        "required": [
+          "proxy_running",
+          "has_accounts",
+          "has_traffic",
+          "harness_ready"
+        ],
+        "properties": {
+          "harness_ready": {
+            "type": "boolean"
+          },
+          "has_accounts": {
+            "type": "boolean"
+          },
+          "has_traffic": {
+            "type": "boolean"
+          },
+          "proxy_running": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProviderKind": {
+        "type": "string",
+        "enum": [
+          "Claude",
+          "Codex",
+          "OpenAi",
+          "Gemini",
+          "Antigravity",
+          "Kimi",
+          "KimiAi",
+          "Xai",
+          "Meta",
+          "Devin",
+          "Vertex",
+          "Cursor",
+          "Other"
+        ]
+      },
+      "PublicConfig": {
+        "type": "object",
+        "description": "Config returned to the UI — never includes live secrets.",
+        "required": [
+          "proxy_port",
+          "api_port",
+          "mcp_port",
+          "clickhouse_http_port",
+          "clickhouse_native_port",
+          "access_key_hint",
+          "management_configured",
+          "capabilities",
+          "wiki_project_id",
+          "rate_limit_rps",
+          "rate_limit_burst",
+          "metrics_enabled"
+        ],
+        "properties": {
+          "access_key_hint": {
+            "type": "string"
+          },
+          "api_port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "clickhouse_http_port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "clickhouse_native_port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "embedding_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "management_configured": {
+            "type": "boolean"
+          },
+          "mcp_port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "metrics_enabled": {
+            "type": "boolean"
+          },
+          "proxy_port": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rate_limit_burst": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rate_limit_rps": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "wiki_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wiki_project_id": {
+            "type": "string"
+          }
+        }
+      },
+      "StatusResponse": {
+        "type": "object",
+        "required": [
+          "ok",
+          "proxy_running",
+          "proxy_base_url",
+          "mcp_url",
+          "access_key_hint",
+          "capabilities",
+          "usage",
+          "account_count",
+          "traffic_backend",
+          "wiki_dir",
+          "warnings",
+          "onboarding",
+          "workers"
+        ],
+        "properties": {
+          "access_key_hint": {
+            "type": "string"
+          },
+          "account_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/Capabilities"
+          },
+          "embedding_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mcp_url": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "onboarding": {
+            "$ref": "#/components/schemas/OnboardingStatus"
+          },
+          "proxy_base_url": {
+            "type": "string"
+          },
+          "proxy_running": {
+            "type": "boolean"
+          },
+          "traffic_backend": {
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageTotals"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Soft warnings for the desktop UI (port conflicts, onboarding hints)."
+          },
+          "wiki_dir": {
+            "type": "string"
+          },
+          "wiki_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workers": {
+            "$ref": "#/components/schemas/WorkersStatus"
+          }
+        }
+      },
+      "TrafficEvent": {
+        "type": "object",
+        "description": "One captured unit of proxy traffic. Safe to export (no credentials).",
+        "required": [
+          "id",
+          "ts",
+          "provider",
+          "role",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "properties": {
+          "account_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Relative path under blobs/ when body was spilled to disk."
+          },
+          "capture_quality": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaptureQuality",
+                "description": "Capture fidelity: `wire`, `soft`, or `imported`."
+              }
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Working-directory signal when present on wire or local transcript. Soft context for workers —\nnot promoted to `project_id` by itself."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latency_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hard-evidence project id only: explicit API/header field, or the harness's own project key\n(e.g. Claude/Cursor `projects/<id>/` folder). Never inferred from cwd or prompt text."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderKind"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/TrafficRole"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "tokens_in": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tokens_out": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TrafficRole": {
+        "type": "string",
+        "enum": [
+          "system",
+          "user",
+          "assistant",
+          "tool",
+          "unknown"
+        ]
+      },
+      "UsageTotals": {
+        "type": "object",
+        "required": [
+          "events",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "properties": {
+          "events": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tokens_in": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "tokens_out": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "WorkersStatus": {
+        "type": "object",
+        "required": [
+          "vector_search",
+          "wiki",
+          "embeddings",
+          "wiki_pages"
+        ],
+        "properties": {
+          "embeddings": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "vector_search": {
+            "type": "boolean"
+          },
+          "vectorize_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wiki": {
+            "type": "boolean"
+          },
+          "wiki_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wiki_pages": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "control",
+      "description": "Status, config, and session bootstrap"
+    },
+    {
+      "name": "traffic",
+      "description": "Captured traffic queries"
+    },
+    {
+      "name": "live",
+      "description": "Live cursor / SSE refresh"
+    }
+  ]
+}

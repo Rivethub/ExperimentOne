@@ -1,6 +1,14 @@
 //! Control plane API used by the desktop host (local IPC) and loopback CLI.
 
+mod live_routes;
+mod openapi;
 mod quota;
+
+/// `OpenAPI` document for codegen / CI contract checks.
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
+    use utoipa::OpenApi;
+    openapi::ApiDoc::openapi()
+}
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -13,7 +21,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -24,8 +32,8 @@ use rivet_core::{
     claude_settings_json, codex_config_toml, conversations_from_events, harness_user_ready,
     hydrate_event_content, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
     normalize_event_turns, project_id_from_cwd, provider_catalog, recency_boost,
-    resolve_project_root, Capabilities, ConversationSummary, ProviderKind, RivetConfig, RivetPaths,
-    TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
+    resolve_project_root, Capabilities, ConversationSummary, LiveBus, ProviderKind, RivetConfig,
+    RivetPaths, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
 };
 use rivet_store::{
     fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseTrafficStore,
@@ -75,6 +83,8 @@ pub struct ApiState {
     pub workers: Option<Arc<rivet_worker::WorkerPool>>,
     /// Bumped whenever the wiki filesystem index changes.
     pub wiki_revision: Arc<AtomicU64>,
+    /// In-process live refresh bus (wiki/traffic SSE).
+    pub live: LiveBus,
     /// Signal rivetd to exit after sidecars stop (`POST /v1/shutdown`).
     pub shutdown: tokio::sync::watch::Sender<bool>,
 }
@@ -88,7 +98,7 @@ impl std::fmt::Debug for ApiState {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct StatusResponse {
     pub ok: bool,
     pub proxy_running: bool,
@@ -98,6 +108,7 @@ pub struct StatusResponse {
     pub capabilities: Capabilities,
     pub usage: UsageTotals,
     pub account_count: u64,
+    #[schema(value_type = String)]
     pub traffic_backend: &'static str,
     pub wiki_dir: String,
     pub embedding_model: Option<String>,
@@ -108,7 +119,7 @@ pub struct StatusResponse {
     pub workers: WorkersStatus,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct WorkersStatus {
     pub vector_search: bool,
     pub wiki: bool,
@@ -118,11 +129,12 @@ pub struct WorkersStatus {
     pub wiki_cursor: Option<String>,
     /// Role this process claims (`RIVET_WORKER_ROLE`).
     pub role: String,
+    #[schema(value_type = Object)]
     pub queue: QueueStats,
 }
 
 #[allow(clippy::struct_excessive_bools)] // Desktop onboarding checklist flags map to UI steps.
-#[derive(Debug, Copy, Clone, Serialize)]
+#[derive(Debug, Copy, Clone, Serialize, utoipa::ToSchema)]
 pub struct OnboardingStatus {
     pub proxy_running: bool,
     pub has_accounts: bool,
@@ -130,7 +142,7 @@ pub struct OnboardingStatus {
     pub harness_ready: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AccountInfo {
     pub id: String,
     pub provider: String,
@@ -255,7 +267,7 @@ struct ErrBody {
 }
 
 /// Config returned to the UI — never includes live secrets.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PublicConfig {
     pub proxy_port: u16,
     pub api_port: u16,
@@ -376,10 +388,11 @@ async fn require_loopback_host(
     Ok(next.run(req).await)
 }
 
-#[derive(Serialize)]
-struct LocalSession {
-    api_key: String,
-    note: &'static str,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct LocalSession {
+    pub api_key: String,
+    #[schema(value_type = String)]
+    pub note: &'static str,
 }
 
 async fn local_session(
@@ -404,9 +417,12 @@ pub fn router(state: ApiState) -> Router {
     let public = Router::new()
         .route("/v1/status", get(status))
         .route("/v1/session", get(local_session))
+        .route("/v1/openapi.json", get(openapi_json))
+        .route("/v1/live", get(live_cursor_doc))
         .route_layer(middleware::from_fn(require_loopback_host));
 
     let protected = Router::new()
+        .route("/v1/events", get(live_events_doc))
         .route("/v1/config", get(get_config).put(put_config))
         .route("/v1/traffic/recent", get(recent))
         .route("/v1/traffic/search", get(search_traffic))
@@ -463,7 +479,48 @@ pub fn router(state: ApiState) -> Router {
     public.merge(protected).layer(localhost_cors()).with_state(state)
 }
 
-async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
+
+#[utoipa::path(
+    get,
+    path = "/v1/openapi.json",
+    tag = "control",
+    responses((status = 200, description = "OpenAPI 3 document for the control API"))
+)]
+pub async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
+    use utoipa::OpenApi;
+    Json(openapi::ApiDoc::openapi())
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/live",
+    tag = "live",
+    responses((status = 200, description = "Live refresh cursor", body = rivet_core::LiveCursor))
+)]
+pub async fn live_cursor_doc(state: State<ApiState>) -> Json<rivet_core::LiveCursor> {
+    live_routes::live_cursor(state).await
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/events",
+    tag = "live",
+    responses((
+        status = 200,
+        description = "Server-Sent Events stream (`text/event-stream`) of live bus updates"
+    ))
+)]
+pub async fn live_events_doc(state: State<ApiState>) -> Response {
+    live_routes::live_sse(state).await.into_response()
+}
+
+#[utoipa::path(
+    get,
+    path = "/v1/status",
+    tag = "control",
+    responses((status = 200, description = "Control plane status", body = StatusResponse))
+)]
+pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     let usage = state.store.usage_totals().await.unwrap_or_default();
     let proxy_running = state.control.proxy_running();
     let (
@@ -551,7 +608,13 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     })
 }
 
-async fn get_config(State(state): State<ApiState>) -> Json<PublicConfig> {
+#[utoipa::path(
+    get,
+    path = "/v1/config",
+    tag = "control",
+    responses((status = 200, description = "Public config", body = PublicConfig))
+)]
+pub async fn get_config(State(state): State<ApiState>) -> Json<PublicConfig> {
     let cfg = state.config.read().await;
     Json(public_config(&cfg))
 }
@@ -592,12 +655,18 @@ async fn put_config(
 }
 
 #[derive(Debug, Deserialize)]
-struct TrafficQuery {
+pub struct TrafficQuery {
     limit: Option<u32>,
     q: Option<String>,
 }
 
-async fn recent(
+#[utoipa::path(
+    get,
+    path = "/v1/traffic/recent",
+    tag = "traffic",
+    responses((status = 200, description = "Recent traffic events", body = Vec<TrafficEvent>))
+)]
+pub async fn recent(
     State(state): State<ApiState>,
     Query(q): Query<TrafficQuery>,
 ) -> Result<Json<Vec<TrafficEvent>>, StatusCode> {

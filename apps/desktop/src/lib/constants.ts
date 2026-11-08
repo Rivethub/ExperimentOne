@@ -1,3 +1,12 @@
+import {
+  Activity,
+  BookOpen,
+  Gauge,
+  MessagesSquare,
+  Settings,
+  Tags,
+  type LucideIcon,
+} from "lucide-react";
 import type { CatalogProvider } from "./provider-utils";
 import type { Page, SettingsTab } from "./types";
 
@@ -24,13 +33,13 @@ export const FALLBACK_PROVIDERS: CatalogProvider[] = [
   },
 ];
 
-export const NAV: { id: Page; label: string; icon: string }[] = [
-  { id: "quota", label: "Quota", icon: "◈" },
-  { id: "data", label: "Data", icon: "◫" },
-  { id: "topics", label: "Topics", icon: "◉" },
-  { id: "runtime", label: "Runtime", icon: "⏻" },
-  { id: "wiki", label: "Wiki", icon: "☰" },
-  { id: "settings", label: "Settings", icon: "⚙" },
+export const NAV: { id: Page; label: string; icon: LucideIcon }[] = [
+  { id: "quota", label: "Quota", icon: Gauge },
+  { id: "data", label: "Data", icon: MessagesSquare },
+  { id: "topics", label: "Topics", icon: Tags },
+  { id: "runtime", label: "Runtime", icon: Activity },
+  { id: "wiki", label: "Wiki", icon: BookOpen },
+  { id: "settings", label: "Settings", icon: Settings },
 ];
 
 export const SETTINGS_TABS: { id: SettingsTab; label: string; hint: string }[] = [

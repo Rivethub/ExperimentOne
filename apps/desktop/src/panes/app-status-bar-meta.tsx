@@ -1,40 +1,5 @@
+import { cn } from "#lib/utils";
 import { isDefined } from "../lib/nullish";
-import { trunc } from "../lib/traffic-utils";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
-
-export function AppStatusBarMeta({
-  statusAction,
-  error,
-  onDismissError,
-}: {
-  statusAction: string | null;
-  error: string | null;
-  onDismissError: () => void;
-}): React.ReactElement | null {
-  const hasAction = isDefined(statusAction) && statusAction !== "";
-  const hasError = isDefined(error) && error !== "";
-  if (!hasAction && !hasError) {
-    return null;
-  }
-
-  return (
-    <div className={styles.sbMeta}>
-      {hasAction ? (
-        <span className={styles.sbAction}>{statusAction}</span>
-      ) : (
-        <button
-          type="button"
-          className={cx(styles.sbAction, styles.bad)}
-          onClick={onDismissError}
-          title={error ?? undefined}
-        >
-          {trunc(error ?? "", 64)}
-        </button>
-      )}
-    </div>
-  );
-}
 
 export function AppStatusBarProxyPill({
   proxyRunning,
@@ -49,11 +14,25 @@ export function AppStatusBarProxyPill({
   const url = isDefined(proxyBaseUrl) && proxyBaseUrl !== "" ? proxyBaseUrl : null;
 
   return (
-    <button type="button" className={styles.sbPill} title={url ?? "Proxy"} onClick={onOpenRuntime}>
-      <span className={cx(styles.sbDot, live ? styles.on : styles.off)} />
-      <span className={styles.sbFull}>proxy {live ? "live" : "stopped"}</span>
-      <span className={styles.sbShort}>{live ? "proxy" : "proxy↓"}</span>
-      {url !== null ? <span className={styles.sbMuted}>{url.replace("http://", "")}</span> : null}
+    <button
+      type="button"
+      className="inline-flex max-w-none shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border-0 bg-transparent px-1.5 py-1 text-[11.5px] text-muted-foreground hover:bg-accent hover:text-foreground"
+      title={url ?? "Proxy"}
+      onClick={onOpenRuntime}
+    >
+      <span
+        className={cn(
+          "size-[7px] shrink-0 rounded-full",
+          live ? "bg-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,0.16)]" : "bg-red-400",
+        )}
+      />
+      <span className="@max-[860px]:hidden">proxy {live ? "live" : "stopped"}</span>
+      <span className="hidden @max-[860px]:inline">{live ? "proxy" : "proxy↓"}</span>
+      {url !== null ? (
+        <span className="max-w-44 overflow-hidden text-ellipsis text-muted-foreground/80 @max-[980px]:hidden">
+          {url.replace("http://", "")}
+        </span>
+      ) : null}
     </button>
   );
 }

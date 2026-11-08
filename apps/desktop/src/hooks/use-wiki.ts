@@ -1,5 +1,7 @@
-import { Effect } from "effect";
-import { useCallback, useEffect, useState } from "react";
+import { useAtomValue } from "@effect/atom-react";
+import { AsyncResult } from "effect/reactivity";
+import { useCallback } from "react";
+import { refreshWikiAtom, wikiAtom } from "../atoms/wiki";
 import type { WikiInfo, WikiPageCard } from "../components/WikiBoard";
 import { runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
@@ -12,42 +14,18 @@ export type UseWikiResult = {
   loadArchive: (projectId: string, slug: string, file: string) => Promise<string>;
 };
 
-function wikiPagesUnchanged(prev: WikiInfo, next: WikiInfo): boolean {
-  if (prev.revision !== next.revision) {
-    return false;
-  }
-  if (prev.pages.length !== next.pages.length) {
-    return false;
-  }
-  return prev.pages.every((p, i) => {
-    const n = next.pages[i];
-    if (n === undefined) {
-      return false;
-    }
-    return p.id === n.id && p.updated_at === n.updated_at;
-  });
-}
-
-export function useWiki(opts: { page: string; ensureSession: () => Promise<void> }): UseWikiResult {
-  const { page } = opts;
-  const [wiki, setWiki] = useState<WikiInfo | null>(null);
+/**
+ * Wiki data via @effect/atom-react (spike vs TanStack Query).
+ * Call only from the wiki route so `wikiAtom` polls while mounted.
+ */
+export function useWiki(): UseWikiResult {
+  const result = useAtomValue(wikiAtom);
 
   const refreshWiki = useCallback(async () => {
     try {
-      const next = await runApp(
-        Effect.gen(function* refreshWikiSnapshot() {
-          yield* Rivet.requireBackend;
-          return yield* Rivet.getWiki;
-        }),
-      );
-      setWiki((prev) => {
-        if (prev !== null && wikiPagesUnchanged(prev, next)) {
-          return prev;
-        }
-        return next;
-      });
+      refreshWikiAtom();
     } catch {
-      /* ignore */
+      /* soft-fail — same as previous Query catch */
     }
   }, []);
 
@@ -67,20 +45,11 @@ export function useWiki(opts: { page: string; ensureSession: () => Promise<void>
     [],
   );
 
-  useEffect(() => {
-    if (page !== "wiki") {
-      return () => {
-        /* no wiki polling */
-      };
-    }
-    void refreshWiki();
-    const id = setInterval(() => {
-      void refreshWiki();
-    }, 1000);
-    return () => {
-      clearInterval(id);
-    };
-  }, [page, refreshWiki]);
-
-  return { wiki, refreshWiki, loadWikiPage, listArchives, loadArchive };
+  return {
+    wiki: AsyncResult.getOrElse(result, () => null),
+    refreshWiki,
+    loadWikiPage,
+    listArchives,
+    loadArchive,
+  };
 }

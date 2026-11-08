@@ -9,6 +9,7 @@ export {
 } from "./errors";
 export {
   apiJson,
+  apiJsonSchema,
   apiRequest,
   apiResult,
   apiText,
@@ -17,5 +18,21 @@ export {
   type IpcResponse,
   type SoftHttpResult,
 } from "./ipc";
+export {
+  AccountSchema,
+  AccountsSchema,
+  BagResultSchema,
+  ConfigResponseSchema,
+  LiveCursorSchema,
+  PublicConfigSchema,
+  HarnessWriteSchema,
+  MessageResultSchema,
+  QuotaSnapshotSchema,
+  RefreshQuotaResultSchema,
+  StatusSchema,
+  UnknownOkSchema,
+  WikiInfoSchema,
+  WorkersTickSchema,
+} from "./schemas";
 export { softEffect, peekSoftFailure } from "./soft";
 export { runApp, runAppExit, type AppEffect } from "./run";
