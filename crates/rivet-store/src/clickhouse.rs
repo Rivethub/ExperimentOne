@@ -394,7 +394,7 @@ impl ClickHouseTrafficStore {
             "latency_ms": event.latency_ms,
             "status_code": event.status_code,
             "body_ref": event.body_ref,
-            "capture_quality": event.capture_quality.map(|q| q.as_str()),
+            "capture_quality": event.capture_quality.map(CaptureQuality::as_str),
         });
         Ok(serde_json::to_string(&row)?)
     }

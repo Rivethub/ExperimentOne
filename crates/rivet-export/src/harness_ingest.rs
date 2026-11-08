@@ -35,7 +35,7 @@ impl LocalSource {
         }
     }
 
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
@@ -130,9 +130,9 @@ pub async fn ingest_local(
                 }
             };
             if source == LocalSource::Cursor {
-                collect_cursor_transcripts(&root, &mut visit)?;
+                collect_cursor_transcripts(&root, &mut visit);
             } else {
-                collect_jsonl_files(&root, &mut visit)?;
+                collect_jsonl_files(&root, &mut visit);
             }
         }
         let parsed = (events.len() - before) as u64;
@@ -200,12 +200,11 @@ pub fn default_cursor_projects_root() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".cursor").join("projects")
 }
 
-fn collect_jsonl_files(root: &Path, visit: &mut dyn FnMut(&Path)) -> Result<()> {
+fn collect_jsonl_files(root: &Path, visit: &mut dyn FnMut(&Path)) {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries = match fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
@@ -216,16 +215,14 @@ fn collect_jsonl_files(root: &Path, visit: &mut dyn FnMut(&Path)) -> Result<()> 
             }
         }
     }
-    Ok(())
 }
 
 /// Only Cursor agent transcript jsonl files under `*/agent-transcripts/**`.
-fn collect_cursor_transcripts(root: &Path, visit: &mut dyn FnMut(&Path)) -> Result<()> {
+fn collect_cursor_transcripts(root: &Path, visit: &mut dyn FnMut(&Path)) {
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let entries = match fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
         };
         for entry in entries.flatten() {
             let path = entry.path();
@@ -244,7 +241,6 @@ fn collect_cursor_transcripts(root: &Path, visit: &mut dyn FnMut(&Path)) -> Resu
             }
         }
     }
-    Ok(())
 }
 
 fn parse_claude_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
@@ -266,7 +262,7 @@ fn parse_claude_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
         };
         if let Some(mut ev) = claude_line_to_event(&v) {
             if ev.project_id.is_none() {
-                ev.project_id = harness_project.clone();
+                ev.project_id.clone_from(&harness_project);
             }
             out.push(ev);
         }
@@ -292,15 +288,15 @@ fn claude_line_to_event(v: &Value) -> Option<TrafficEvent> {
         .get("sessionId")
         .or_else(|| v.get("session_id"))
         .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
+        .map(str::to_string);
     // cwd is a signal; project_id only from an explicit field (or harness folder key above).
-    let cwd = v.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string());
+    let cwd = v.get("cwd").and_then(|x| x.as_str()).map(str::to_string);
     let project_id = v
         .get("project_id")
         .or_else(|| v.get("projectId"))
         .and_then(|x| x.as_str())
-        .map(|s| s.to_string());
-    let model = message.get("model").and_then(|x| x.as_str()).map(|s| s.to_string());
+        .map(str::to_string);
+    let model = message.get("model").and_then(|x| x.as_str()).map(str::to_string);
     let ts = parse_ts(v.get("timestamp").and_then(|x| x.as_str()));
     let id = v
         .get("uuid")
@@ -345,7 +341,7 @@ fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
     // Hard evidence: Cursor's project slug under ~/.cursor/projects/<slug>/ (as-is, not decoded).
     let project_id = cursor_project_key_from_path(path);
     let file_mtime =
-        fs::metadata(path).ok().and_then(|m| m.modified().ok()).map(|t| DateTime::<Utc>::from(t));
+        fs::metadata(path).ok().and_then(|m| m.modified().ok()).map(DateTime::<Utc>::from);
     let mut out = Vec::new();
     for (idx, line) in reader.lines().enumerate() {
         if out.len() >= limit {
@@ -367,15 +363,15 @@ fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
             _ => continue,
         };
         let message = v.get("message").unwrap_or(&v);
-        let content = match message.get("content").or_else(|| v.get("content")) {
-            Some(c) => content_to_text(c).unwrap_or_default(),
-            None => String::new(),
-        };
+        let content = message
+            .get("content")
+            .or_else(|| v.get("content"))
+            .map_or_else(String::new, |c| content_to_text(c).unwrap_or_default());
         if content.trim().is_empty() {
             continue;
         }
         let ts = extract_timestamp_from_text(&content).or(file_mtime).unwrap_or_else(Utc::now)
-            + chrono::Duration::milliseconds(idx as i64);
+            + chrono::Duration::milliseconds(i64::try_from(idx).unwrap_or(i64::MAX));
         let id = stable_id(&format!("cursor:{session_id}:{idx}:{role_str}"));
         out.push(TrafficEvent {
             id,
@@ -462,6 +458,7 @@ fn usage_from_claude(usage: Option<&Value>) -> (u32, u32) {
     (input, output)
 }
 
+#[allow(clippy::too_many_lines)]
 fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let reader = BufReader::new(file);
@@ -492,10 +489,10 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                     .get("session_id")
                     .or_else(|| payload.get("id"))
                     .and_then(|x| x.as_str())
-                    .map(|s| s.to_string())
+                    .map(str::to_string)
                     .or(session_id);
                 // Capture cwd as a signal; workers classify project later.
-                cwd = payload.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string()).or(cwd);
+                cwd = payload.get("cwd").and_then(|x| x.as_str()).map(str::to_string).or(cwd);
                 if let Some(m) = payload.get("model_provider").and_then(|x| x.as_str()) {
                     let _ = m; // provider is always Codex for these files
                 }
@@ -507,17 +504,17 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                         model = settings
                             .get("model")
                             .and_then(|x| x.as_str())
-                            .map(|s| s.to_string())
+                            .map(str::to_string)
                             .or(model);
                         cwd = settings
                             .get("cwd")
                             .and_then(|x| x.as_str())
-                            .map(|s| s.to_string())
+                            .map(str::to_string)
                             .or(cwd);
                         session_id = payload
                             .get("thread_id")
                             .and_then(|x| x.as_str())
-                            .map(|s| s.to_string())
+                            .map(str::to_string)
                             .or(session_id);
                     }
                 } else if et == "token_count" {
@@ -544,10 +541,9 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             _ => continue,
                         };
                         // Skip huge developer tool catalogs / base instructions noise when empty text.
-                        let content = match payload.get("content") {
-                            Some(c) => content_to_text(c).unwrap_or_default(),
-                            None => String::new(),
-                        };
+                        let content = payload
+                            .get("content")
+                            .map_or_else(String::new, |c| content_to_text(c).unwrap_or_default());
                         if content.trim().is_empty() {
                             continue;
                         }
@@ -555,18 +551,17 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                         if matches!(role, TrafficRole::System) && content.len() > 64 * 1024 {
                             continue;
                         }
-                        let id = payload
-                            .get("id")
-                            .and_then(|x| x.as_str())
-                            .map(|s| stable_id(&format!("codex:{s}")))
-                            .unwrap_or_else(|| {
+                        let id = payload.get("id").and_then(|x| x.as_str()).map_or_else(
+                            || {
                                 stable_id(&format!(
                                     "codex:{}:{}:{}",
                                     session_id.as_deref().unwrap_or(""),
                                     role_str,
                                     content.chars().take(64).collect::<String>()
                                 ))
-                            });
+                            },
+                            |s| stable_id(&format!("codex:{s}")),
+                        );
                         let (tokens_in, tokens_out) = if role == TrafficRole::Assistant {
                             pending_usage.take().unwrap_or((0, 0))
                         } else {
@@ -596,17 +591,16 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                         let name = payload.get("name").and_then(|x| x.as_str()).unwrap_or("tool");
                         let input = payload.get("input").and_then(|x| x.as_str()).unwrap_or("");
                         let content = format!("tool_call {name}\n{input}");
-                        let id = payload
-                            .get("id")
-                            .and_then(|x| x.as_str())
-                            .map(|s| stable_id(&format!("codex:{s}")))
-                            .unwrap_or_else(|| {
+                        let id = payload.get("id").and_then(|x| x.as_str()).map_or_else(
+                            || {
                                 stable_id(&format!(
                                     "codex:tool:{}:{}",
                                     session_id.as_deref().unwrap_or(""),
                                     name
                                 ))
-                            });
+                            },
+                            |s| stable_id(&format!("codex:{s}")),
+                        );
                         out.push(TrafficEvent {
                             id,
                             ts,
@@ -619,7 +613,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             request_id: payload
                                 .get("call_id")
                                 .and_then(|x| x.as_str())
-                                .map(|s| s.to_string()),
+                                .map(str::to_string),
                             role: TrafficRole::Tool,
                             content: Some(content),
                             tokens_in: 0,
@@ -631,24 +625,22 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                         });
                     },
                     "custom_tool_call_output" => {
-                        let content = match payload.get("output") {
-                            Some(o) => content_to_text(o).unwrap_or_default(),
-                            None => String::new(),
-                        };
+                        let content = payload
+                            .get("output")
+                            .map_or_else(String::new, |o| content_to_text(o).unwrap_or_default());
                         if content.trim().is_empty() {
                             continue;
                         }
-                        let id = payload
-                            .get("id")
-                            .and_then(|x| x.as_str())
-                            .map(|s| stable_id(&format!("codex:{s}")))
-                            .unwrap_or_else(|| {
+                        let id = payload.get("id").and_then(|x| x.as_str()).map_or_else(
+                            || {
                                 stable_id(&format!(
                                     "codex:tool_out:{}:{}",
                                     session_id.as_deref().unwrap_or(""),
                                     content.chars().take(32).collect::<String>()
                                 ))
-                            });
+                            },
+                            |s| stable_id(&format!("codex:{s}")),
+                        );
                         out.push(TrafficEvent {
                             id,
                             ts,
@@ -661,7 +653,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             request_id: payload
                                 .get("call_id")
                                 .and_then(|x| x.as_str())
-                                .map(|s| s.to_string()),
+                                .map(str::to_string),
                             role: TrafficRole::Tool,
                             content: Some(content),
                             tokens_in: 0,
@@ -711,7 +703,7 @@ fn content_to_text(content: &Value) -> Option<String> {
                         "tool_use" => {
                             let name = item.get("name").and_then(|x| x.as_str()).unwrap_or("tool");
                             let input =
-                                item.get("input").map(|x| x.to_string()).unwrap_or_default();
+                                item.get("input").map(ToString::to_string).unwrap_or_default();
                             parts.push(format!("tool_use {name}\n{input}"));
                         },
                         "tool_result" => {
@@ -743,13 +735,14 @@ fn content_to_text(content: &Value) -> Option<String> {
 
 fn parse_ts(raw: Option<&str>) -> DateTime<Utc> {
     raw.and_then(|s| DateTime::parse_from_rfc3339(s).ok())
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now)
+        .map_or_else(Utc::now, |dt| dt.with_timezone(&Utc))
 }
 
 fn as_u32(v: Option<&Value>) -> u32 {
     match v {
-        Some(Value::Number(n)) => n.as_u64().unwrap_or(0).min(u32::MAX as u64) as u32,
+        Some(Value::Number(n)) => {
+            u32::try_from(n.as_u64().unwrap_or(0).min(u64::from(u32::MAX))).unwrap_or(u32::MAX)
+        },
         Some(Value::String(s)) => s.parse().unwrap_or(0),
         _ => 0,
     }

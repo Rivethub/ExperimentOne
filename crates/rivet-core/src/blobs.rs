@@ -23,8 +23,7 @@ pub fn resolve_body_ref(paths: &RivetPaths, body_ref: &str) -> Result<PathBuf> {
     }
     for comp in rel.components() {
         match comp {
-            Component::Normal(_) => {},
-            Component::CurDir => {},
+            Component::Normal(_) | Component::CurDir => {},
             _ => bail!("body_ref must not contain '..' or prefixes"),
         }
     }

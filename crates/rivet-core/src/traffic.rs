@@ -90,12 +90,12 @@ impl CaptureQuality {
     }
 
     /// Lower fidelity wins when summarizing a conversation.
-    pub fn worse(self, other: Self) -> Self {
-        use CaptureQuality::*;
+    #[must_use]
+    pub const fn worse(self, other: Self) -> Self {
         match (self, other) {
-            (Soft, _) | (_, Soft) => Soft,
-            (Imported, _) | (_, Imported) => Imported,
-            _ => Wire,
+            (Self::Soft, _) | (_, Self::Soft) => Self::Soft,
+            (Self::Imported, _) | (_, Self::Imported) => Self::Imported,
+            _ => Self::Wire,
         }
     }
 }
@@ -308,9 +308,9 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
     let mut by_id: HashMap<String, Acc<'_>> = HashMap::new();
     for ev in events {
         let id = ev.conversation_id();
-        let q = ev.capture_quality.or_else(|| {
-            ev.session_id.as_deref().and_then(|s| {
-                if s.starts_with("soft:") {
+        let quality = ev.capture_quality.or_else(|| {
+            ev.session_id.as_deref().and_then(|session| {
+                if session.starts_with("soft:") {
                     Some(CaptureQuality::Soft)
                 } else {
                     None
@@ -335,10 +335,10 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 if better_title {
                     acc.title_src = ev;
                 }
-                acc.capture_quality = match (acc.capture_quality, q) {
-                    (Some(a), Some(b)) => Some(a.worse(b)),
-                    (None, b) => b,
-                    (a, None) => a,
+                acc.capture_quality = match (acc.capture_quality, quality) {
+                    (Some(prev), Some(next)) => Some(prev.worse(next)),
+                    (None, next) => next,
+                    (prev, None) => prev,
                 };
             },
             None => {
@@ -351,7 +351,7 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                         message_count: 1,
                         tokens_in: u64::from(ev.tokens_in),
                         tokens_out: u64::from(ev.tokens_out),
-                        capture_quality: q,
+                        capture_quality: quality,
                     },
                 );
             },
