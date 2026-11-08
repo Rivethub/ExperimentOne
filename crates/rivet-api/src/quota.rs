@@ -1,4 +1,4 @@
-//! Pull credential + quota signals from the local CLIProxyAPI management API.
+//! Pull credential + quota signals from the local `CLIProxyAPI` management API.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -23,11 +23,11 @@ pub struct QuotaSnapshot {
 pub struct ProviderQuota {
     pub provider: String,
     pub account_count: u64,
-    /// Accounts that reported a remaining_% (may be less than account_count).
+    /// Accounts that reported a remaining_% (may be less than `account_count`).
     pub known_count: u64,
     /// Sum of remaining % across accounts with signals.
     pub remaining_pct: f64,
-    /// Capacity = known_count × 100 (never invents unknown as full).
+    /// Capacity = `known_count` × 100 (never invents unknown as full).
     pub capacity_pct: f64,
     pub pool_empty: String,
     pub first_empty: String,
@@ -376,7 +376,7 @@ async fn build_snapshot(
         let supports = file.supports_quota.unwrap_or(false);
         if supports {
             if let Ok(fetched) = fetch_live_quota(http, &cfg.proxy_base_url(), key, &id).await {
-                plan = fetched.subscription.as_ref().and_then(|s| s.plan_label());
+                plan = fetched.subscription.as_ref().and_then(QuotaSubscriptionRaw::plan_label);
                 let fetched_windows = windows_from_fetch(&fetched);
                 if !fetched_windows.is_empty() {
                     windows = fetched_windows;
@@ -691,8 +691,7 @@ fn cooldown_reset(items: Option<&Vec<CooldownItem>>) -> Option<String> {
         .filter(|c| {
             c.reason
                 .as_deref()
-                .map(|r| r.contains("quota"))
-                .unwrap_or(true)
+                .is_none_or(|r| r.contains("quota"))
         })
         .filter_map(|c| c.retry_at.clone())
         .min()
@@ -707,9 +706,9 @@ fn format_horizon(hours: f64) -> String {
         return "Not soon".into();
     }
     if hours < 1.0 {
-        format!("~{}m", (hours * 60.0).round().max(1.0) as i64)
+        format!("~{:.0}m", hours.mul_add(60.0, 0.0).max(1.0))
     } else if hours < 48.0 {
-        format!("~{:.1}h", hours)
+        format!("~{hours:.1}h")
     } else {
         format!("~{:.1}d", hours / 24.0)
     }
@@ -777,7 +776,7 @@ pub fn local_fallback_snapshot(
             first_empty: "—".into(),
             next_reset: "— pending live quota".into(),
             burn_last_horizon: if burn_tok_h > 0.0 {
-                format!("{} tok/h", burn_tok_h.round() as i64)
+                format!("{burn_tok_h:.0} tok/h")
             } else {
                 "0 tok/h".into()
             },
@@ -803,6 +802,10 @@ pub fn remaining_tokens_from_pct_sum(remaining_pct_sum: f64) -> f64 {
 
 const ASSUMED_TOK_PER_ACCT: f64 = 80_000.0;
 
+fn u64_to_f64(value: u64) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
 /// Pure per-provider rollup used by `build_snapshot` (unit-testable).
 pub fn provider_quota_from_accounts(
     provider: &str,
@@ -819,7 +822,7 @@ pub fn provider_quota_from_accounts(
     // Only sum observed watermarks — never invent "full" for missing signals.
     let remaining_pct = known.iter().sum::<f64>();
     let capacity_pct = if known_count > 0 {
-        (known_count as f64) * 100.0
+        u64_to_f64(known_count) * 100.0
     } else {
         0.0
     };
@@ -831,7 +834,7 @@ pub fn provider_quota_from_accounts(
             .sum(),
     );
     let burn_pct_per_hour = if known_count > 0 {
-        let pool = known_count as f64 * ASSUMED_TOK_PER_ACCT;
+        let pool = u64_to_f64(known_count) * ASSUMED_TOK_PER_ACCT;
         (burn_tok_h / pool) * 100.0
     } else {
         0.0
@@ -858,22 +861,20 @@ pub fn provider_quota_from_accounts(
             if burn_tok_h <= 1.0 || known_count == 0 {
                 return None;
             }
-            let share = burn_tok_h / known_count as f64;
+            let share = burn_tok_h / u64_to_f64(known_count);
             if share <= 0.0 {
                 return None;
             }
             let rem_tok = (rem / 100.0) * ASSUMED_TOK_PER_ACCT;
             Some((rem_tok / share, a.label.clone()))
         })
-        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(h, label)| format!("est. {label} · {}", format_horizon(h)))
-        .unwrap_or_else(|| {
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)).map_or_else(|| {
             if known.is_empty() {
                 "— pending live quota".into()
             } else {
                 "—".into()
             }
-        });
+        }, |(h, label)| format!("est. {label} · {}", format_horizon(h)));
 
     let next_reset = list
         .iter()
@@ -883,15 +884,13 @@ pub fn provider_quota_from_accounts(
             let r = a.reset_at.as_ref()?;
             Some((r, rem))
         })
-        .min_by(|a, b| a.0.cmp(b.0))
-        .map(|(r, rem)| format_reset_label(r, rem))
-        .unwrap_or_else(|| {
+        .min_by(|a, b| a.0.cmp(b.0)).map_or_else(|| {
             if known.is_empty() {
                 "— pending live quota".into()
             } else {
                 "—".into()
             }
-        });
+        }, |(r, rem)| format_reset_label(r, rem));
 
     ProviderQuota {
         provider: provider.to_string(),
@@ -902,7 +901,7 @@ pub fn provider_quota_from_accounts(
         pool_empty,
         first_empty,
         next_reset,
-        burn_last_horizon: format!("{:.0} tok/h", burn_tok_h),
+        burn_last_horizon: format!("{burn_tok_h:.0} tok/h"),
         burn_pct_per_hour,
     }
 }
@@ -941,9 +940,9 @@ mod tests {
     fn pool_empty_uses_token_sum_not_pct_sum() {
         // Two accounts at 50% with 80k tok/acct ⇒ 80k remaining.
         // Burn 80k tok/h ⇒ 1 hour, not 2 (the old pct/burn_% bug).
-        let a = acct("a", Some(50.0), true, None);
-        let b = acct("b", Some(50.0), true, None);
-        let q = provider_quota_from_accounts("claude", &[&a, &b], 80_000.0);
+        let acct_a = acct("a", Some(50.0), true, None);
+        let acct_b = acct("b", Some(50.0), true, None);
+        let q = provider_quota_from_accounts("claude", &[&acct_a, &acct_b], 80_000.0);
         assert_eq!(q.known_count, 2);
         assert!((q.remaining_pct - 100.0).abs() < 1e-9);
         assert!(
@@ -973,9 +972,9 @@ mod tests {
 
     #[test]
     fn empty_pool_when_all_unknown() {
-        let a = acct("a", None, true, None);
-        let b = acct("b", None, true, None);
-        let q = provider_quota_from_accounts("codex", &[&a, &b], 12_000.0);
+        let acct_a = acct("a", None, true, None);
+        let acct_b = acct("b", None, true, None);
+        let q = provider_quota_from_accounts("codex", &[&acct_a, &acct_b], 12_000.0);
         assert_eq!(q.known_count, 0);
         assert_eq!(q.capacity_pct, 0.0);
         assert!(q.pool_empty.contains("pending"), "{}", q.pool_empty);

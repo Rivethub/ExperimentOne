@@ -1,14 +1,21 @@
 import { Data } from "effect";
+import { hasStringMessage, isRecord, isString } from "../guards";
+
+export { hasStringMessage } from "../guards";
 
 /** Tauri invoke failed or returned an unexpected shape. */
 export class IpcError extends Data.TaggedError("IpcError")<{
   readonly command: string;
   readonly cause: unknown;
 }> {
-  get message(): string {
-    const c = this.cause;
-    if (c instanceof Error) return c.message;
-    if (typeof c === "string") return c;
+  override get message(): string {
+    const { cause } = this;
+    if (cause instanceof Error) {
+      return cause.message;
+    }
+    if (isString(cause)) {
+      return cause;
+    }
     return `${this.command} failed`;
   }
 }
@@ -17,9 +24,17 @@ export class IpcError extends Data.TaggedError("IpcError")<{
 export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
   readonly detail?: string;
 }> {
-  get message(): string {
+  override get message(): string {
     return this.detail ?? "Could not reach rivetd — start it with cargo run -p rivet-runtime";
   }
+}
+
+function readApiErrorText(value: unknown): string | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const errText = value["error"];
+  return isString(errText) ? errText : undefined;
 }
 
 /** Control-plane `/v1` response was non-2xx or body was invalid. */
@@ -29,15 +44,22 @@ export class ApiError extends Data.TaggedError("ApiError")<{
   readonly status: number;
   readonly body?: string;
 }> {
-  get message(): string {
-    if (this.body) {
+  override get message(): string {
+    const { body } = this;
+    if (body !== undefined && body !== "") {
       try {
-        const parsed = JSON.parse(this.body) as { error?: string };
-        if (parsed.error) return parsed.error;
+        const parsed: unknown = JSON.parse(body);
+        const errText = readApiErrorText(parsed);
+        if (errText !== undefined && errText !== "") {
+          return errText;
+        }
       } catch {
         /* plain text */
       }
-      if (this.body.trim()) return this.body.trim().slice(0, 240);
+      const trimmed = body.trim();
+      if (trimmed !== "") {
+        return trimmed.slice(0, 240);
+      }
     }
     return `${this.method} ${this.path} failed (${this.status})`;
   }
@@ -46,15 +68,12 @@ export class ApiError extends Data.TaggedError("ApiError")<{
 export type RivetError = IpcError | BackendUnavailable | ApiError;
 
 export function rivetErrorMessage(err: unknown): string {
-  if (
-    err &&
-    typeof err === "object" &&
-    "message" in err &&
-    typeof (err as { message: unknown }).message === "string"
-  ) {
-    return (err as { message: string }).message;
+  if (hasStringMessage(err)) {
+    return err.message;
   }
-  if (err instanceof Error) return err.message;
+  if (err instanceof Error) {
+    return err.message;
+  }
   return String(err);
 }
 

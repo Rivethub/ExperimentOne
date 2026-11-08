@@ -20,8 +20,7 @@ pub enum HarnessInstallMode {
 impl HarnessInstallMode {
     pub fn parse(raw: Option<&str>) -> Self {
         match raw
-            .map(str::trim)
-            .unwrap_or("user")
+            .map_or("user", str::trim)
             .to_ascii_lowercase()
             .as_str()
         {

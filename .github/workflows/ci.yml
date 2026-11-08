@@ -81,9 +81,14 @@ jobs:
             echo "$files"
             exit 1
           fi
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15.0
+          working-directory: vendor/cliproxyapi
+          args: --config .golangci.yml ./internal/rivetsink/...
       - name: Rivet sink tests
         working-directory: vendor/cliproxyapi
-        run: go test ./internal/rivetsink/ -count=1
+        run: go test ./internal/rivetsink/ -count=1 -vet=all
 
   desktop-lint:
     runs-on: ubuntu-latest

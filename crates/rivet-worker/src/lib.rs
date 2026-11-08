@@ -9,6 +9,7 @@
 mod wiki_fs;
 
 use std::collections::{BTreeMap, HashMap};
+use std::fmt::Write as _;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,6 +32,14 @@ pub struct WorkerPool {
     config: Arc<RwLock<RivetConfig>>,
     http: reqwest::Client,
     wiki_revision: Arc<AtomicU64>,
+}
+
+impl std::fmt::Debug for WorkerPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkerPool")
+            .field("paths", &self.paths)
+            .finish_non_exhaustive()
+    }
 }
 
 impl WorkerPool {
@@ -65,7 +74,7 @@ impl WorkerPool {
             self.wiki_revision.clone(),
         );
         let ticks = tokio::spawn({
-            let this = self.clone();
+            let this = self;
             async move {
                 // First pass soon after boot so UI shows pages/embeddings quickly.
                 if let Err(err) = this.tick_once().await {
@@ -179,6 +188,7 @@ impl WorkerPool {
             .ok_or_else(|| anyhow!("empty embeddings response"))
     }
 
+    #[allow(clippy::too_many_lines)] // Wiki sections share ordering and TOC bookkeeping in one pass.
     async fn upsert_wiki(&self, cfg: &RivetConfig) -> Result<()> {
         let project = &cfg.wiki_project_id;
         let wiki_root = self.paths.wiki_dir().join(project);
@@ -202,7 +212,7 @@ impl WorkerPool {
         }
         let mut models = String::from("# Models\n\n| Model | Events | Tokens in | Tokens out |\n| --- | ---: | ---: | ---: |\n");
         for (model, (n, tin, tout)) in &by_model {
-            models.push_str(&format!("| `{model}` | {n} | {tin} | {tout} |\n"));
+            let _ = writeln!(models, "| `{model}` | {n} | {tin} | {tout} |");
         }
         self.write_wiki_page(project, "models", "Models", "models.md", &models)?;
         toc.push(("Models".into(), "models.md".into()));
@@ -222,13 +232,15 @@ impl WorkerPool {
                 .iter()
                 .map(|e| u64::from(e.tokens_in) + u64::from(e.tokens_out))
                 .sum();
-            sessions.push_str(&format!(
-                "## `{sid}`\n\n_{} events · {} tokens_\n\n",
+            let _ = writeln!(
+                sessions,
+                "## `{sid}`\n\n_{} events · {} tokens_\n",
                 events.len(),
                 tokens
-            ));
+            );
+            sessions.push('\n');
             for e in events.iter().take(8) {
-                sessions.push_str(&format!("- {}\n", format_event_line(e)));
+                let _ = writeln!(sessions, "- {}", format_event_line(e));
             }
             sessions.push('\n');
         }
@@ -242,13 +254,14 @@ impl WorkerPool {
         for (topic, events) in &topics {
             let slug = slugify(topic);
             let rel = format!("topics/{slug}.md");
-            topics_index.push_str(&format!(
-                "- [{topic}]({slug}.md) — {} events\n",
+            let _ = writeln!(
+                topics_index,
+                "- [{topic}]({slug}.md) — {} events",
                 events.len()
-            ));
+            );
             let mut page = format!("# {topic}\n\n");
             for e in events.iter().take(30) {
-                page.push_str(&format!("- {}\n", format_event_line(e)));
+                let _ = writeln!(page, "- {}", format_event_line(e));
             }
             self.write_wiki_page(project, &format!("topics/{slug}"), topic, &rel, &page)?;
             toc.push((topic.clone(), rel));
@@ -277,7 +290,7 @@ impl WorkerPool {
             let title = format!("{name} traffic");
             let mut body = format!("# {name}\n\n_{} recent events_\n\n", events.len());
             for e in events.iter().take(40) {
-                body.push_str(&format!("- {}\n", format_event_line(e)));
+                let _ = writeln!(body, "- {}", format_event_line(e));
             }
             self.write_wiki_page(project, &format!("providers/{slug}"), &title, &rel, &body)?;
             toc.push((title, rel));
@@ -295,8 +308,7 @@ impl WorkerPool {
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|d| d.with_timezone(&Utc));
             let stale_hour = last_at
-                .map(|t| Utc::now() - t > chrono::Duration::hours(1))
-                .unwrap_or(true);
+                .is_none_or(|t| Utc::now() - t > chrono::Duration::hours(1));
             let traffic_changed = last_fp.as_deref() != Some(fingerprint.as_str());
             if traffic_changed && stale_hour && totals.events > 0 {
                 match self
@@ -341,29 +353,36 @@ impl WorkerPool {
         // --- README overview (last) with full table of contents ---
         let mut readme = String::new();
         readme.push_str("# Rivet project wiki\n\n");
-        readme.push_str(&format!(
-            "_Auto-updated {} by the wiki worker_\n\n",
+        let _ = writeln!(
+            readme,
+            "_Auto-updated {} by the wiki worker_\n",
             Utc::now().format("%Y-%m-%d %H:%M UTC")
-        ));
+        );
+        readme.push('\n');
         readme.push_str("## Traffic snapshot\n\n");
-        readme.push_str(&format!(
-            "- Events: **{}**\n- Tokens in: **{}**\n- Tokens out: **{}**\n- Embeddings: **{}**\n\n",
-            totals.events,
-            totals.tokens_in,
-            totals.tokens_out,
+        let _ = writeln!(
+            readme,
+            "- Events: **{}**",
+            totals.events
+        );
+        let _ = writeln!(readme, "- Tokens in: **{}**", totals.tokens_in);
+        let _ = writeln!(readme, "- Tokens out: **{}**", totals.tokens_out);
+        let _ = writeln!(
+            readme,
+            "- Embeddings: **{}**\n",
             self.meta.embedding_count().unwrap_or(0)
-        ));
+        );
         readme.push_str("## Table of contents\n\n");
         if toc.is_empty() {
             readme.push_str("_No pages yet — capture traffic to populate this wiki._\n");
         } else {
             for (title, rel) in &toc {
-                readme.push_str(&format!("- [{title}]({rel})\n"));
+                let _ = writeln!(readme, "- [{title}]({rel})");
             }
         }
         readme.push_str("\n## Recent captures\n\n");
         for event in recent.iter().take(20) {
-            readme.push_str(&format!("- {}\n", format_event_line(event)));
+            let _ = writeln!(readme, "- {}", format_event_line(event));
         }
         self.write_wiki_page(project, "README", "Project overview", "README.md", &readme)?;
 
@@ -380,12 +399,16 @@ impl WorkerPool {
         totals: &rivet_core::UsageTotals,
     ) -> Result<String> {
         let mut digest = String::new();
-        digest.push_str(&format!(
-            "Totals: {} events, {} tokens in, {} tokens out.\n\nRecent traffic:\n",
-            totals.events, totals.tokens_in, totals.tokens_out
-        ));
+        let _ = writeln!(
+            digest,
+            "Totals: {} events, {} tokens in, {} tokens out.\n",
+            totals.events,
+            totals.tokens_in,
+            totals.tokens_out
+        );
+        digest.push_str("\nRecent traffic:\n");
         for e in recent.iter().take(40) {
-            digest.push_str(&format!("{}\n", format_event_line(e)));
+            let _ = writeln!(digest, "{}", format_event_line(e));
         }
         let prompt = format!(
             "You are documenting a local AI traffic hub called Rivet.\n\
@@ -520,7 +543,7 @@ fn cluster_topics(events: &[TrafficEvent]) -> BTreeMap<String, Vec<&TrafficEvent
         for tok in text
             .split(|c: char| !c.is_alphanumeric())
             .filter(|t| t.len() > 4)
-            .map(|t| t.to_ascii_lowercase())
+            .map(str::to_ascii_lowercase)
         {
             if STOP.contains(&tok.as_str()) || tok.chars().all(|c| c.is_ascii_digit()) {
                 continue;
@@ -530,9 +553,7 @@ fn cluster_topics(events: &[TrafficEvent]) -> BTreeMap<String, Vec<&TrafficEvent
         let mut scored: Vec<(String, usize)> = counts.into_iter().collect();
         scored.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         let topic = scored
-            .first()
-            .map(|(t, _)| t.clone())
-            .unwrap_or_else(|| "general".into());
+            .first().map_or_else(|| "general".into(), |(t, _)| t.clone());
         buckets.entry(topic).or_default().push(event);
     }
     let mut ordered: Vec<_> = buckets.into_iter().collect();

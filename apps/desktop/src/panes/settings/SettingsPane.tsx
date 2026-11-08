@@ -18,7 +18,7 @@ export function SettingsPane({
   accounts,
   intelligence,
   harness,
-}: SettingsPaneProps) {
+}: SettingsPaneProps): React.ReactElement {
   return (
     <div
       className={cx(styles.viewPane, active ? styles.isActive : "")}

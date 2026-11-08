@@ -30,24 +30,30 @@ pub struct McpState {
     pub config: Arc<RwLock<RivetConfig>>,
 }
 
-#[derive(Deserialize)]
+impl std::fmt::Debug for McpState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpState").finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SearchRequest {
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
 
-fn default_limit() -> u32 {
+const fn default_limit() -> u32 {
     20
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct SearchResponse {
     pub mode: &'static str,
     pub results: Vec<rivet_core::TrafficEvent>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct ToolDescriptor {
     pub name: &'static str,
     pub description: &'static str,
@@ -72,8 +78,7 @@ async fn require_mcp_loopback(
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .map(rivet_core::host_is_loopback)
-        .unwrap_or(false);
+        .is_some_and(rivet_core::host_is_loopback);
     if !host_ok {
         return Err(StatusCode::FORBIDDEN);
     }
@@ -93,8 +98,7 @@ pub fn router(state: McpState) -> Router {
     let cors = CorsLayer::new().allow_origin(AllowOrigin::predicate(|origin, _| {
         origin
             .to_str()
-            .map(rivet_core::origin_allowed)
-            .unwrap_or(false)
+            .is_ok_and(rivet_core::origin_allowed)
     }));
     Router::new()
         // Streamable HTTP: POST only on /mcp. GET returns 405 (not SSE yet).
@@ -191,7 +195,11 @@ async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>)
                 .get("name")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let args = req.params.get("arguments").cloned().unwrap_or(json!({}));
+            let args = req
+                .params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             let query = args
                 .get("query")
                 .and_then(|v| v.as_str())
@@ -199,7 +207,7 @@ async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>)
                 .to_string();
             let limit = args
                 .get("limit")
-                .and_then(|v| v.as_u64())
+                .and_then(Value::as_u64)
                 .unwrap_or(20)
                 .clamp(1, 100) as u32;
             if query.trim().is_empty() {
@@ -326,7 +334,7 @@ async fn search_history(
     do_search_history(&state, &req.query, req.limit)
         .await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|()| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn semantic_search(

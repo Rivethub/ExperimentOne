@@ -1,38 +1,61 @@
 /** Vite alias target for `@tauri-apps/api/core` when `VITE_MOCK_IPC=1`. */
+/* oxlint-disable eslint/no-console -- mock IPC logs to devtools */
 
-import { handleApiRequest } from "./handlers";
+import type { JsonObject } from "../jsonTypes";
+import { isDefined } from "../nullish";
+import { handleApiRequest, type MockHttpResult } from "./handlers";
 import { getStore } from "./store";
 
-function asString(value: unknown, fallback = ""): string {
-  return typeof value === "string" ? value : fallback;
+function isString(value: unknown): value is string {
+  return typeof value === "string";
 }
 
-export async function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+function asString(value: unknown, fallback = ""): string {
+  return isString(value) ? value : fallback;
+}
+
+function serializeBody(bodyRaw: unknown): string | null {
+  if (isString(bodyRaw)) {
+    return bodyRaw;
+  }
+  if (!isDefined(bodyRaw)) {
+    return null;
+  }
+  return JSON.stringify(bodyRaw);
+}
+
+export function invoke(
+  cmd: "ensure_rivetd" | "open_wiki_dir" | "reveal_path",
+  args?: JsonObject,
+): Promise<boolean>;
+export function invoke(cmd: "api_request", args?: JsonObject): Promise<MockHttpResult>;
+export function invoke(cmd: string, args?: JsonObject): Promise<boolean | MockHttpResult>;
+export function invoke(cmd: string, args?: JsonObject): Promise<boolean | MockHttpResult> {
   switch (cmd) {
-    case "ensure_rivetd":
-      return true as T;
+    case "ensure_rivetd": {
+      return Promise.resolve(true);
+    }
     case "api_request": {
       const method = asString(args?.method, "GET");
       const path = asString(args?.path);
-      const bodyRaw = args?.body;
-      const body =
-        typeof bodyRaw === "string" ? bodyRaw : bodyRaw == null ? null : JSON.stringify(bodyRaw);
-      const res = await handleApiRequest(method, path, body);
-      return res as T;
+      const bodyArg: unknown = args?.body;
+      const body = serializeBody(bodyArg);
+      return handleApiRequest(method, path, body);
     }
     case "open_wiki_dir": {
-      const path = asString(args?.path);
-      console.info("[mock IPC] open_wiki_dir", path);
-      return true as T;
+      const wikiPath = asString(args?.path);
+      console.info("[mock IPC] open_wiki_dir", wikiPath);
+      return Promise.resolve(true);
     }
     case "reveal_path": {
-      const path = asString(args?.path);
-      console.info("[mock IPC] reveal_path", path);
-      getStore().lastExportPath = path;
-      return true as T;
+      const revealPath = asString(args?.path);
+      console.info("[mock IPC] reveal_path", revealPath);
+      getStore().lastExportPath = revealPath;
+      return Promise.resolve(true);
     }
-    default:
+    default: {
       console.warn(`[mock IPC] unknown command: ${cmd}`, args);
-      throw new Error(`mock IPC: unknown command ${cmd}`);
+      return Promise.reject(new Error(`mock IPC: unknown command ${cmd}`));
+    }
   }
 }

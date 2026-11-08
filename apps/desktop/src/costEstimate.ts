@@ -8,6 +8,12 @@ export type CostRates = {
   note: string;
 };
 
+const DEFAULT_RATES: CostRates = {
+  inPerMTok: 3,
+  outPerMTok: 12,
+  note: "Estimate: generic ~$3 in / $12 out per MTok",
+};
+
 const RATES: Record<string, CostRates> = {
   claude: {
     inPerMTok: 3,
@@ -19,16 +25,12 @@ const RATES: Record<string, CostRates> = {
     outPerMTok: 10,
     note: "Estimate: ChatGPT/Codex-class ~$2.50 in / $10 out per MTok",
   },
-  default: {
-    inPerMTok: 3,
-    outPerMTok: 12,
-    note: "Estimate: generic ~$3 in / $12 out per MTok",
-  },
+  default: DEFAULT_RATES,
 };
 
 export function ratesForProvider(provider: string): CostRates {
   const k = providerKey(provider);
-  return RATES[k] ?? RATES.default;
+  return RATES[k] ?? DEFAULT_RATES;
 }
 
 export function estimateCostUsd(provider: string, tokensIn: number, tokensOut: number): number {
@@ -51,8 +53,8 @@ export function costForProviderEvents(
 }
 
 export function fmtUsd(n: number): string {
-  if (n < 0.01 && n > 0) return "<$0.01";
-  if (n < 1) return `$${n.toFixed(2)}`;
-  if (n < 100) return `$${n.toFixed(2)}`;
+  if (n < 0.01 && n > 0) {return "<$0.01";}
+  if (n < 1) {return `$${n.toFixed(2)}`;}
+  if (n < 100) {return `$${n.toFixed(2)}`;}
   return `$${Math.round(n)}`;
 }

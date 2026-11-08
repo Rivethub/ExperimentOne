@@ -1,8 +1,6 @@
 //! Pidfiles and single-instance lock for Rivet-owned processes.
 
 use std::fs::{self, File, OpenOptions};
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::process::Command;
 
@@ -15,6 +13,7 @@ use anyhow::{bail, Context};
 use crate::RivetPaths;
 
 /// Held for the lifetime of a rivetd process — released on drop.
+#[derive(Debug)]
 pub struct InstanceLock {
     _file: File,
 }
@@ -31,17 +30,11 @@ pub fn try_acquire_rivetd_lock(paths: &RivetPaths) -> Result<InstanceLock> {
         .write(true)
         .truncate(false)
         .open(path.as_std_path())
-        .with_context(|| format!("open {}", path))?;
+        .with_context(|| format!("open {path}"))?;
     #[cfg(unix)]
     {
-        // LOCK_EX | LOCK_NB — portable values on Linux/macOS.
-        const LOCK_EX: i32 = 2;
-        const LOCK_NB: i32 = 4;
-        extern "C" {
-            fn flock(fd: i32, operation: i32) -> i32;
-        }
-        let rc = unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) };
-        if rc != 0 {
+        use fs4::fs_std::FileExt;
+        if file.try_lock_exclusive().is_err() {
             bail!("another rivetd is already running (pids/rivetd.lock held)");
         }
         Ok(InstanceLock { _file: file })
@@ -77,10 +70,7 @@ pub fn write_pid(path: &Path, pid: u32) {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let body = match process_exe(pid) {
-        Some(exe) => format!("{pid}\n{exe}"),
-        None => pid.to_string(),
-    };
+    let body = process_exe(pid).map_or_else(|| pid.to_string(), |exe| format!("{pid}\n{exe}"));
     let _ = fs::write(path, body);
 }
 
@@ -245,18 +235,12 @@ pub fn exe_from_args_line(line: &str) -> Option<String> {
         if tok.starts_with('-') && !path.is_empty() {
             break;
         }
-        if path.is_empty() {
-            path.push_str(tok);
-        } else {
+        if !path.is_empty() {
             path.push(' ');
-            path.push_str(tok);
         }
+        path.push_str(tok);
     }
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
+    (!path.is_empty()).then_some(path)
 }
 
 pub fn identity_matches(live: &str, expected: Option<&str>, legacy_hints: &[&str]) -> bool {

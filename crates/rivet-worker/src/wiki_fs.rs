@@ -38,7 +38,7 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
         let Some(project_id) = project_path
             .file_name()
             .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
+            .map(ToString::to_string)
         else {
             continue;
         };
@@ -46,13 +46,13 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
             continue;
         }
 
-        for md in walk_markdown(&project_path)? {
+        for md in walk_markdown(&project_path) {
             let rel = md
                 .strip_prefix(&project_path)
                 .unwrap_or(&md)
                 .to_string_lossy()
                 .replace('\\', "/");
-            let page = page_from_file(paths, &project_id, &rel, &md)?;
+            let page = page_from_file(paths, &project_id, &rel, &md);
             seen_ids.insert(page.id.clone());
             let changed = match meta.get_wiki_page(&page.id)? {
                 Some(prev) => {
@@ -84,7 +84,7 @@ pub fn reconcile_wiki_dir(paths: &RivetPaths, meta: &MetaStore) -> Result<(usize
     Ok((upserts, removed))
 }
 
-fn walk_markdown(root: &Path) -> Result<Vec<PathBuf>> {
+fn walk_markdown(root: &Path) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -109,7 +109,7 @@ fn walk_markdown(root: &Path) -> Result<Vec<PathBuf>> {
         }
     }
     out.sort();
-    Ok(out)
+    out
 }
 
 fn page_from_file(
@@ -117,7 +117,7 @@ fn page_from_file(
     project_id: &str,
     relative: &str,
     abs: &Path,
-) -> Result<WikiPageMeta> {
+) -> WikiPageMeta {
     let body = std::fs::read_to_string(abs).unwrap_or_default();
     let id_suffix = relative
         .trim_end_matches(".md")
@@ -127,17 +127,15 @@ fn page_from_file(
     let stored = relative_wiki_path(paths, abs);
     let updated_at = std::fs::metadata(abs)
         .and_then(|m| m.modified())
-        .ok()
-        .map(|t| DateTime::<Utc>::from(t).to_rfc3339())
-        .unwrap_or_else(|| Utc::now().to_rfc3339());
+        .ok().map_or_else(|| Utc::now().to_rfc3339(), |t| DateTime::<Utc>::from(t).to_rfc3339());
 
-    Ok(WikiPageMeta {
+    WikiPageMeta {
         id: format!("{project_id}/{id_suffix}"),
         project_id: project_id.to_string(),
         title,
         path: stored,
         updated_at,
-    })
+    }
 }
 
 fn title_from_markdown(body: &str, fallback: &str) -> String {
@@ -159,9 +157,7 @@ fn title_from_markdown(body: &str, fallback: &str) -> String {
 
 fn relative_wiki_path(paths: &RivetPaths, abs: &Path) -> String {
     let root = paths.as_root().as_std_path();
-    abs.strip_prefix(root)
-        .map(|p| p.to_string_lossy().replace('\\', "/"))
-        .unwrap_or_else(|_| abs.to_string_lossy().replace('\\', "/"))
+    abs.strip_prefix(root).map_or_else(|_| abs.to_string_lossy().replace('\\', "/"), |p| p.to_string_lossy().replace('\\', "/"))
 }
 
 /// Watch `wiki/` and reconcile meta on any create/modify/remove (debounced).

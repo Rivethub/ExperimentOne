@@ -1,4 +1,5 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactElement, ReactNode } from "react";
+import { isDefined } from "../nullish";
 import { cx } from "../styles/cx";
 import styles from "./Panel.module.css";
 
@@ -18,26 +19,33 @@ export function Panel({
   className,
   children,
   ...rest
-}: PanelProps) {
-  const hasHead = title != null || actions != null;
+}: PanelProps): ReactElement {
+  const hasHead = isDefined(title) || isDefined(actions);
+  let ledeBlock: ReactElement | null = null;
+  if (hasHead) {
+    ledeBlock = null;
+  } else if (isDefined(lede)) {
+    ledeBlock = <p className={styles.lede}>{lede}</p>;
+  }
+
   return (
     <Tag className={cx(styles.panel, className)} {...rest}>
       {hasHead ? (
         <div className={styles.head}>
           <div>
-            {title != null ? <h2>{title}</h2> : null}
-            {lede != null ? <p className={styles.lede}>{lede}</p> : null}
+            {isDefined(title) ? <h2>{title}</h2> : null}
+            {isDefined(lede) ? <p className={styles.lede}>{lede}</p> : null}
           </div>
           {actions}
         </div>
-      ) : lede != null ? (
-        <p className={styles.lede}>{lede}</p>
-      ) : null}
+      ) : (
+        ledeBlock
+      )}
       {children}
     </Tag>
   );
 }
 
-export function Lede({ className, ...rest }: HTMLAttributes<HTMLParagraphElement>) {
+export function Lede({ className, ...rest }: HTMLAttributes<HTMLParagraphElement>): ReactElement {
   return <p className={cx(styles.lede, className)} {...rest} />;
 }

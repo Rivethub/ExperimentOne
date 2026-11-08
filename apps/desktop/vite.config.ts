@@ -1,22 +1,19 @@
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { defineConfig, lazyPlugins } from "vite-plus";
 import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
 const mockIpc = process.env.VITE_MOCK_IPC === "1" || process.env.VITE_MOCK_IPC === "true";
-const rootDir = path.dirname(fileURLToPath(import.meta.url));
+const rootDir = import.meta.dirname;
 
 export default defineConfig({
   // Keep Tauri/Rust tree out of Oxfmt/Oxlint — proto+Vite+ only own the web UI.
   fmt: {
     ignorePatterns: ["src-tauri/**", "dist/**"],
   },
+  // Full Oxlint policy lives in `.oxlintrc.json` (warn-only + type-aware).
   lint: {
     ignorePatterns: ["src-tauri/**", "dist/**"],
-    jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
-    rules: { "vite-plus/prefer-vite-plus-imports": "error" },
-    options: { typeAware: true, typeCheck: true },
   },
   test: {
     passWithNoTests: true,
@@ -42,8 +39,8 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
-    hmr: host
+    host: host ?? false,
+    hmr: host !== undefined && host !== ""
       ? {
           protocol: "ws",
           host,

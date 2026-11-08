@@ -51,6 +51,7 @@ struct EmbeddingsFile {
     by_event: BTreeMap<String, EmbeddingEntry>,
 }
 
+#[derive(Debug)]
 struct MetaPaths {
     jobs: PathBuf,
     wiki: PathBuf,
@@ -58,6 +59,7 @@ struct MetaPaths {
     quota: PathBuf,
 }
 
+#[derive(Debug)]
 pub struct MetaStore {
     paths: MetaPaths,
     lock: Mutex<()>,
@@ -264,8 +266,7 @@ impl MetaStore {
         let cutoff = now - chrono::Duration::days(7);
         existing.retain(|r| {
             chrono::DateTime::parse_from_rfc3339(&r.ts)
-                .map(|t| t.with_timezone(&Utc) >= cutoff)
-                .unwrap_or(true)
+                .map_or(true, |t| t.with_timezone(&Utc) >= cutoff)
         });
         Self::write_quota_lines(&self.paths.quota, &existing)?;
         Ok(written)

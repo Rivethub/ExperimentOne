@@ -1,42 +1,16 @@
-import { useMemo } from "react";
+import { useMemo, type ReactElement } from "react";
 import { fmtPct } from "../providerUtils";
+import { isDefined } from "../nullish";
 import type { QuotaAccountUx } from "./types";
+import {
+  distinctWindowIds,
+  finiteRemaining,
+  pooledAccountDisplay,
+  sortAccountsById,
+  windowForAccount,
+} from "./pooledWindowIds";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
-
-function accountDisplay(a: QuotaAccountUx) {
-  return a.email || a.label || a.id;
-}
-
-export function distinctWindowIds(accounts: QuotaAccountUx[]): { id: string; label: string }[] {
-  const seen = new Map<string, string>();
-  for (const a of accounts) {
-    for (const w of a.windows ?? []) {
-      if (!seen.has(w.id)) seen.set(w.id, w.label || w.id);
-    }
-  }
-  if (seen.size === 0) {
-    seen.set("primary", "Primary limit");
-  }
-  return [...seen.entries()].map(([id, label]) => ({ id, label }));
-}
-
-function windowForAccount(
-  a: QuotaAccountUx,
-  windowId: string,
-): { id: string; label: string; remaining_pct?: number | null; reset_at?: string | null } | null {
-  const w = (a.windows ?? []).find((x) => x.id === windowId);
-  if (w) return w;
-  if (windowId === "primary") {
-    return {
-      id: "primary",
-      label: "Primary limit",
-      remaining_pct: a.remaining_pct,
-      reset_at: a.reset_at,
-    };
-  }
-  return null;
-}
 
 function SegmentBar({
   accounts,
@@ -48,16 +22,17 @@ function SegmentBar({
   windowId: string;
   color: string;
   onSelect: (a: QuotaAccountUx) => void;
-}) {
+}): ReactElement {
   return (
     <div className={styles.poolWindowBar} role="group" aria-label="Account limit segments">
       {accounts.map((a) => {
         const w = windowForAccount(a, windowId);
         const rem = w?.remaining_pct;
-        const has = rem != null && Number.isFinite(rem);
-        const remaining = has ? Math.max(0, Math.min(100, rem)) : 0;
+        const has = finiteRemaining(rem);
+        const remaining = has && isDefined(rem) ? Math.max(0, Math.min(100, rem)) : 0;
         const used = has ? 100 - remaining : 100;
         const empty = has && remaining <= 0.5;
+        const label = `${pooledAccountDisplay(a)} · ${fmtPct(rem ?? null)} remaining`;
         return (
           <button
             key={a.id}
@@ -67,8 +42,9 @@ function SegmentBar({
               empty ? styles.isEmpty : "",
               a.loaded ? "" : styles.isDown,
             )}
-            title={`${accountDisplay(a)} · ${fmtPct(rem ?? null)} remaining`}
-            onClick={() => onSelect(a)}
+            title={label}
+            aria-label={label}
+            onClick={() => { onSelect(a); }}
           >
             <div className={styles.poolSegFill} style={{ flexGrow: Math.max(0.05, remaining) }}>
               <span className={styles.poolSegRemain} style={{ background: color }} />
@@ -93,9 +69,9 @@ export function PooledWindowCards({
   accounts: QuotaAccountUx[];
   color: string;
   onAccountSelect: (a: QuotaAccountUx) => void;
-}) {
+}): ReactElement {
   const windows = distinctWindowIds(accounts);
-  const ordered = useMemo(() => [...accounts].sort((a, b) => a.id.localeCompare(b.id)), [accounts]);
+  const ordered = useMemo(() => sortAccountsById(accounts), [accounts]);
 
   return (
     <div className={styles.poolWindows}>
@@ -119,7 +95,7 @@ export function PooledWindowCards({
               return (
                 <span key={a.id} className={styles.poolLegendItem}>
                   <span className={cx(styles.qaDot, styles.ok)} style={{ background: color }} />
-                  {accountDisplay(a)} {fmtPct(w?.remaining_pct ?? null)}
+                  {pooledAccountDisplay(a)} {fmtPct(w?.remaining_pct ?? null)}
                 </span>
               );
             })}

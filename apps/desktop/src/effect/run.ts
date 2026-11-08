@@ -11,15 +11,16 @@ export async function runAppExit<A, E>(
   effect: Effect.Effect<A, E>,
 ): Promise<{ ok: true; value: A } | { ok: false; error: string }> {
   const exit = await Effect.runPromiseExit(effect);
-  if (Exit.isSuccess(exit)) return { ok: true, value: exit.value };
+  if (Exit.isSuccess(exit)) {
+    return { ok: true, value: exit.value };
+  }
   return { ok: false, error: causeMessage(exit.cause) };
 }
 
 function causeMessage(cause: Cause.Cause<unknown>): string {
-  const pretty = Cause.prettyErrors(cause);
-  if (pretty.length > 0) {
-    const first = pretty[0];
-    if (first?.message) return first.message;
+  const [first] = Cause.prettyErrors(cause);
+  if (first !== undefined && first.message !== "") {
+    return first.message;
   }
   const squashed = Cause.squash(cause);
   return rivetErrorMessage(squashed);

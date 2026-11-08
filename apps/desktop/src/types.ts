@@ -1,7 +1,6 @@
-import type { CatalogProvider } from "./providerUtils";
 import type { OnboardingStatus, QuotaAccountUx } from "./quota";
 
-export type { CatalogProvider };
+export type { CatalogProvider } from "./providerUtils";
 export type { OnboardingStatus, QuotaAccountUx as QuotaAccount, QuotaWindow } from "./quota";
 
 export type Page = "quota" | "data" | "runtime" | "wiki" | "settings";

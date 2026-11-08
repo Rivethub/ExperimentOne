@@ -10,13 +10,14 @@ export type {
 export { AccountConnectCards } from "./AccountConnectCards";
 export { AccountDetailSheet } from "./AccountDetailSheet";
 export { LimitRecoveryBanner } from "./LimitRecoveryBanner";
+export { OnboardingOverlay } from "./OnboardingOverlay";
 export {
-  OnboardingOverlay,
   dismissOnboarding,
   isOnboardingDismissed,
   onboardingIncomplete,
-} from "./OnboardingOverlay";
-export { PooledWindowCards, distinctWindowIds } from "./pooledWindows";
+} from "./onboardingStorage";
+export { PooledWindowCards } from "./pooledWindows";
+export { distinctWindowIds } from "./pooledWindowIds";
 export { StaleStamp } from "./StaleStamp";
 export { detectLimitHit } from "./limitHit";
 export { costForProviderEvents } from "../costEstimate";

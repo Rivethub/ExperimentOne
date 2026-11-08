@@ -53,7 +53,7 @@ export function AppTopbar({
   wiki,
   runtime,
   data,
-}: AppTopbarProps) {
+}: AppTopbarProps): React.ReactElement {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();

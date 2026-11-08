@@ -28,15 +28,19 @@ export async function api(method: string, path: string, body?: unknown): Promise
     return {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
-      async json<T = unknown>() {
-        if (!res.body) return undefined as T;
-        return JSON.parse(res.body) as T;
+      json<T = unknown>(): Promise<T> {
+        if (res.body === "") {
+          // JUSTIFICATION: empty 2xx bodies are valid; callers treat T as possibly undefined.
+          return Promise.resolve(undefined as T);
+        }
+        // JUSTIFICATION: callers only request typed JSON from rivetd routes they own.
+        return Promise.resolve(JSON.parse(res.body) as T);
       },
-      async text() {
-        return res.body;
+      text(): Promise<string> {
+        return Promise.resolve(res.body);
       },
     };
   } catch (err) {
-    throw new Error(rivetErrorMessage(err));
+    throw new Error(rivetErrorMessage(err), { cause: err });
   }
 }

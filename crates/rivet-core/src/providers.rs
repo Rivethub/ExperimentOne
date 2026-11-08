@@ -1,4 +1,4 @@
-//! OAuth / credential providers mirrored from CLIProxyAPI (prox).
+//! OAuth / credential providers mirrored from `CLIProxyAPI` (prox).
 
 use serde::{Deserialize, Serialize};
 
@@ -23,7 +23,7 @@ pub struct ProviderCatalogEntry {
     /// Short badge letter/glyph for the UI.
     pub badge: String,
     pub login_kind: LoginKind,
-    /// CLIProxyAPI flag when spawning a one-shot login process (without leading `-`).
+    /// `CLIProxyAPI` flag when spawning a one-shot login process (without leading `-`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub login_flag: Option<String>,
     /// Alternate ids accepted by `POST /v1/accounts/login`.

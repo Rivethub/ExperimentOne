@@ -19,7 +19,7 @@ export function AppSidebar({
   trafficEventCount,
   onNavigate,
   onOpenSettings,
-}: AppSidebarProps) {
+}: AppSidebarProps): React.ReactElement {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.brand}>
@@ -60,7 +60,7 @@ export function AppSidebar({
                   key={tab.id}
                   type="button"
                   className={cx(styles.navSubBtn, settingsTab === tab.id ? styles.active : "")}
-                  onClick={() => onOpenSettings(tab.id)}
+                  onClick={() =>{  onOpenSettings(tab.id); }}
                 >
                   {tab.label}
                 </button>

@@ -14,8 +14,8 @@ export function QuotaChart({
   empty?: boolean;
   emptyLabel?: string;
   legend?: string;
-}) {
-  if (empty) {
+}): React.ReactElement {
+  if (empty === true) {
     return (
       <div className={cx(styles.chartWrap, styles.chartWrapEmpty)}>
         <p>{emptyLabel ?? "No captured traffic in this window"}</p>

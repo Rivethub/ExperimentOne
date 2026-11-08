@@ -18,8 +18,14 @@ use serde::Deserialize;
 #[derive(Clone)]
 pub struct IngestState {
     pub store: Arc<dyn TrafficStore>,
-    /// Shared with the proxy via `RIVET_INGEST_KEY` (usually proxy_access_key).
+    /// Shared with the proxy via `RIVET_INGEST_KEY` (usually `proxy_access_key`).
     pub ingest_key: String,
+}
+
+impl std::fmt::Debug for IngestState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IngestState").finish_non_exhaustive()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -36,8 +42,7 @@ async fn require_ingest_auth(
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .map(rivet_core::host_is_loopback)
-        .unwrap_or(false);
+        .is_some_and(rivet_core::host_is_loopback);
     if !host_ok {
         return Err(StatusCode::FORBIDDEN);
     }

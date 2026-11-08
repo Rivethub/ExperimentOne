@@ -1,6 +1,6 @@
 import type { CatalogProvider } from "../../providerUtils";
 import type { QuotaAccountUx } from "../../quota";
-import type { Account, HarnessWrite, LoginStatus, Status } from "../../types";
+import type { Account, HarnessWrite, LoginStatus, SettingsTab, Status } from "../../types";
 
 export type SettingsAccountsProps = {
   accounts: Account[];
@@ -46,7 +46,7 @@ export type SettingsHarnessProps = {
 
 export type SettingsPaneProps = {
   active: boolean;
-  settingsTab: import("../../types").SettingsTab;
+  settingsTab: SettingsTab;
   accounts: SettingsAccountsProps;
   intelligence: SettingsIntelligenceProps;
   harness: SettingsHarnessProps;

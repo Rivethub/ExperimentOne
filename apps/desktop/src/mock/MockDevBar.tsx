@@ -1,4 +1,5 @@
-import { getMockScenario, isMockIpc, setMockScenario, type MockScenario } from "./mode";
+import type { ReactElement } from "react";
+import { getMockScenario, isMockIpc, isMockScenario, setMockScenario, type MockScenario } from "./mode";
 import { resetStore } from "./store";
 import { Button } from "../ui";
 import styles from "../styles/app.module.css";
@@ -11,8 +12,10 @@ const SCENARIOS: { id: MockScenario; label: string }[] = [
 ];
 
 /** Floating control strip — only mounted under `VITE_MOCK_IPC`. */
-export function MockDevBar() {
-  if (!isMockIpc()) return null;
+export function MockDevBar(): ReactElement | null {
+  if (!isMockIpc()) {
+    return null;
+  }
   const current = getMockScenario();
 
   return (
@@ -21,7 +24,15 @@ export function MockDevBar() {
       <span className={styles.mockDevBarSep}>·</span>
       <label>
         Scenario
-        <select value={current} onChange={(e) => setMockScenario(e.target.value as MockScenario)}>
+        <select
+          value={current}
+          onChange={(e) => {
+            const next = e.target.value;
+            if (isMockScenario(next)) {
+              setMockScenario(next);
+            }
+          }}
+        >
           {SCENARIOS.map((s) => (
             <option key={s.id} value={s.id}>
               {s.label}
@@ -33,7 +44,7 @@ export function MockDevBar() {
         variant="ghost"
         onClick={() => {
           resetStore(current);
-          window.location.reload();
+          globalThis.location.reload();
         }}
       >
         Reseed

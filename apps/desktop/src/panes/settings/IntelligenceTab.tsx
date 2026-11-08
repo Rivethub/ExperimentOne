@@ -1,12 +1,23 @@
+import { isDefined } from "../../nullish";
 import type { SettingsIntelligenceProps } from "./types";
 import { Actions, Banner, Button, Input, Panel } from "../../ui";
 import { cx } from "../../styles/cx";
 import styles from "../../styles/app.module.css";
 
+function capabilityEnabled(
+  value: boolean | undefined,
+): boolean {
+  return value === true;
+}
+
 export function IntelligenceTab({
   hidden,
+  bagNote,
   ...intelligence
-}: SettingsIntelligenceProps & { hidden?: boolean }) {
+}: SettingsIntelligenceProps & { hidden?: boolean }): React.ReactElement {
+  const vectorOn = capabilityEnabled(intelligence.status?.capabilities.vector_search);
+  const wikiOn = capabilityEnabled(intelligence.status?.capabilities.wiki);
+
   return (
     <Panel
       className={styles.settingsPanel}
@@ -22,20 +33,14 @@ export function IntelligenceTab({
         </div>
         <button
           type="button"
-          className={cx(
-            styles.togglePill,
-            intelligence.status?.capabilities.vector_search ? styles.on : "",
-          )}
+          className={cx(styles.togglePill, vectorOn ? styles.on : "")}
           disabled={intelligence.busy}
-          onClick={() =>
-            intelligence.onToggleCapability(
-              "vector_search",
-              !intelligence.status?.capabilities.vector_search,
-            )
-          }
+          onClick={() => {
+            intelligence.onToggleCapability("vector_search", !vectorOn);
+          }}
         >
           <span className={styles.toggleDot} aria-hidden />
-          {intelligence.status?.capabilities.vector_search ? "Enabled" : "Disabled"}
+          {vectorOn ? "Enabled" : "Disabled"}
         </button>
       </div>
       <div className={styles.settingsToggleRow}>
@@ -45,22 +50,23 @@ export function IntelligenceTab({
         </div>
         <button
           type="button"
-          className={cx(styles.togglePill, intelligence.status?.capabilities.wiki ? styles.on : "")}
+          className={cx(styles.togglePill, wikiOn ? styles.on : "")}
           disabled={intelligence.busy}
-          onClick={() =>
-            intelligence.onToggleCapability("wiki", !intelligence.status?.capabilities.wiki)
-          }
+          onClick={() => {
+            intelligence.onToggleCapability("wiki", !wikiOn);
+          }}
         >
           <span className={styles.toggleDot} aria-hidden />
-          {intelligence.status?.capabilities.wiki ? "Enabled" : "Disabled"}
+          {wikiOn ? "Enabled" : "Disabled"}
         </button>
       </div>
       <div className={styles.settingsFields}>
-        <label>
+        <label htmlFor="intelligence-embed-model">
           <span>
             Embedding model <em className={styles.fieldBadge}>v1 lexical</em>
           </span>
           <Input
+            id="intelligence-embed-model"
             placeholder="reserved — v1 uses lexical vectors"
             value={intelligence.embedModel}
             disabled
@@ -68,12 +74,13 @@ export function IntelligenceTab({
             title="Reserved for a future remote-embedding release; search stays lexical."
           />
         </label>
-        <label>
+        <label htmlFor="intelligence-wiki-model">
           <span>Wiki text model</span>
           <Input
+            id="intelligence-wiki-model"
             placeholder="optional, e.g. claude-sonnet-4-5"
             value={intelligence.wikiModel}
-            onChange={(e) => intelligence.onWikiModelChange(e.target.value)}
+            onChange={(e) => { intelligence.onWikiModelChange(e.target.value); }}
           />
         </label>
       </div>
@@ -94,7 +101,7 @@ export function IntelligenceTab({
         Lexical embeddings stay consistent with MCP search. The embedding model field is reserved
         for a later remote-vector release.
       </Banner>
-      {intelligence.bagNote && <Banner tone="note">{intelligence.bagNote}</Banner>}
+      {isDefined(bagNote) && bagNote !== "" ? <Banner tone="note">{bagNote}</Banner> : null}
     </Panel>
   );
 }

@@ -21,7 +21,7 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
@@ -135,7 +135,7 @@ impl TrafficEvent {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct UsageTotals {
     pub events: u64,
     pub tokens_in: u64,

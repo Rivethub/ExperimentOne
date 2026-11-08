@@ -1,5 +1,6 @@
-//! Supervises the `rivet-proxy` (CLIProxyAPI) sidecar and account login flows.
+//! Supervises the `rivet-proxy` (`CLIProxyAPI`) sidecar and account login flows.
 
+use std::fmt::Write as _;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -17,6 +18,7 @@ use rivet_core::{
 };
 use tracing::{info, warn};
 
+#[derive(Debug)]
 pub struct ProxySupervisor {
     paths: RivetPaths,
     config: RivetConfig,
@@ -27,6 +29,7 @@ pub struct ProxySupervisor {
     login: Mutex<Option<LoginSession>>,
 }
 
+#[derive(Debug)]
 struct LoginSession {
     provider: String,
     child: Child,
@@ -65,7 +68,7 @@ impl ProxySupervisor {
         Ok(true)
     }
 
-    pub fn config(&self) -> &RivetConfig {
+    pub const fn config(&self) -> &RivetConfig {
         &self.config
     }
 
@@ -143,6 +146,7 @@ impl ProxySupervisor {
         Ok(cmd)
     }
 
+    #[allow(clippy::option_if_let_else)] // Clearing `child_slot` requires a mutable borrow alongside `try_wait`.
     fn refresh_running_locked(&self, child_slot: &mut Option<Child>) -> bool {
         if let Some(child) = child_slot.as_mut() {
             match child.try_wait() {
@@ -166,9 +170,16 @@ impl ProxySupervisor {
     }
 
     pub fn start(&self) -> Result<()> {
-        let mut child_slot = self.child.lock().expect("proxy child lock");
-        if self.refresh_running_locked(&mut child_slot) {
-            *self.running.lock().expect("running lock") = true;
+        let already_running = {
+            let mut child_slot = self.child.lock().expect("proxy child lock");
+            if self.refresh_running_locked(&mut child_slot) {
+                *self.running.lock().expect("running lock") = true;
+                true
+            } else {
+                false
+            }
+        };
+        if already_running {
             return Ok(());
         }
 
@@ -191,7 +202,10 @@ impl ProxySupervisor {
             .with_context(|| format!("spawn proxy {}", bin.display()))?;
         info!(path = %bin.display(), pid = child.id(), "proxy sidecar started");
         crate::pids::write_proxy_pid(&self.paths, child.id());
-        *child_slot = Some(child);
+        {
+            let mut child_slot = self.child.lock().expect("proxy child lock");
+            *child_slot = Some(child);
+        }
         *self.running.lock().expect("running lock") = true;
         *self.want_running.lock().expect("want_running lock") = true;
 
@@ -202,7 +216,11 @@ impl ProxySupervisor {
             if port_open(port) {
                 return Ok(());
             }
-            if !self.refresh_running_locked(&mut child_slot) {
+            let died = {
+                let mut child_slot = self.child.lock().expect("proxy child lock");
+                !self.refresh_running_locked(&mut child_slot)
+            };
+            if died {
                 *self.running.lock().expect("running lock") = false;
                 bail!(
                     "proxy exited before listening on 127.0.0.1:{port} — \
@@ -215,8 +233,11 @@ impl ProxySupervisor {
     }
 
     pub fn stop(&self) -> Result<()> {
-        let mut child_slot = self.child.lock().expect("proxy child lock");
-        if let Some(mut child) = child_slot.take() {
+        let child = {
+            let mut child_slot = self.child.lock().expect("proxy child lock");
+            child_slot.take()
+        };
+        if let Some(mut child) = child {
             let pid = child.id();
             info!(pid, "stopping proxy sidecar");
             // Sidecar was started in its own process group — signal the group first.
@@ -256,8 +277,10 @@ impl ProxySupervisor {
     }
 
     pub fn is_running(&self) -> bool {
-        let mut child_slot = self.child.lock().expect("proxy child lock");
-        let alive = self.refresh_running_locked(&mut child_slot);
+        let alive = {
+            let mut child_slot = self.child.lock().expect("proxy child lock");
+            self.refresh_running_locked(&mut child_slot)
+        };
         *self.running.lock().expect("running lock") = alive;
         alive
     }
@@ -328,19 +351,14 @@ impl ProxySupervisor {
             spawn_reader(stderr, output.clone());
         }
 
-        {
-            let mut buf = output.lock().expect("output lock");
-            let mode = if flag.contains("device") {
-                "device"
-            } else {
-                "browser"
-            };
-            buf.push_str(&format!(
-                "Starting {} {} login…\n{}\n",
-                entry.label,
-                mode,
-                hint.as_deref().unwrap_or("")
-            ));
+        let mode = if flag.contains("device") {
+            "device"
+        } else {
+            "browser"
+        };
+        append_login_log(&output, &format!("Starting {} {mode} login…", entry.label));
+        if let Some(h) = hint.as_deref() {
+            append_login_log(&output, h);
         }
 
         *self.login.lock().expect("login lock") = Some(LoginSession {
@@ -364,7 +382,7 @@ impl ProxySupervisor {
         if path.is_empty() {
             bail!("path is required");
         }
-        let p = std::path::Path::new(path);
+        let p = Path::new(path);
         if !p.is_file() {
             bail!("vertex key file not found: {path}");
         }
@@ -404,18 +422,15 @@ impl ProxySupervisor {
         if let Some(stderr) = child.stderr.take() {
             spawn_reader(stderr, output.clone());
         }
-        {
-            let mut buf = output.lock().expect("output lock");
-            buf.push_str(&format!("Importing Vertex service account from {path}…\n"));
-        }
-
-        *self.login.lock().expect("login lock") = Some(LoginSession {
+        append_login_log(&output, &format!("Importing Vertex service account from {path}…"));
+        let login_session = LoginSession {
             provider: "vertex".into(),
             child,
             output,
             done,
             success,
-        });
+        };
+        *self.login.lock().expect("login lock") = Some(login_session);
 
         Ok(LoginStartResponse {
             provider: "vertex".into(),
@@ -427,8 +442,8 @@ impl ProxySupervisor {
     }
 
     pub fn login_status(&self) -> LoginStatusResponse {
-        let mut login = self.login.lock().expect("login lock");
-        let Some(session) = login.as_mut() else {
+        let mut login_guard = self.login.lock().expect("login lock");
+        let Some(session) = login_guard.as_mut() else {
             return LoginStatusResponse {
                 active: false,
                 provider: None,
@@ -452,9 +467,11 @@ impl ProxySupervisor {
         let done = *session.done.lock().expect("done");
         let success = *session.success.lock().expect("success");
         let output = session.output.lock().expect("output").clone();
+        let provider = session.provider.clone();
+        drop(login_guard);
         LoginStatusResponse {
             active: !done,
-            provider: Some(session.provider.clone()),
+            provider: Some(provider),
             output,
             done,
             success,
@@ -462,8 +479,11 @@ impl ProxySupervisor {
     }
 
     pub fn cancel_login(&self) -> Result<()> {
-        let mut login = self.login.lock().expect("login lock");
-        if let Some(mut session) = login.take() {
+        let session = {
+            let mut login = self.login.lock().expect("login lock");
+            login.take()
+        };
+        if let Some(mut session) = session {
             let _ = session.child.kill();
             let _ = session.child.wait();
             *session.done.lock().expect("done") = true;
@@ -474,9 +494,8 @@ impl ProxySupervisor {
     pub fn list_accounts(&self) -> Result<Vec<AccountInfo>> {
         let dir = self.paths.proxy_auth_dir();
         let mut out = Vec::new();
-        let entries = match std::fs::read_dir(dir.as_std_path()) {
-            Ok(e) => e,
-            Err(_) => return Ok(out),
+        let Ok(entries) = std::fs::read_dir(dir.as_std_path()) else {
+            return Ok(out);
         };
         for entry in entries.flatten() {
             let path = entry.path();
@@ -490,7 +509,7 @@ impl ProxySupervisor {
                 .to_string();
             let raw = std::fs::read_to_string(&path).unwrap_or_default();
             let meta: serde_json::Value =
-                serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({}));
             let provider = rivet_core::normalize_provider_id(
                 meta.get("type")
                     .or_else(|| meta.get("provider"))
@@ -531,7 +550,7 @@ impl ProxySupervisor {
             bail!("account not found: {id}");
         }
         std::fs::remove_file(path.as_std_path())
-            .with_context(|| format!("remove account file {}", path))?;
+            .with_context(|| format!("remove account file {path}"))?;
         info!(%id, "removed provider account credential");
         Ok(())
     }
@@ -583,11 +602,11 @@ impl ControlApi for ProxySupervisor {
     }
 
     fn import_vertex(&self, path: &str) -> Result<LoginStartResponse, String> {
-        ProxySupervisor::import_vertex(self, path).map_err(|e| e.to_string())
+        Self::import_vertex(self, path).map_err(|e| e.to_string())
     }
 
     fn login_status(&self) -> LoginStatusResponse {
-        ProxySupervisor::login_status(self)
+        Self::login_status(self)
     }
 
     fn login_cancel(&self) -> Result<(), String> {
@@ -595,11 +614,11 @@ impl ControlApi for ProxySupervisor {
     }
 
     fn list_accounts(&self) -> Result<Vec<AccountInfo>, String> {
-        ProxySupervisor::list_accounts(self).map_err(|e| e.to_string())
+        Self::list_accounts(self).map_err(|e| e.to_string())
     }
 
     fn remove_account(&self, id: &str) -> Result<(), String> {
-        ProxySupervisor::remove_account(self, id).map_err(|e| e.to_string())
+        Self::remove_account(self, id).map_err(|e| e.to_string())
     }
 
     fn write_harness(
@@ -607,7 +626,7 @@ impl ControlApi for ProxySupervisor {
         target: &str,
         mode: Option<&str>,
     ) -> Result<HarnessWriteResponse, String> {
-        ProxySupervisor::write_harness(self, target, mode).map_err(|e| e.to_string())
+        Self::write_harness(self, target, mode).map_err(|e| e.to_string())
     }
 }
 
@@ -618,25 +637,32 @@ impl Drop for ProxySupervisor {
     }
 }
 
+const LOGIN_LOG_CAP_BYTES: usize = 64 * 1024;
+
+#[allow(clippy::significant_drop_tightening)] // Guard must cover the write to the shared login log.
+fn append_login_log(output: &Arc<Mutex<String>>, line: &str) {
+    let mut buf = output.lock().expect("output lock");
+    let _ = writeln!(buf, "{line}");
+    drop(buf);
+}
+
 fn spawn_reader(mut pipe: impl Read + Send + 'static, output: Arc<Mutex<String>>) {
     thread::spawn(move || {
         let mut buf = [0u8; 1024];
         loop {
             match pipe.read(&mut buf) {
-                Ok(0) => break,
+                Ok(0) | Err(_) => break,
                 Ok(n) => {
                     let chunk = String::from_utf8_lossy(&buf[..n]);
                     if let Ok(mut out) = output.lock() {
                         out.push_str(&chunk);
                         // Cap log size so a runaway process can't blow memory.
-                        const MAX: usize = 64 * 1024;
-                        if out.len() > MAX {
-                            let trim = out.len() - MAX;
+                        if out.len() > LOGIN_LOG_CAP_BYTES {
+                            let trim = out.len() - LOGIN_LOG_CAP_BYTES;
                             out.drain(..trim);
                         }
                     }
                 }
-                Err(_) => break,
             }
         }
     });

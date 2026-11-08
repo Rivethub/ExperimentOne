@@ -2,7 +2,7 @@
 
 mod quota;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -68,7 +68,16 @@ pub struct ApiState {
     pub shutdown: tokio::sync::watch::Sender<bool>,
 }
 
-#[derive(Serialize)]
+impl std::fmt::Debug for ApiState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ApiState")
+            .field("paths", &self.paths)
+            .field("traffic_backend", &self.traffic_backend)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct StatusResponse {
     pub ok: bool,
     pub proxy_running: bool,
@@ -88,7 +97,7 @@ pub struct StatusResponse {
     pub workers: WorkersStatus,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct WorkersStatus {
     pub vector_search: bool,
     pub wiki: bool,
@@ -98,7 +107,8 @@ pub struct WorkersStatus {
     pub wiki_cursor: Option<String>,
 }
 
-#[derive(Serialize)]
+#[allow(clippy::struct_excessive_bools)] // Desktop onboarding checklist flags map to UI steps.
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct OnboardingStatus {
     pub proxy_running: bool,
     pub has_accounts: bool,
@@ -187,7 +197,7 @@ pub struct ConfigUpdate {
     pub capabilities: Option<CapabilitiesPatch>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Copy, Clone, Deserialize)]
 pub struct CapabilitiesPatch {
     pub vector_search: Option<bool>,
     pub wiki: Option<bool>,
@@ -230,7 +240,7 @@ fn public_config(cfg: &RivetConfig) -> PublicConfig {
         clickhouse_native_port: cfg.clickhouse_native_port,
         access_key_hint: hint,
         management_configured: !cfg.management_secret.trim().is_empty(),
-        capabilities: cfg.capabilities.clone(),
+        capabilities: cfg.capabilities,
         embedding_model: cfg.embedding_model.clone(),
         wiki_model: cfg.wiki_model.clone(),
         wiki_project_id: cfg.wiki_project_id.clone(),
@@ -261,8 +271,7 @@ fn localhost_cors() -> CorsLayer {
         .allow_origin(AllowOrigin::predicate(|origin, _| {
             origin
                 .to_str()
-                .map(rivet_core::origin_allowed)
-                .unwrap_or(false)
+                .is_ok_and(rivet_core::origin_allowed)
         }))
         .allow_methods([
             Method::GET,
@@ -285,8 +294,7 @@ fn host_is_loopback(headers: &HeaderMap) -> bool {
     headers
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .map(rivet_core::host_is_loopback)
-        .unwrap_or(false)
+        .is_some_and(rivet_core::host_is_loopback)
 }
 
 fn extract_api_key(headers: &HeaderMap) -> Option<String> {
@@ -430,8 +438,7 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     let account_count = state
         .control
         .list_accounts()
-        .map(|a| a.len() as u64)
-        .unwrap_or(0);
+        .map_or(0, |a| a.len() as u64);
     let mut warnings = Vec::new();
     if !proxy_running && !localhost_port_free(cfg.proxy_port) {
         warnings.push(format!(
@@ -456,8 +463,8 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         proxy_base_url: cfg.proxy_base_url(),
         mcp_url: cfg.mcp_url(),
         access_key_hint: hint,
-        capabilities: cfg.capabilities.clone(),
-        usage: usage.clone(),
+        capabilities: cfg.capabilities,
+        usage,
         account_count,
         traffic_backend: state.traffic_backend,
         wiki_dir: state.paths.wiki_dir().to_string(),
@@ -520,7 +527,9 @@ async fn put_config(
     }
     cfg.save(&state.paths)
         .map_err(|e| err_response(e.to_string()))?;
-    Ok(Json(public_config(&cfg)))
+    let response = public_config(&cfg);
+    drop(cfg);
+    Ok(Json(response))
 }
 
 #[derive(Debug, Deserialize)]
@@ -843,15 +852,16 @@ fn build_demo_events() -> Vec<TrafficEvent> {
     let now = Utc::now();
     for i in 0..36 {
         let (content, provider, model, role, tin, tout) = samples[i % samples.len()];
-        let mins_ago = (i as i64 + 1) * 7;
+        let mins_ago = (i64::try_from(i).unwrap_or(0) + 1) * 7;
         let mut ev = TrafficEvent::new(provider);
         ev.ts = now - Duration::minutes(mins_ago);
         ev.model = Some(model.into());
         ev.role = role;
         ev.content = Some(content.into());
-        ev.tokens_in = tin + ((i as u32 % 5) * 17);
-        ev.tokens_out = tout + ((i as u32 % 7) * 23);
-        ev.latency_ms = Some(400 + (i as u64 % 12) * 85);
+        let idx = u32::try_from(i).unwrap_or(0);
+        ev.tokens_in = tin + ((idx % 5) * 17);
+        ev.tokens_out = tout + ((idx % 7) * 23);
+        ev.latency_ms = Some(400 + (u64::from(idx % 12)) * 85);
         ev.status_code = Some(if i % 11 == 0 { 429 } else { 200 });
         ev.account_label = Some(if matches!(provider, ProviderKind::Claude) {
             "claude-primary".into()
@@ -929,9 +939,7 @@ async fn accounts(
                     acct.label = email.clone();
                 }
                 acct.limit_hint = q
-                    .remaining_pct
-                    .map(|p| format!("{p:.0}% left"))
-                    .unwrap_or_else(|| "— pending live".into());
+                    .remaining_pct.map_or_else(|| "— pending live".into(), |p| format!("{p:.0}% left"));
                 acct.reset_hint = q
                     .reset_at
                     .clone()
@@ -1017,7 +1025,7 @@ struct QuotaHistoryQuery {
     hours: u32,
 }
 
-fn default_history_hours() -> u32 {
+const fn default_history_hours() -> u32 {
     6
 }
 
@@ -1046,14 +1054,13 @@ async fn quota_history(
     Query(q): Query<QuotaHistoryQuery>,
 ) -> Result<Json<QuotaHistoryResponse>, (StatusCode, Json<ErrBody>)> {
     let hours = q.hours.clamp(1, 168);
-    let since = (Utc::now() - Duration::hours(hours as i64)).to_rfc3339();
+    let since = (Utc::now() - Duration::hours(i64::from(hours))).to_rfc3339();
     let rows = state
         .meta
         .quota_history_since(&since)
         .map_err(|e| err_response(e.to_string()))?;
 
     // Bucket by provider + minute so the chart stays readable.
-    use std::collections::BTreeMap;
     let mut by_provider: HashMap<String, BTreeMap<String, (f64, u64)>> = HashMap::new();
     for row in rows {
         let provider = rivet_core::normalize_provider_id(&row.provider);
@@ -1105,9 +1112,12 @@ async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
             earliest = ev.ts;
         }
         let provider = rivet_core::normalize_provider_id(ev.provider.as_str());
-        *out.entry(provider).or_default() += (ev.tokens_in + ev.tokens_out) as f64;
+        *out.entry(provider).or_default() +=
+            f64::from(ev.tokens_in) + f64::from(ev.tokens_out);
     }
-    let hours = ((Utc::now() - earliest).num_seconds().max(1) as f64 / 3600.0).max(0.25);
+    let secs = (Utc::now() - earliest).num_seconds().max(1);
+    let secs_f = f64::from(i32::try_from(secs).unwrap_or(i32::MAX));
+    let hours = (secs_f / 3600.0).max(0.25);
     for v in out.values_mut() {
         *v /= hours;
     }
@@ -1116,9 +1126,7 @@ async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
 
 fn format_account_reset(reset_at: &str) -> String {
     chrono::DateTime::parse_from_rfc3339(reset_at)
-        .ok()
-        .map(|d| d.with_timezone(&Utc).format("%a %H:%M UTC").to_string())
-        .unwrap_or_else(|| reset_at.to_string())
+        .ok().map_or_else(|| reset_at.to_string(), |d| d.with_timezone(&Utc).format("%a %H:%M UTC").to_string())
 }
 
 async fn account_delete(
@@ -1323,6 +1331,8 @@ fn resolve_wiki_abs(
     Ok(canon)
 }
 
+const WIKI_PREVIEW_MAX_CHARS: usize = 1600;
+
 fn read_wiki_preview(paths: &RivetPaths, stored_path: &str) -> String {
     let Ok(abs) = resolve_wiki_abs(paths, stored_path) else {
         return String::new();
@@ -1330,11 +1340,13 @@ fn read_wiki_preview(paths: &RivetPaths, stored_path: &str) -> String {
     let Ok(raw) = std::fs::read_to_string(&abs) else {
         return String::new();
     };
-    const MAX: usize = 1600;
-    if raw.chars().count() <= MAX {
+    if raw.chars().count() <= WIKI_PREVIEW_MAX_CHARS {
         return raw;
     }
-    raw.chars().take(MAX).collect::<String>() + "\n…"
+    raw.chars()
+        .take(WIKI_PREVIEW_MAX_CHARS)
+        .collect::<String>()
+        + "\n…"
 }
 
 fn page_to_card(paths: &RivetPaths, project: &str, page: WikiPageMeta) -> WikiPageCard {
@@ -1356,9 +1368,10 @@ fn page_to_card(paths: &RivetPaths, project: &str, page: WikiPageMeta) -> WikiPa
 async fn wiki_info(
     State(state): State<ApiState>,
 ) -> Result<Json<WikiInfo>, (StatusCode, Json<ErrBody>)> {
-    let cfg = state.config.read().await;
-    let project = cfg.wiki_project_id.clone();
-    let path = state.paths.wiki_dir().to_string();
+    let (project, path) = {
+        let cfg = state.config.read().await;
+        (cfg.wiki_project_id.clone(), state.paths.wiki_dir().to_string())
+    };
     let pages = state
         .meta
         .list_all_wiki_pages()
@@ -1516,7 +1529,7 @@ fn tail_file(path: &std::path::Path, max_lines: usize) -> std::io::Result<String
     Ok(out)
 }
 
-fn err_response(msg: String) -> (StatusCode, Json<ErrBody>) {
+const fn err_response(msg: String) -> (StatusCode, Json<ErrBody>) {
     (StatusCode::BAD_REQUEST, Json(ErrBody { error: msg }))
 }
 

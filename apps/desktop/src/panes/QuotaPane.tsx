@@ -4,20 +4,20 @@ import {
   providerColor,
   type CatalogProvider,
 } from "../providerUtils";
-import { QuotaProviderCard } from "../quota";
+import { QuotaProviderCard,
+  LimitRecoveryBanner,
+  StaleStamp,
+  type LimitHitInfo,
+  type MetricMode,
+  type QuotaAccountUx } from "../quota";
 import {
   historyPointsForProvider,
   seriesFromEvents,
   seriesFromRemainingHistory,
 } from "../quotaSeries";
-import {
-  LimitRecoveryBanner,
-  StaleStamp,
-  type LimitHitInfo,
-  type MetricMode,
-  type QuotaAccountUx,
-} from "../quota";
+import { isDefined } from "../nullish";
 import { Button, Chip } from "../ui";
+import { quotaMetricModeTitle } from "./quotaPaneToolbar";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 import type {
@@ -77,14 +77,14 @@ export function QuotaPane({
   accountsFor,
   onAddCredentials,
   onAccountSelect,
-}: QuotaPaneProps) {
+}: QuotaPaneProps): React.ReactElement {
   return (
     <div
       className={cx(styles.viewPane, active ? styles.isActive : "")}
       hidden={!active}
       aria-hidden={!active}
     >
-      {counts.all > 0 ? (
+      {(counts.all ?? 0) > 0 ? (
         <>
           <LimitRecoveryBanner
             hit={limitHit}
@@ -96,7 +96,7 @@ export function QuotaPane({
             <Chip
               active={filter === "all"}
               count={counts.all ?? 0}
-              onClick={() => onFilterChange("all")}
+              onClick={() =>{  onFilterChange("all"); }}
             >
               All
             </Chip>
@@ -106,7 +106,7 @@ export function QuotaPane({
                 active={filter === id}
                 dotColor={providerColor(id, catalog)}
                 count={counts[id] ?? 0}
-                onClick={() => onFilterChange(id)}
+                onClick={() =>{  onFilterChange(id); }}
               >
                 {providerChipLabel(id, catalog)}
               </Chip>
@@ -125,14 +125,8 @@ export function QuotaPane({
                 <button
                   key={id}
                   className={metricMode === id ? "active" : ""}
-                  onClick={() => onMetricModeChange(id)}
-                  title={
-                    id === "limits"
-                      ? "Subscription windows + remaining history"
-                      : id === "tokens"
-                        ? "Token burn from captured traffic"
-                        : "Estimated API-equivalent cost (labeled rates)"
-                  }
+                  onClick={() =>{  onMetricModeChange(id); }}
+                  title={quotaMetricModeTitle(id)}
                 >
                   {label}
                 </button>
@@ -143,7 +137,7 @@ export function QuotaPane({
                 <button
                   key={h}
                   className={horizon === h ? "active" : ""}
-                  onClick={() => onHorizonChange(h)}
+                  onClick={() =>{  onHorizonChange(h); }}
                 >
                   {h}
                 </button>
@@ -153,7 +147,7 @@ export function QuotaPane({
               {quota?.source === "management"
                 ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · quota ≤5m · ${horizon} history`
                 : `Local fallback · ${horizon} window · refresh after proxy is up`}
-              {quota?.observed_at ? (
+              {isDefined(quota?.observed_at) && quota.observed_at !== "" ? (
                 <>
                   {" "}
                   · <StaleStamp observedAt={quota.observed_at} />

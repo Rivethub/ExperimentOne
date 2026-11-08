@@ -1,4 +1,4 @@
-//! Supervises a bundled single-node ClickHouse sidecar.
+//! Supervises a bundled single-node `ClickHouse` sidecar.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 use rivet_core::{exe_name, sidecar_file_name, which_bin, RivetConfig, RivetPaths};
 use tracing::{info, warn};
 
+#[derive(Debug)]
 pub struct ClickHouseSupervisor {
     paths: RivetPaths,
     config: RivetConfig,
@@ -85,6 +86,7 @@ impl ClickHouseSupervisor {
         self.refresh_locked(&mut slot)
     }
 
+    #[allow(clippy::option_if_let_else)] // Clearing `slot` requires a mutable borrow alongside `try_wait`.
     fn refresh_locked(&self, slot: &mut Option<Child>) -> bool {
         if let Some(child) = slot.as_mut() {
             match child.try_wait() {
@@ -150,8 +152,11 @@ impl ClickHouseSupervisor {
             if port_open(port) {
                 return Ok(true);
             }
-            let mut slot = self.child.lock().expect("ch child lock");
-            if !self.refresh_locked(&mut slot) {
+            let exited = {
+                let mut slot = self.child.lock().expect("ch child lock");
+                !self.refresh_locked(&mut slot)
+            };
+            if exited {
                 bail!(
                     "clickhouse exited before listening on 127.0.0.1:{port} — check {}",
                     self.paths.clickhouse_log_dir()
@@ -164,8 +169,11 @@ impl ClickHouseSupervisor {
     }
 
     pub fn stop(&self) -> Result<()> {
-        let mut slot = self.child.lock().expect("ch child lock");
-        if let Some(mut child) = slot.take() {
+        let child = {
+            let mut slot = self.child.lock().expect("ch child lock");
+            slot.take()
+        };
+        if let Some(mut child) = child {
             let pid = child.id();
             #[cfg(unix)]
             {

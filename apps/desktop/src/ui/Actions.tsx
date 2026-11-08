@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, ReactElement } from "react";
 import { cx } from "../styles/cx";
 import styles from "./Actions.module.css";
 
@@ -8,7 +8,12 @@ export type ActionsProps = HTMLAttributes<HTMLDivElement> & {
   align?: "start" | "end";
 };
 
-export function Actions({ spaced = true, align = "start", className, ...rest }: ActionsProps) {
+export function Actions({
+  spaced = true,
+  align = "start",
+  className,
+  ...rest
+}: ActionsProps): ReactElement {
   return (
     <div
       className={cx(

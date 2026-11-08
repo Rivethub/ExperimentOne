@@ -1,7 +1,7 @@
-export async function invokeTauri<T>(
-  cmd: string,
-  args?: Record<string, unknown>,
-): Promise<T | null> {
+import { isString } from "./guards";
+import type { JsonObject } from "./jsonTypes";
+
+export async function invokeTauri<T>(cmd: string, args?: JsonObject): Promise<T | null> {
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     return await invoke<T>(cmd, args);
@@ -17,10 +17,12 @@ export async function pickRivetbag(): Promise<string | null> {
       multiple: false,
       filters: [{ name: "Rivet traffic", extensions: ["rivetbag"] }],
     });
-    if (typeof selected === "string") return selected;
-    if (Array.isArray(selected) && selected[0]) return selected[0];
+    if (isString(selected)) {
+      return selected;
+    }
     return null;
   } catch {
+    // Dialog cancel / plugin unavailable — treat as no selection.
     return null;
   }
 }

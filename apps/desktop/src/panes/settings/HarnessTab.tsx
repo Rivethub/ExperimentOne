@@ -1,8 +1,15 @@
+import { isDefined } from "../../nullish";
 import type { SettingsHarnessProps } from "./types";
 import { Actions, Banner, Button, Kv, KvRow, Panel, Snippet } from "../../ui";
 import styles from "../../styles/app.module.css";
 
-export function HarnessTab({ hidden, ...harness }: SettingsHarnessProps & { hidden?: boolean }) {
+export function HarnessTab({
+  hidden,
+  ...harness
+}: SettingsHarnessProps & { hidden?: boolean }): React.ReactElement {
+  const note = harness.harnessNote;
+  const envHint = note?.env_hint;
+
   return (
     <Panel
       className={styles.settingsPanel}
@@ -21,14 +28,14 @@ export function HarnessTab({ hidden, ...harness }: SettingsHarnessProps & { hidd
         <Button
           variant="primary"
           disabled={harness.busy}
-          onClick={() => harness.onWriteHarness("claude", "user")}
+          onClick={() => { harness.onWriteHarness("claude", "user"); }}
         >
           Install into ~/.claude
         </Button>
         <Button
           variant="primary"
           disabled={harness.busy}
-          onClick={() => harness.onWriteHarness("codex", "user")}
+          onClick={() => { harness.onWriteHarness("codex", "user"); }}
         >
           Install into ~/.codex
         </Button>
@@ -39,39 +46,35 @@ export function HarnessTab({ hidden, ...harness }: SettingsHarnessProps & { hidd
         <Button onClick={harness.onLoadMcp}>Copy MCP snippet</Button>
         <Button
           disabled={harness.busy}
-          onClick={() => harness.onWriteHarness("claude", "isolated")}
+          onClick={() => { harness.onWriteHarness("claude", "isolated"); }}
         >
           Isolated Claude dir
         </Button>
-        <Button disabled={harness.busy} onClick={() => harness.onWriteHarness("codex", "isolated")}>
+        <Button disabled={harness.busy} onClick={() => { harness.onWriteHarness("codex", "isolated"); }}>
           Isolated Codex dir
         </Button>
       </Actions>
-      {harness.harnessNote && (
+      {isDefined(note) && (
         <div className={styles.harnessResult}>
-          <Banner tone="note">{harness.harnessNote.note}</Banner>
+          <Banner tone="note">{note.note}</Banner>
           <Kv>
-            <KvRow label="Path" value={harness.harnessNote.path} />
-            {harness.harnessNote.backup_path && (
-              <KvRow label="Backup" value={harness.harnessNote.backup_path} />
-            )}
-            {harness.harnessNote.env_hint && (
-              <KvRow label="Env" value={harness.harnessNote.env_hint} />
-            )}
+            <KvRow label="Path" value={note.path} />
+            {isDefined(note.backup_path) && note.backup_path !== "" ? (
+              <KvRow label="Backup" value={note.backup_path} />
+            ) : null}
+            {isDefined(envHint) && envHint !== "" ? <KvRow label="Env" value={envHint} /> : null}
           </Kv>
-          {harness.harnessNote.env_hint && (
+          {isDefined(envHint) && envHint !== "" ? (
             <Actions>
-              <Button onClick={() => harness.onCopyText(harness.harnessNote!.env_hint)}>
-                Copy env export
-              </Button>
+              <Button onClick={() => { harness.onCopyText(envHint); }}>Copy env export</Button>
             </Actions>
-          )}
+          ) : null}
         </div>
       )}
-      {harness.snippet && (
+      {isDefined(harness.snippet) && harness.snippet !== "" && (
         <div style={{ marginTop: 12 }}>
           <Actions>
-            <Button onClick={() => harness.onCopyText(harness.snippet)}>Copy snippet</Button>
+            <Button onClick={() => { harness.onCopyText(harness.snippet); }}>Copy snippet</Button>
           </Actions>
           <Snippet>{harness.snippet}</Snippet>
         </div>

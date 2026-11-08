@@ -1,29 +1,7 @@
 import type { OnboardingStatus } from "./types";
+import type { ReactElement } from "react";
 import { Button, Lede } from "../ui";
 import styles from "../styles/app.module.css";
-
-const ONBOARDING_DISMISS_KEY = "rivet.onboarding.dismissed";
-
-export function isOnboardingDismissed(): boolean {
-  try {
-    return localStorage.getItem(ONBOARDING_DISMISS_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-export function dismissOnboarding() {
-  try {
-    localStorage.setItem(ONBOARDING_DISMISS_KEY, "1");
-  } catch {
-    /* private mode */
-  }
-}
-
-export function onboardingIncomplete(o: OnboardingStatus | null | undefined): boolean {
-  if (!o) return false;
-  return !(o.proxy_running && o.has_accounts && o.harness_ready);
-}
 
 export function OnboardingOverlay({
   onboarding,
@@ -37,7 +15,7 @@ export function OnboardingOverlay({
   onStartProxy: () => void;
   onAddAccount: () => void;
   onHarness: (target: "claude" | "codex") => void;
-}) {
+}): ReactElement {
   const steps = [
     {
       id: "proxy",
@@ -55,7 +33,9 @@ export function OnboardingOverlay({
       id: "harness",
       label: "Set up harness",
       done: onboarding.harness_ready,
-      action: () => onHarness("claude"),
+      action: () => {
+        onHarness("claude");
+      },
     },
   ];
 

@@ -1,4 +1,5 @@
 import { fmt, providerKey } from "./providerUtils";
+import { isDefined } from "./nullish";
 import type { QuotaHistory, QuotaHistoryPoint, TrafficEvent } from "./types";
 
 export type Series = {
@@ -11,13 +12,15 @@ export type Series = {
   eventsInWindow: number;
 };
 
-export function horizonMs(h: "1h" | "3h" | "6h") {
+export function horizonMs(h: "1h" | "3h" | "6h"): number {
   return { "1h": 1, "3h": 3, "6h": 6 }[h] * 60 * 60 * 1000;
 }
 
-export function inHorizon(ev: TrafficEvent, horizon: "1h" | "3h" | "6h") {
+export function inHorizon(ev: TrafficEvent, horizon: "1h" | "3h" | "6h"): boolean {
   const ts = Date.parse(ev.ts);
-  if (Number.isNaN(ts)) return true;
+  if (Number.isNaN(ts)) {
+    return true;
+  }
   return Date.now() - ts <= horizonMs(horizon);
 }
 
@@ -26,6 +29,16 @@ export function historyPointsForProvider(
   provider: string,
 ): QuotaHistoryPoint[] {
   return history?.providers.find((p) => providerKey(p.provider) === provider)?.points ?? [];
+}
+
+function headlineUnitForRemaining(endRemaining: number | null, capacity: number): string {
+  if (!isDefined(endRemaining)) {
+    return "no samples yet";
+  }
+  if (capacity > 0) {
+    return `% / ${Math.round(capacity)}`;
+  }
+  return "%";
 }
 
 /** Remaining-% chart from persisted live quota samples (not invented). */
@@ -43,49 +56,69 @@ export function seriesFromRemainingHistory(
 
   for (const p of historyPoints) {
     const ts = Date.parse(p.ts);
-    if (Number.isNaN(ts) || ts < start) continue;
-    const idx = Math.min(points - 1, Math.max(0, Math.floor((ts - start) / bucketMs)));
-    buckets[idx] = p.remaining_pct;
+    if (Number.isNaN(ts) || ts < start) {
+      /* skip out-of-window */
+    } else {
+      const idx = Math.min(points - 1, Math.max(0, Math.floor((ts - start) / bucketMs)));
+      buckets[idx] = p.remaining_pct;
+    }
   }
 
   let last: number | null = null;
   const recorded = buckets.map((v) => {
-    if (v != null && Number.isFinite(v)) {
+    if (isDefined(v) && Number.isFinite(v)) {
       last = Math.max(0, v);
       return Number(last.toFixed(1));
     }
-    return last != null ? Number(last.toFixed(1)) : 0;
+    return isDefined(last) ? Number(last.toFixed(1)) : 0;
   });
-  const hasSamples = buckets.some((v) => v != null);
-  if (!hasSamples && liveRemainingPct != null && Number.isFinite(liveRemainingPct)) {
-    recorded[recorded.length - 1] = Number(Math.max(0, liveRemainingPct).toFixed(1));
+  const hasSamples = buckets.some((v) => isDefined(v));
+  if (!hasSamples && isDefined(liveRemainingPct) && Number.isFinite(liveRemainingPct)) {
+    const tail = recorded.length - 1;
+    if (tail >= 0) {
+      recorded[tail] = Number(Math.max(0, liveRemainingPct).toFixed(1));
+    }
   }
 
   const capacity = Math.max(0, liveCapacityPct ?? 0);
-  const endRemaining =
-    liveRemainingPct != null && Number.isFinite(liveRemainingPct)
-      ? Math.max(0, liveRemainingPct)
-      : hasSamples
-        ? recorded[recorded.length - 1]
-        : null;
+  let endRemaining: number | null = null;
+  if (isDefined(liveRemainingPct) && Number.isFinite(liveRemainingPct)) {
+    endRemaining = Math.max(0, liveRemainingPct);
+  } else if (hasSamples) {
+    const tail = recorded.at(-1);
+    endRemaining = isDefined(tail) ? tail : null;
+  }
 
   return {
     recorded,
     projected: recorded.slice(),
-    headline: endRemaining != null ? Number(endRemaining.toFixed(0)) : 0,
-    headlineUnit:
-      endRemaining != null && capacity > 0
-        ? `% / ${Math.round(capacity)}`
-        : endRemaining != null
-          ? "%"
-          : "no samples yet",
-    emptyAt: hasSamples || endRemaining != null ? "Steady" : "Waiting for live samples",
+    headline: isDefined(endRemaining) ? Number(endRemaining.toFixed(0)) : 0,
+    headlineUnit: headlineUnitForRemaining(endRemaining, capacity),
+    emptyAt: hasSamples || isDefined(endRemaining) ? "Steady" : "Waiting for live samples",
     burnLabel: "—",
     eventsInWindow: historyPoints.filter((p) => {
       const ts = Date.parse(p.ts);
       return !Number.isNaN(ts) && ts >= start;
     }).length,
   };
+}
+
+function estimateEmptyAt(
+  filteredCount: number,
+  endRemaining: number | null,
+  remainingTokens: number | null,
+  burnPerHour: number,
+): string {
+  if (isDefined(remainingTokens) && burnPerHour > 1) {
+    const hoursLeft = remainingTokens / burnPerHour;
+    return hoursLeft < 1
+      ? `est. ~${Math.round(hoursLeft * 60)}m @ 80k/acct`
+      : `est. ~${hoursLeft.toFixed(1)}h @ 80k/acct`;
+  }
+  if (filteredCount === 0 && !isDefined(endRemaining)) {
+    return "Sign in to track";
+  }
+  return "Steady";
 }
 
 /** Build chart series from measured traffic burn. */
@@ -98,8 +131,7 @@ export function seriesFromEvents(
 ): Series {
   const filtered = events
     .filter((e) => providerKey(e.provider) === provider && inHorizon(e, horizon))
-    .slice()
-    .sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+    .toSorted((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
 
   const hours = { "1h": 1, "3h": 3, "6h": 6 }[horizon];
   const bucketMs = horizonMs(horizon) / points || 1;
@@ -108,12 +140,16 @@ export function seriesFromEvents(
 
   for (const e of filtered) {
     const ts = Date.parse(e.ts);
-    if (Number.isNaN(ts)) continue;
-    const idx = Math.min(
-      points - 1,
-      Math.max(0, Math.floor((ts - (now - horizonMs(horizon))) / bucketMs)),
-    );
-    tokensPerBucket[idx] += e.tokens_in + e.tokens_out;
+    if (Number.isNaN(ts)) {
+      /* skip */
+    } else {
+      const idx = Math.min(
+        points - 1,
+        Math.max(0, Math.floor((ts - (now - horizonMs(horizon))) / bucketMs)),
+      );
+      const prev = tokensPerBucket[idx] ?? 0;
+      tokensPerBucket[idx] = prev + e.tokens_in + e.tokens_out;
+    }
   }
 
   const totalTokens = tokensPerBucket.reduce((a, b) => a + b, 0);
@@ -124,7 +160,7 @@ export function seriesFromEvents(
       : hours;
   const burnPerHour = sampleSpanH > 0 ? totalTokens / sampleSpanH : totalTokens;
   const endRemaining =
-    liveRemainingPct != null && Number.isFinite(liveRemainingPct)
+    isDefined(liveRemainingPct) && Number.isFinite(liveRemainingPct)
       ? Math.max(0, liveRemainingPct)
       : null;
 
@@ -132,19 +168,8 @@ export function seriesFromEvents(
   const maxBurn = Math.max(1, ...burnSeries);
   const recorded = burnSeries.map((v) => Number(((v / maxBurn) * 100).toFixed(1)));
 
-  const remainingTokens = endRemaining != null ? (endRemaining / 100) * 80_000 : null;
-  let emptyAt = "—";
-  if (remainingTokens != null && burnPerHour > 1) {
-    const hoursLeft = remainingTokens / burnPerHour;
-    emptyAt =
-      hoursLeft < 1
-        ? `est. ~${Math.round(hoursLeft * 60)}m @ 80k/acct`
-        : `est. ~${hoursLeft.toFixed(1)}h @ 80k/acct`;
-  } else if (filtered.length === 0 && endRemaining == null) {
-    emptyAt = "Sign in to track";
-  } else {
-    emptyAt = "Steady";
-  }
+  const remainingTokens = isDefined(endRemaining) ? (endRemaining / 100) * 80_000 : null;
+  const emptyAt = estimateEmptyAt(filtered.length, endRemaining, remainingTokens, burnPerHour);
 
   return {
     recorded,

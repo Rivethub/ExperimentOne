@@ -1,4 +1,4 @@
-//! ClickHouse traffic store — sole persistence for captured events.
+//! `ClickHouse` traffic store — sole persistence for captured events.
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
@@ -12,7 +12,7 @@ use uuid::Uuid;
 use crate::TrafficStore;
 
 /// DDL matching the architecture doc — apply once when the CH sidecar boots.
-pub const TRAFFIC_EVENTS_DDL: &str = r#"
+pub const TRAFFIC_EVENTS_DDL: &str = r"
 CREATE TABLE IF NOT EXISTS traffic_events (
   id UUID,
   ts DateTime64(3, 'UTC'),
@@ -31,9 +31,9 @@ CREATE TABLE IF NOT EXISTS traffic_events (
   body_ref Nullable(String)
 ) ENGINE = MergeTree
 ORDER BY (ts, id);
-"#;
+";
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct HttpEndpoint {
     host: String,
     port: u16,
@@ -62,7 +62,18 @@ impl HttpEndpoint {
     }
 }
 
-/// HTTP client for a single-node ClickHouse (tiny tokio TCP — no reqwest).
+#[derive(Debug, Default, serde::Deserialize)]
+struct UsageTotalsRow {
+    #[serde(default)]
+    events: u64,
+    #[serde(default)]
+    tokens_in: u64,
+    #[serde(default)]
+    tokens_out: u64,
+}
+
+/// HTTP client for a single-node `ClickHouse` (tiny tokio TCP — no reqwest).
+#[derive(Debug)]
 pub struct ClickHouseTrafficStore {
     endpoint: HttpEndpoint,
     database: String,
@@ -432,16 +443,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             )
             .await?;
         let line = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("{}");
-        #[derive(Default, serde::Deserialize)]
-        struct Totals {
-            #[serde(default)]
-            events: u64,
-            #[serde(default)]
-            tokens_in: u64,
-            #[serde(default)]
-            tokens_out: u64,
-        }
-        let t: Totals = serde_json::from_str(line).unwrap_or_default();
+        let t: UsageTotalsRow = serde_json::from_str(line).unwrap_or_default();
         Ok(UsageTotals {
             events: t.events,
             tokens_in: t.tokens_in,

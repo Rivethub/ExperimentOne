@@ -1,8 +1,9 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes, ReactElement, ReactNode } from "react";
+import { isDefined } from "../nullish";
 import { cx } from "../styles/cx";
 import styles from "./Kv.module.css";
 
-export function Kv({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
+export function Kv({ className, ...rest }: HTMLAttributes<HTMLDivElement>): ReactElement {
   return <div className={cx(styles.kv, className)} {...rest} />;
 }
 
@@ -13,11 +14,11 @@ export type KvRowProps = HTMLAttributes<HTMLDivElement> & {
   bare?: boolean;
 };
 
-export function KvRow({ label, value, bare, className, children, ...rest }: KvRowProps) {
+export function KvRow({ label, value, bare, className, children, ...rest }: KvRowProps): ReactElement {
   return (
-    <div className={cx(styles.row, bare && styles.bare, className)} {...rest}>
-      {label != null ? <span className={styles.k}>{label}</span> : null}
-      {value != null ? <span className={styles.v}>{value}</span> : null}
+    <div className={cx(styles.row, bare === true && styles.bare, className)} {...rest}>
+      {isDefined(label) ? <span className={styles.k}>{label}</span> : null}
+      {isDefined(value) ? <span className={styles.v}>{value}</span> : null}
       {children}
     </div>
   );

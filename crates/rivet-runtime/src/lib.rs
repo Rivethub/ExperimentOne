@@ -1,4 +1,4 @@
-//! Boots the local Rivet control plane and supervises proxy + ClickHouse sidecars.
+//! Boots the local Rivet control plane and supervises proxy + `ClickHouse` sidecars.
 
 mod clickhouse;
 mod control_ipc;
@@ -20,6 +20,7 @@ use tracing::info;
 pub use clickhouse::ClickHouseSupervisor;
 pub use proxy::ProxySupervisor;
 
+#[derive(Debug)]
 pub struct Runtime {
     pub paths: rivet_core::RivetPaths,
     pub config: rivet_core::RivetConfig,
@@ -78,6 +79,7 @@ impl Runtime {
         result
     }
 
+    #[allow(clippy::too_many_lines)] // Single startup orchestration for all local services.
     async fn run_inner(self) -> Result<()> {
         match self.proxy.start() {
             Ok(()) => info!("proxy sidecar ready"),
@@ -85,11 +87,11 @@ impl Runtime {
                 tracing::warn!(
                     ?err,
                     "proxy not started (start from UI when binary is ready)"
-                )
+                );
             }
         }
 
-        let mut clickhouse_url = rivet_store::ClickHouseTrafficStore::from_env_url();
+        let mut clickhouse_url = ClickHouseTrafficStore::from_env_url();
         match self.clickhouse.start_if_available() {
             Ok(true) => {
                 let url = self.clickhouse.http_url();
@@ -202,8 +204,8 @@ impl Runtime {
         let mut api_shutdown_rx = shutdown_rx;
         let shutdown = async move {
             tokio::select! {
-                _ = wait_for_shutdown_signal() => {}
-                _ = async {
+                () = wait_for_shutdown_signal() => {}
+                () = async {
                     loop {
                         if *api_shutdown_rx.borrow() {
                             break;
@@ -220,7 +222,7 @@ impl Runtime {
             res = axum::serve(api_listener, tcp_router) => res.context("api serve"),
             res = control_serve => res.context("control ipc serve"),
             res = rivet_mcp::serve(mcp_addr, mcp_state) => res.context("mcp serve"),
-            _ = shutdown => {
+            () = shutdown => {
                 info!("shutdown signaled — stopping sidecars");
                 Ok(())
             }

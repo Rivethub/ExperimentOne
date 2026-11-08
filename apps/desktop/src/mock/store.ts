@@ -1,4 +1,4 @@
-import type { LoginStatus } from "../types";
+import type { LoginStatus, QuotaHistory, QuotaSnapshot, Status } from "../types";
 import {
   MOCK_PROVIDERS,
   accountsFromQuota,
@@ -33,12 +33,14 @@ export type MockStore = {
 let store: MockStore | null = null;
 
 export function getStore(): MockStore {
-  if (!store) store = createStore(getMockScenario());
+  store ??= createStore(getMockScenario());
   return store;
 }
 
-export function resetStore(scenario?: MockScenario) {
-  if (store?.loginTimer) clearTimeout(store.loginTimer);
+export function resetStore(scenario?: MockScenario): MockStore {
+  if (store?.loginTimer) {
+    clearTimeout(store.loginTimer);
+  }
   store = createStore(scenario ?? getMockScenario());
   return store;
 }
@@ -69,34 +71,35 @@ function createStore(scenario: MockScenario): MockStore {
   };
 }
 
-export function rebuildDerivedQuota(s: MockStore) {
-  s.accounts = accountsFromQuota(s.quotaAccounts);
+export function rebuildDerivedQuota(): void {
+  const active = getStore();
+  active.accounts = accountsFromQuota(active.quotaAccounts);
 }
 
-export function currentStatus(s: MockStore) {
-  return seedStatus(s.scenario, {
-    accounts: s.accounts,
-    traffic: s.traffic,
-    proxyRunning: s.proxyRunning,
-    wikiEnabled: s.wikiEnabled,
-    vectorEnabled: s.vectorEnabled,
-    embedModel: s.embedModel,
-    wikiModel: s.wikiModel,
+export function currentStatus(snapshot: MockStore): Status {
+  return seedStatus(snapshot.scenario, {
+    accounts: snapshot.accounts,
+    traffic: snapshot.traffic,
+    proxyRunning: snapshot.proxyRunning,
+    wikiEnabled: snapshot.wikiEnabled,
+    vectorEnabled: snapshot.vectorEnabled,
+    embedModel: snapshot.embedModel,
+    wikiModel: snapshot.wikiModel,
   });
 }
 
-export function currentQuota(s: MockStore) {
+export function currentQuota(snapshot: MockStore): QuotaSnapshot {
   return {
     source: "management",
     observed_at: new Date().toISOString(),
-    credentials_total: s.quotaAccounts.length,
-    credentials_loaded: s.quotaAccounts.filter((a) => a.loaded).length,
-    providers: buildProviderQuota(s.quotaAccounts),
-    accounts: s.quotaAccounts,
+    credentials_total: snapshot.quotaAccounts.length,
+    credentials_loaded: snapshot.quotaAccounts.filter((a) => a.loaded).length,
+    providers: buildProviderQuota(snapshot.quotaAccounts),
+    accounts: snapshot.quotaAccounts,
     note: "Mock IPC — remaining sums are fixture data; burn is illustrative.",
   };
 }
 
-export function currentQuotaHistory(s: MockStore, hours: number) {
-  return seedQuotaHistory(s.quotaAccounts, hours);
+export function currentQuotaHistory(snapshot: MockStore, hours: number): QuotaHistory {
+  return seedQuotaHistory(snapshot.quotaAccounts, hours);
 }

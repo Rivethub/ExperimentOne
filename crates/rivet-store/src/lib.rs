@@ -1,4 +1,4 @@
-//! Persistence layer — ClickHouse for traffic, JSON files for meta.
+//! Persistence layer — `ClickHouse` for traffic, JSON files for meta.
 
 mod clickhouse;
 mod meta;
@@ -69,6 +69,7 @@ pub trait TrafficStore: Send + Sync {
 }
 
 /// Open local stores under Application Support.
+#[derive(Debug)]
 pub struct LocalStores {
     pub meta: Arc<MetaStore>,
 }

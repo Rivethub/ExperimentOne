@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 /// Rustc host/target triple used for Tauri `externalBin` sidecar names.
-pub fn target_triple() -> &'static str {
+pub const fn target_triple() -> &'static str {
     if let Some(t) = option_env!("TARGET") {
         return t;
     }
@@ -45,7 +45,7 @@ pub fn target_triple() -> &'static str {
 }
 
 /// `.exe` on Windows, empty elsewhere.
-pub fn exe_suffix() -> &'static str {
+pub const fn exe_suffix() -> &'static str {
     if cfg!(windows) {
         ".exe"
     } else {
@@ -157,6 +157,11 @@ mod tests {
         #[cfg(windows)]
         assert!(name.ends_with(".exe"), "{name}");
         #[cfg(not(windows))]
-        assert!(!name.ends_with(".exe"), "{name}");
+        assert!(
+            !Path::new(&name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("exe")),
+            "{name}"
+        );
     }
 }
