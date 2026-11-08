@@ -33,8 +33,8 @@ pub fn try_acquire_rivetd_lock(paths: &RivetPaths) -> Result<InstanceLock> {
         .with_context(|| format!("open {path}"))?;
     #[cfg(unix)]
     {
-        use fs4::fs_std::FileExt;
-        if file.try_lock_exclusive().is_err() {
+        // std::fs::File::try_lock stabilized in 1.89; MSRV is newer.
+        if file.try_lock().is_err() {
             bail!("another rivetd is already running (pids/rivetd.lock held)");
         }
         Ok(InstanceLock { _file: file })

@@ -23,4 +23,3 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-fs4 = "0.13"
