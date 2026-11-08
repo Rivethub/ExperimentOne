@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { WikiInfo, WikiPageCard } from "../components/WikiBoard";
 import type { JsonObject } from "../lib/json-types";
+import type { HarnessInstallTarget } from "../lib/format-utils";
 import type { CatalogProvider } from "../lib/provider-utils";
 import type {
   Account,
@@ -89,7 +90,7 @@ export const removeAccount = (id: string): ApiFx<unknown> =>
   apiJson("DELETE", `/v1/accounts/${encodeURIComponent(id)}`);
 
 export const writeHarness = (
-  target: "claude" | "codex",
+  target: HarnessInstallTarget,
   mode: "user" | "isolated",
 ): ApiFx<HarnessWrite> => apiJson<HarnessWrite>("POST", "/v1/harness/write", { target, mode });
 export const getClaudeEnv = apiText("GET", "/v1/harness/claude.env");

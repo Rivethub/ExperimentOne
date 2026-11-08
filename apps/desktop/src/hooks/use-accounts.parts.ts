@@ -9,7 +9,7 @@ import {
 } from "react";
 import { rivetErrorMessage, runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
-import { firstHttpUrl } from "../lib/format-utils";
+import { firstHttpUrl, type HarnessInstallTarget } from "../lib/format-utils";
 import type { HarnessWrite, LoginStatus, SettingsTab } from "../lib/types";
 
 export type AccountsLoginApi = {
@@ -31,7 +31,7 @@ export type AccountsVertexApi = {
 export type AccountsHarnessApi = {
   harnessNote: HarnessWrite | null;
   snippet: string;
-  writeHarness: (target: "claude" | "codex", mode?: "user" | "isolated") => Promise<void>;
+  writeHarness: (target: HarnessInstallTarget, mode?: "user" | "isolated") => Promise<void>;
   loadClaude: () => Promise<void>;
   loadCodex: () => Promise<void>;
   loadMcp: () => Promise<void>;
@@ -255,7 +255,7 @@ export function useAccountsHarness(
   const [snippet, setSnippet] = useState("");
 
   const writeHarness = useCallback(
-    async (target: "claude" | "codex", mode: "user" | "isolated" = "user") => {
+    async (target: HarnessInstallTarget, mode: "user" | "isolated" = "user") => {
       setBusy(true);
       try {
         const body = await runApp(
@@ -264,8 +264,11 @@ export function useAccountsHarness(
             const note = yield* Rivet.writeHarness(target, mode);
             let isolated = "";
             if (mode === "isolated") {
-              isolated =
-                target === "claude" ? yield* Rivet.getClaudeEnv : yield* Rivet.getCodexToml;
+              if (target === "claude") {
+                isolated = yield* Rivet.getClaudeEnv;
+              } else if (target === "codex") {
+                isolated = yield* Rivet.getCodexToml;
+              }
             }
             return { note, isolated };
           }),

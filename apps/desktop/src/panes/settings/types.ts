@@ -1,3 +1,4 @@
+import type { HarnessInstallTarget } from "../../lib/format-utils";
 import type { CatalogProvider } from "../../lib/provider-utils";
 import type { QuotaAccountUx } from "../../quota";
 import type { Account, HarnessWrite, LoginStatus, SettingsTab, Status } from "../../lib/types";
@@ -37,7 +38,7 @@ export type SettingsHarnessProps = {
   busy: boolean;
   harnessNote: HarnessWrite | null;
   snippet: string;
-  onWriteHarness: (target: "claude" | "codex", mode: "user" | "isolated") => void;
+  onWriteHarness: (target: HarnessInstallTarget, mode: "user" | "isolated") => void;
   onLoadClaude: () => void;
   onLoadCodex: () => void;
   onLoadMcp: () => void;
