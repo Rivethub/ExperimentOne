@@ -77,7 +77,11 @@ async fn require_mcp_loopback(
     if !host_ok {
         return Err(StatusCode::FORBIDDEN);
     }
-    if let Some(origin) = req.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+    if let Some(origin) = req
+        .headers()
+        .get(header::ORIGIN)
+        .and_then(|v| v.to_str().ok())
+    {
         if !rivet_core::origin_allowed(origin) {
             return Err(StatusCode::FORBIDDEN);
         }
@@ -160,10 +164,7 @@ fn tool_list_schema(tools: &[ToolDescriptor]) -> Value {
     json!({ "tools": listed })
 }
 
-async fn jsonrpc(
-    State(state): State<McpState>,
-    Json(req): Json<JsonRpcRequest>,
-) -> Response {
+async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>) -> Response {
     let method = req.method.as_deref().unwrap_or("");
     let id = req.id.clone().unwrap_or(Value::Null);
     let is_notification = id.is_null() || method.starts_with("notifications/");
@@ -273,10 +274,7 @@ async fn do_semantic_search(
     }
 
     let query_vec = lexical_embed(query);
-    let embeddings = state
-        .meta
-        .all_embeddings()
-        .map_err(|e| e.to_string())?;
+    let embeddings = state.meta.all_embeddings().map_err(|e| e.to_string())?;
 
     let mut scored: Vec<(f32, String)> = embeddings
         .into_iter()

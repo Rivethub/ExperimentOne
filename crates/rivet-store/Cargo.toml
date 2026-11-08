@@ -3,7 +3,7 @@ name = "rivet-store"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "ClickHouse + SQLite persistence for Rivet"
+description = "ClickHouse traffic + file meta persistence for Rivet"
 
 [dependencies]
 anyhow.workspace = true
@@ -15,5 +15,4 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
-rusqlite = { version = "0.32", features = ["bundled"] }
 async-trait = "0.1"

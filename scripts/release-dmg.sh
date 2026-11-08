@@ -31,6 +31,7 @@ export TAURI_SIGNING_IDENTITY="${IDENTITY:-}"
 echo "Building DMG (signing identity: ${IDENTITY:-unsigned})"
 
 cd apps/desktop
+bun install
 # Tauri 2: --bundles is a tauri arg (do not pass after `--` into cargo).
 # Prefer .app first — Finder AppleScript DMG layout often times out in CI/agent hosts.
 BUILD_OK=0

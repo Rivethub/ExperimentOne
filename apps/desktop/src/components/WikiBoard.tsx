@@ -1,6 +1,8 @@
-import { useMemo, useState, type ComponentPropsWithoutRef } from "react";
+import { useEffect, useMemo, useState, type ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Actions, Banner, Button } from "../ui";
+import styles from "../styles/app.module.css";
 
 export type WikiPageCard = {
   id: string;
@@ -16,6 +18,7 @@ export type WikiPageCard = {
 export type WikiInfo = {
   path: string;
   project_id: string;
+  revision?: number;
   pages: WikiPageCard[];
 };
 
@@ -70,10 +73,7 @@ function normalizeWikiPath(raw: string) {
 }
 
 function joinWikiPath(baseDir: string, href: string) {
-  const parts = [
-    ...(baseDir ? baseDir.split("/") : []),
-    ...normalizeWikiPath(href).split("/"),
-  ];
+  const parts = [...(baseDir ? baseDir.split("/") : []), ...normalizeWikiPath(href).split("/")];
   const stack: string[] = [];
   for (const part of parts) {
     if (!part || part === ".") continue;
@@ -172,11 +172,39 @@ export function WikiBoard({
   const [loadingPage, setLoadingPage] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
 
-  const pages = wiki?.pages ?? [];
+  const pages = wiki?.pages;
+  const pageList = useMemo(() => pages ?? [], [pages]);
+
+  // Stay aligned with filesystem: drop deleted projects/pages; reload updates.
+  useEffect(() => {
+    if (!activeId) return;
+    const page = pageList.find((p) => p.id === activeId);
+    if (!page) {
+      setActiveId(null);
+      setContent(null);
+      setPageError(null);
+      return;
+    }
+    if (page.updated_at !== activeUpdated) {
+      setActiveTitle(page.title);
+      setActivePath(page.relative_path);
+      setActiveUpdated(page.updated_at);
+      setLoadingPage(true);
+      void loadPage(page)
+        .then((full) => {
+          setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pageList));
+          setPageError(null);
+        })
+        .catch((e) => {
+          setPageError(e instanceof Error ? e.message : String(e));
+        })
+        .finally(() => setLoadingPage(false));
+    }
+  }, [pageList, activeId, activeUpdated, loadPage]);
 
   const projects = useMemo(() => {
     const byProject = new Map<string, WikiPageCard[]>();
-    for (const page of pages) {
+    for (const page of pageList) {
       const key = page.project_id || wiki?.project_id || "default";
       const list = byProject.get(key) ?? [];
       list.push(page);
@@ -196,21 +224,19 @@ export function WikiBoard({
       });
     }
     return entries.sort((a, b) => a.label.localeCompare(b.label));
-  }, [pages, wiki?.project_id]);
+  }, [pageList, wiki?.project_id]);
 
   async function openPage(page: WikiPageCard) {
     setActiveId(page.id);
     setActiveTitle(page.title);
     setActivePath(page.relative_path);
     setActiveUpdated(page.updated_at);
-    setContent(
-      ensureReadmeToc(page.preview, page.relative_path, page.project_id, pages),
-    );
+    setContent(ensureReadmeToc(page.preview, page.relative_path, page.project_id, pageList));
     setPageError(null);
     setLoadingPage(true);
     try {
       const full = await loadPage(page);
-      setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pages));
+      setContent(ensureReadmeToc(full, page.relative_path, page.project_id, pageList));
     } catch (e) {
       setPageError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -224,12 +250,8 @@ export function WikiBoard({
     setPageError(null);
   }
 
-  function markdownLink({
-    href,
-    children,
-    ...rest
-  }: ComponentPropsWithoutRef<"a">) {
-    const target = href ? resolveWikiLink(href, activePath, pages) : null;
+  function markdownLink({ href, children, ...rest }: ComponentPropsWithoutRef<"a">) {
+    const target = href ? resolveWikiLink(href, activePath, pageList) : null;
     if (target) {
       return (
         <a
@@ -260,12 +282,12 @@ export function WikiBoard({
 
   if (activeId) {
     return (
-      <div className="wiki-reader">
-        <div className="wiki-reader-bar">
-          <button type="button" className="wiki-back" onClick={closeReader}>
+      <div className={styles.wikiReader}>
+        <div className={styles.wikiReaderBar}>
+          <button type="button" className={styles.wikiBack} onClick={closeReader}>
             ← Projects
           </button>
-          <div className="wiki-reader-meta">
+          <div className={styles.wikiReaderMeta}>
             <strong>{activeTitle}</strong>
             <span>
               {activePath}
@@ -273,12 +295,12 @@ export function WikiBoard({
               {loadingPage ? " · loading" : ""}
             </span>
           </div>
-          <button type="button" className="btn ghost" onClick={onOpenFolder}>
+          <Button variant="ghost" onClick={onOpenFolder}>
             Reveal
-          </button>
+          </Button>
         </div>
-        {pageError && <div className="error-banner">{pageError}</div>}
-        <article className="wiki-doc">
+        {pageError && <Banner tone="error">{pageError}</Banner>}
+        <article className={styles.wikiDoc}>
           <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: markdownLink }}>
             {content ?? ""}
           </ReactMarkdown>
@@ -288,51 +310,47 @@ export function WikiBoard({
   }
 
   return (
-    <div className="wiki-board">
-      <p className="wiki-board-lede">
-        One README per project — open it, then follow links.
-      </p>
+    <div className={styles.wikiBoard}>
+      <p className={styles.wikiBoardLede}>One README per project — open it, then follow links.</p>
 
       {projects.length === 0 ? (
-        <div className="wiki-empty">
-          <div className="wiki-empty-card">
+        <div className={styles.wikiEmpty}>
+          <div className={styles.wikiEmptyCard}>
             <strong>No project README yet</strong>
             <p>Enable the wiki worker or add a README.md to the project folder.</p>
-            <div className="actions">
-              <button type="button" className="btn primary" disabled={busy} onClick={onEnable}>
+            <Actions>
+              <Button variant="primary" disabled={busy} onClick={onEnable}>
                 {wikiEnabled ? "Open Settings" : "Enable in Settings"}
-              </button>
-              <button type="button" className="btn" onClick={onOpenFolder}>
-                Open folder
-              </button>
-            </div>
+              </Button>
+              <Button onClick={onOpenFolder}>Open folder</Button>
+            </Actions>
           </div>
         </div>
       ) : (
-        <section className="wiki-section">
-          <div className="wiki-grid">
+        <section className={styles.wikiSection}>
+          <div className={styles.wikiGrid}>
             {projects.map(({ projectId, label, readme }) => {
               const hue = coverTone(`${projectId}/${label}`);
               return (
                 <button
                   key={projectId}
                   type="button"
-                  className="wiki-tile"
+                  className={styles.wikiTile}
                   onClick={() => void openPage(readme)}
                 >
                   <div
-                    className="wiki-tile-cover"
+                    className={styles.wikiTileCover}
                     style={{
                       background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
                     }}
                   >
-                    <div className="wiki-tile-preview" aria-hidden>
+                    <div className={styles.wikiTilePreview} aria-hidden>
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>
                         {readme.preview || "_Empty README_"}
                       </ReactMarkdown>
                     </div>
                   </div>
-                  <div className="wiki-tile-foot">
+                  <div className={styles.wikiTileFoot}>
                     <strong>{label}</strong>
                     <span>
                       README.md

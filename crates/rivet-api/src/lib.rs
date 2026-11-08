@@ -1,12 +1,14 @@
-//! Control plane HTTP API used by the desktop UI.
+//! Control plane API used by the desktop host (local IPC) and loopback CLI.
 
 mod quota;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use anyhow::Result;
+use axum::http::Request;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
@@ -15,12 +17,11 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
-use axum::http::Request;
 use chrono::{Duration, Utc};
 use rivet_core::{
-    claude_mcp_json, claude_settings_json, codex_config_toml, localhost_port_free,
-    provider_catalog, Capabilities, ProviderKind, RivetConfig, RivetPaths, TrafficEvent,
-    TrafficRole, UsageTotals,
+    claude_mcp_json, claude_settings_json, codex_config_toml, harness_user_ready,
+    localhost_port_free, migrate_claude_connector_auth, provider_catalog, Capabilities,
+    ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, UsageTotals,
 };
 use rivet_store::{MetaStore, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
@@ -32,12 +33,20 @@ pub trait ControlApi: Send + Sync {
     fn proxy_running(&self) -> bool;
     fn proxy_start(&self) -> Result<(), String>;
     fn proxy_stop(&self) -> Result<(), String>;
-    fn login_start(&self, provider: &str) -> Result<LoginStartResponse, String>;
+    fn login_start(
+        &self,
+        provider: &str,
+        method: Option<&str>,
+    ) -> Result<LoginStartResponse, String>;
     fn login_status(&self) -> LoginStatusResponse;
     fn login_cancel(&self) -> Result<(), String>;
     fn list_accounts(&self) -> Result<Vec<AccountInfo>, String>;
     fn remove_account(&self, id: &str) -> Result<(), String>;
-    fn write_harness(&self, target: &str) -> Result<HarnessWriteResponse, String>;
+    fn write_harness(
+        &self,
+        target: &str,
+        mode: Option<&str>,
+    ) -> Result<HarnessWriteResponse, String>;
     fn import_vertex(&self, path: &str) -> Result<LoginStartResponse, String>;
 }
 
@@ -48,10 +57,12 @@ pub struct ApiState {
     pub control: Arc<dyn ControlApi>,
     pub paths: RivetPaths,
     pub meta: Arc<MetaStore>,
-    /// `sqlite` or `sqlite+clickhouse` when dual-write is armed.
+    /// Traffic backend id — currently always `clickhouse`.
     pub traffic_backend: &'static str,
     /// Background vectorize + wiki workers.
     pub workers: Option<Arc<rivet_worker::WorkerPool>>,
+    /// Bumped whenever the wiki filesystem index changes.
+    pub wiki_revision: Arc<AtomicU64>,
     /// Signal rivetd to exit after sidecars stop (`POST /v1/shutdown`).
     pub shutdown: tokio::sync::watch::Sender<bool>,
 }
@@ -106,6 +117,9 @@ pub struct AccountInfo {
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub provider: String,
+    /// Optional login method override (`browser` / `device`) for providers that support both.
+    #[serde(default)]
+    pub method: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -127,6 +141,10 @@ pub struct LoginStatusResponse {
 #[derive(Debug, Deserialize)]
 pub struct HarnessWriteRequest {
     pub target: String,
+    /// `user` (default) overlays the real Claude/Codex config with a backup.
+    /// `isolated` writes under Rivet's harness dir (requires env override).
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -135,6 +153,10 @@ pub struct HarnessWriteResponse {
     pub path: String,
     pub env_hint: String,
     pub note: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backup_path: Option<String>,
+    /// `user` or `isolated`
+    pub mode: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,10 +249,7 @@ fn sanitize_wiki_project_id(raw: &str) -> Result<String, String> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
     {
-        return Err(
-            "wiki_project_id must be a short path-safe id (letters, digits, .-_)"
-                .into(),
-        );
+        return Err("wiki_project_id must be a short path-safe id (letters, digits, .-_)".into());
     }
     Ok(s.to_string())
 }
@@ -278,7 +297,10 @@ fn extract_api_key(headers: &HeaderMap) -> Option<String> {
         .and_then(|v| v.to_str().ok())
     {
         let v = v.trim();
-        if let Some(rest) = v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")) {
+        if let Some(rest) = v
+            .strip_prefix("Bearer ")
+            .or_else(|| v.strip_prefix("bearer "))
+        {
             return Some(rest.trim().to_string());
         }
     }
@@ -360,6 +382,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/accounts", get(accounts))
         .route("/v1/accounts/login/status", get(login_status))
         .route("/v1/quota", get(quota_snapshot))
+        .route("/v1/quota/history", get(quota_history))
         .route("/v1/wiki", get(wiki_info))
         .route("/v1/wiki/page", get(wiki_page))
         .route("/v1/harness/claude.env", get(claude_env))
@@ -412,7 +435,16 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             cfg.proxy_port
         ));
     }
-    let harness_ready = state.paths.harness_claude_dir().join("settings.json").exists()
+    // Strip leftover ANTHROPIC_AUTH_TOKEN from earlier Rivet installs so Claude
+    // Code keeps claude.ai connectors enabled.
+    let isolated_claude = state.paths.harness_claude_dir().join("settings.json");
+    let _ = migrate_claude_connector_auth(&cfg, Some(isolated_claude.as_std_path()));
+    let harness_ready = harness_user_ready()
+        || state
+            .paths
+            .harness_claude_dir()
+            .join("settings.json")
+            .exists()
         || state.paths.harness_codex_dir().join("config.toml").exists();
     Json(StatusResponse {
         ok: true,
@@ -459,19 +491,14 @@ async fn put_config(
 ) -> Result<Json<PublicConfig>, (StatusCode, Json<ErrBody>)> {
     let mut cfg = state.config.write().await;
     if let Some(m) = body.embedding_model {
-        cfg.embedding_model = if m.trim().is_empty() {
-            None
-        } else {
-            Some(m)
-        };
+        cfg.embedding_model = if m.trim().is_empty() { None } else { Some(m) };
     }
     if let Some(m) = body.wiki_model {
         cfg.wiki_model = if m.trim().is_empty() { None } else { Some(m) };
     }
     if let Some(p) = body.wiki_project_id {
         if !p.trim().is_empty() {
-            cfg.wiki_project_id =
-                sanitize_wiki_project_id(&p).map_err(err_response)?;
+            cfg.wiki_project_id = sanitize_wiki_project_id(&p).map_err(err_response)?;
         }
     }
     // Models arm capabilities; explicit capability flags win afterward.
@@ -694,14 +721,18 @@ async fn proxy_start(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     state.control.proxy_start().map_err(err_response)?;
-    Ok(Json(serde_json::json!({ "ok": true, "proxy_running": true })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "proxy_running": true }),
+    ))
 }
 
 async fn proxy_stop(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     state.control.proxy_stop().map_err(err_response)?;
-    Ok(Json(serde_json::json!({ "ok": true, "proxy_running": false })))
+    Ok(Json(
+        serde_json::json!({ "ok": true, "proxy_running": false }),
+    ))
 }
 
 async fn shutdown_all(
@@ -743,10 +774,7 @@ async fn accounts(
                     .reset_at
                     .clone()
                     .map(|r| format_account_reset(&r))
-                    .or_else(|| {
-                        q.cooldown_seconds
-                            .map(|s| format!("cooldown {s}s"))
-                    })
+                    .or_else(|| q.cooldown_seconds.map(|s| format!("cooldown {s}s")))
                     .unwrap_or_else(|| "—".into());
             }
         }
@@ -770,9 +798,7 @@ async fn quota_refresh(
     let refreshed = quota::refresh_credentials(&cfg)
         .await
         .map_err(|e| err_response(e.to_string()))?;
-    let snap = build_quota_snapshot(&state)
-        .await
-        .map_err(err_response)?;
+    let snap = build_quota_snapshot(&state).await.map_err(err_response)?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "refresh": refreshed,
@@ -783,8 +809,8 @@ async fn quota_refresh(
 async fn build_quota_snapshot(state: &ApiState) -> Result<quota::QuotaSnapshot, String> {
     let cfg = state.config.read().await.clone();
     let burn = burn_by_provider(state).await;
-    match quota::fetch_quota_snapshot(&cfg, &burn).await {
-        Ok(snap) => Ok(snap),
+    let snap = match quota::fetch_quota_snapshot(&cfg, &burn).await {
+        Ok(snap) => snap,
         Err(err) => {
             tracing::debug!(error = %err, "quota management fetch failed; using local fallback");
             let local = state
@@ -794,9 +820,112 @@ async fn build_quota_snapshot(state: &ApiState) -> Result<quota::QuotaSnapshot, 
                 .into_iter()
                 .map(|a| (a.id, a.provider, a.label))
                 .collect::<Vec<_>>();
-            Ok(quota::local_fallback_snapshot(&local, &burn))
+            quota::local_fallback_snapshot(&local, &burn)
         }
+    };
+    record_quota_history(state, &snap);
+    Ok(snap)
+}
+
+fn record_quota_history(state: &ApiState, snap: &quota::QuotaSnapshot) {
+    let rows: Vec<rivet_store::QuotaSnapshotInsert> = snap
+        .accounts
+        .iter()
+        .filter_map(|a| {
+            let remaining = a.remaining_pct?;
+            Some(rivet_store::QuotaSnapshotInsert {
+                account_id: a.id.clone(),
+                provider: rivet_core::normalize_provider_id(&a.provider),
+                remaining_pct: remaining,
+                reset_at: a.reset_at.clone(),
+            })
+        })
+        .collect();
+    if rows.is_empty() {
+        return;
     }
+    if let Err(err) = state.meta.record_quota_snapshots(&rows) {
+        tracing::debug!(error = %err, "quota snapshot persist failed");
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct QuotaHistoryQuery {
+    #[serde(default = "default_history_hours")]
+    hours: u32,
+}
+
+fn default_history_hours() -> u32 {
+    6
+}
+
+#[derive(Serialize)]
+struct QuotaHistoryPoint {
+    ts: String,
+    remaining_pct: f64,
+    account_count: u64,
+}
+
+#[derive(Serialize)]
+struct QuotaHistoryProvider {
+    provider: String,
+    points: Vec<QuotaHistoryPoint>,
+}
+
+#[derive(Serialize)]
+struct QuotaHistoryResponse {
+    hours: u32,
+    providers: Vec<QuotaHistoryProvider>,
+    note: String,
+}
+
+async fn quota_history(
+    State(state): State<ApiState>,
+    Query(q): Query<QuotaHistoryQuery>,
+) -> Result<Json<QuotaHistoryResponse>, (StatusCode, Json<ErrBody>)> {
+    let hours = q.hours.clamp(1, 168);
+    let since = (Utc::now() - Duration::hours(hours as i64)).to_rfc3339();
+    let rows = state
+        .meta
+        .quota_history_since(&since)
+        .map_err(|e| err_response(e.to_string()))?;
+
+    // Bucket by provider + minute so the chart stays readable.
+    use std::collections::BTreeMap;
+    let mut by_provider: HashMap<String, BTreeMap<String, (f64, u64)>> = HashMap::new();
+    for row in rows {
+        let provider = rivet_core::normalize_provider_id(&row.provider);
+        let bucket = row.ts.get(..16).unwrap_or(row.ts.as_str()).to_string(); // YYYY-MM-DDTHH:MM
+        let entry = by_provider
+            .entry(provider)
+            .or_default()
+            .entry(bucket)
+            .or_insert((0.0, 0));
+        entry.0 += row.remaining_pct;
+        entry.1 += 1;
+    }
+
+    let mut providers: Vec<QuotaHistoryProvider> = by_provider
+        .into_iter()
+        .map(|(provider, buckets)| {
+            let points = buckets
+                .into_iter()
+                .map(|(minute, (sum, count))| QuotaHistoryPoint {
+                    ts: format!("{minute}:00Z"),
+                    remaining_pct: sum,
+                    account_count: count,
+                })
+                .collect();
+            QuotaHistoryProvider { provider, points }
+        })
+        .collect();
+    providers.sort_by(|a, b| a.provider.cmp(&b.provider));
+
+    Ok(Json(QuotaHistoryResponse {
+        hours,
+        providers,
+        note: "Sum of per-account remaining % sampled from the live management API.".into(),
+    }))
 }
 
 async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
@@ -851,7 +980,7 @@ async fn login_start(
 ) -> Result<Json<LoginStartResponse>, (StatusCode, Json<ErrBody>)> {
     state
         .control
-        .login_start(&body.provider)
+        .login_start(&body.provider, body.method.as_deref())
         .map(Json)
         .map_err(err_response)
 }
@@ -889,7 +1018,7 @@ async fn harness_write(
 ) -> Result<Json<HarnessWriteResponse>, (StatusCode, Json<ErrBody>)> {
     state
         .control
-        .write_harness(&body.target)
+        .write_harness(&body.target, body.mode.as_deref())
         .map(Json)
         .map_err(err_response)
 }
@@ -897,8 +1026,14 @@ async fn harness_write(
 async fn export_bag(
     State(state): State<ApiState>,
 ) -> Result<Json<ExportResponse>, (StatusCode, Json<ErrBody>)> {
-    let _ = state.paths.ensure().map_err(|e| err_response(e.to_string()))?;
-    let name = format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"));
+    state
+        .paths
+        .ensure()
+        .map_err(|e| err_response(e.to_string()))?;
+    let name = format!(
+        "rivet-export-{}.rivetbag",
+        Utc::now().format("%Y%m%d-%H%M%S")
+    );
     let path = state.paths.exports_dir().join(&name);
     let manifest = rivet_export::export_bag(state.store.clone(), path.as_std_path())
         .await
@@ -916,10 +1051,7 @@ async fn import_bag(
 ) -> Result<Json<ImportResponse>, (StatusCode, Json<ErrBody>)> {
     let path = PathBuf::from(body.path.trim());
     if !path.is_file() {
-        return Err(err_response(format!(
-            "file not found: {}",
-            path.display()
-        )));
+        return Err(err_response(format!("file not found: {}", path.display())));
     }
     if path.extension().and_then(|s| s.to_str()) != Some("rivetbag")
         && !path
@@ -957,7 +1089,10 @@ struct WikiPageCard {
 #[derive(Serialize)]
 struct WikiInfo {
     path: String,
+    /// Primary / configured project id (still useful for Open folder defaults).
     project_id: String,
+    /// Monotonic counter — desktop polls this to detect FS sync without a Refresh button.
+    revision: u64,
     pages: Vec<WikiPageCard>,
 }
 
@@ -1061,17 +1196,25 @@ async fn wiki_info(
 ) -> Result<Json<WikiInfo>, (StatusCode, Json<ErrBody>)> {
     let cfg = state.config.read().await;
     let project = cfg.wiki_project_id.clone();
-    let path = state.paths.wiki_dir().join(&project).to_string();
+    let path = state.paths.wiki_dir().to_string();
     let pages = state
         .meta
-        .list_wiki_pages(&project)
+        .list_all_wiki_pages()
         .map_err(|e| err_response(e.to_string()))?
         .into_iter()
-        .map(|p| page_to_card(&state.paths, &project, p))
+        .filter(|p| {
+            // Drop any stale meta whose file vanished between watcher ticks.
+            resolve_wiki_abs(&state.paths, &p.path).is_ok()
+        })
+        .map(|p| {
+            let project_id = p.project_id.clone();
+            page_to_card(&state.paths, &project_id, p)
+        })
         .collect();
     Ok(Json(WikiInfo {
         path,
         project_id: project,
+        revision: state.wiki_revision.load(Ordering::SeqCst),
         pages,
     }))
 }
@@ -1080,11 +1223,9 @@ async fn wiki_page(
     State(state): State<ApiState>,
     Query(q): Query<WikiPageQuery>,
 ) -> Result<Json<WikiPageBody>, (StatusCode, Json<ErrBody>)> {
-    let cfg = state.config.read().await;
-    let project = cfg.wiki_project_id.clone();
     let pages = state
         .meta
-        .list_wiki_pages(&project)
+        .list_all_wiki_pages()
         .map_err(|e| err_response(e.to_string()))?;
     let page = pages
         .into_iter()
@@ -1102,7 +1243,7 @@ async fn wiki_page(
         })?;
     let abs = resolve_wiki_abs(&state.paths, &page.path)?;
     let content = std::fs::read_to_string(&abs).map_err(|e| err_response(e.to_string()))?;
-    let relative_path = wiki_relative_path(&project, &page.path);
+    let relative_path = wiki_relative_path(&page.project_id, &page.path);
     Ok(Json(WikiPageBody {
         id: page.id,
         project_id: page.project_id,

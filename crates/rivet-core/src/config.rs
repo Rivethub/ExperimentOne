@@ -139,7 +139,10 @@ impl RivetConfig {
 
     /// If `proxy_port` cannot be bound, pick a free localhost alternative and save.
     /// Returns `Some(new_port)` when migrated.
-    pub fn ensure_available_proxy_port(&mut self, paths: &RivetPaths) -> anyhow::Result<Option<u16>> {
+    pub fn ensure_available_proxy_port(
+        &mut self,
+        paths: &RivetPaths,
+    ) -> anyhow::Result<Option<u16>> {
         if localhost_port_free(self.proxy_port) {
             return Ok(None);
         }

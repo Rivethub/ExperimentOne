@@ -37,17 +37,29 @@ pub struct ProviderQuota {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct QuotaWindow {
+    /// Stable key: `5h`, `7d`, `primary`, `secondary`, model id, etc.
+    pub id: String,
+    pub label: String,
+    pub remaining_pct: Option<f64>,
+    pub reset_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct QuotaAccount {
     pub id: String,
     pub provider: String,
     pub label: String,
     pub email: Option<String>,
+    pub plan: Option<String>,
     pub remaining_pct: Option<f64>,
     pub reset_at: Option<String>,
     pub cooldown_seconds: Option<i64>,
     pub supports_quota: bool,
     pub loaded: bool,
     pub status: String,
+    /// Per-limit windows (5h / weekly / model). Empty when provider only reports one watermark.
+    pub windows: Vec<QuotaWindow>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,17 +122,52 @@ struct CooldownItem {
 #[derive(Debug, Deserialize)]
 struct QuotaFetchResponse {
     #[serde(default)]
+    subscription: Option<QuotaSubscriptionRaw>,
+    #[serde(default)]
     groups: Vec<QuotaGroup>,
 }
 
 #[derive(Debug, Deserialize)]
+struct QuotaSubscriptionRaw {
+    #[serde(default)]
+    plan: Option<String>,
+    #[serde(default, rename = "tierName")]
+    tier_name: Option<String>,
+    #[serde(default, rename = "tier_name")]
+    tier_name_snake: Option<String>,
+}
+
+impl QuotaSubscriptionRaw {
+    fn plan_label(&self) -> Option<String> {
+        self.plan
+            .clone()
+            .or_else(|| self.tier_name.clone())
+            .or_else(|| self.tier_name_snake.clone())
+    }
+}
+
+#[derive(Debug, Deserialize)]
 struct QuotaGroup {
+    #[serde(default, rename = "displayName")]
+    display_name: Option<String>,
+    #[serde(default, rename = "display_name")]
+    display_name_snake: Option<String>,
     #[serde(default)]
     buckets: Vec<QuotaBucket>,
 }
 
+impl QuotaGroup {
+    fn name(&self) -> Option<String> {
+        self.display_name
+            .clone()
+            .or_else(|| self.display_name_snake.clone())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct QuotaBucket {
+    #[serde(default)]
+    window: Option<String>,
     #[serde(default)]
     #[serde(alias = "remaining_fraction")]
     remaining_fraction: Option<f64>,
@@ -144,6 +191,48 @@ impl QuotaBucket {
         self.reset_time
             .clone()
             .or_else(|| self.reset_time_camel.clone())
+    }
+
+    fn window_id(&self, group_name: Option<&str>) -> String {
+        if let Some(w) = self
+            .window
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return normalize_window_id(w);
+        }
+        if let Some(g) = group_name.map(str::trim).filter(|s| !s.is_empty()) {
+            return normalize_window_id(g);
+        }
+        "limit".into()
+    }
+}
+
+fn normalize_window_id(raw: &str) -> String {
+    let lower = raw.to_ascii_lowercase();
+    if lower.contains("5h") || lower.contains("five hour") || lower.contains("5-hour") {
+        return "5h".into();
+    }
+    if lower.contains("7d") || lower.contains("weekly") || lower.contains("7-day") {
+        return "7d".into();
+    }
+    if lower.contains("primary") {
+        return "primary".into();
+    }
+    if lower.contains("secondary") {
+        return "secondary".into();
+    }
+    raw.trim().replace(' ', "_").to_ascii_lowercase()
+}
+
+fn window_label(id: &str) -> String {
+    match id {
+        "5h" => "5-hour".into(),
+        "7d" => "Weekly".into(),
+        "primary" => "Primary".into(),
+        "secondary" => "Secondary".into(),
+        other => other.replace('_', " "),
     }
 }
 
@@ -186,11 +275,7 @@ pub async fn fetch_quota_snapshot(
     build_snapshot(cfg, &http, key, list, burn_by_provider).await
 }
 
-async fn list_credentials(
-    http: &reqwest::Client,
-    base: &str,
-    key: &str,
-) -> Result<CredList> {
+async fn list_credentials(http: &reqwest::Client, base: &str, key: &str) -> Result<CredList> {
     let v8 = format!("{base}/v8/management/credentials");
     let res = auth_headers(http.get(&v8), key)
         .send()
@@ -285,21 +370,47 @@ async fn build_snapshot(
             .cooldowns
             .as_ref()
             .and_then(|c| c.iter().filter_map(|x| x.remaining_seconds).max());
+        let mut windows = windows_from_signals(file.quota.as_ref());
+        let mut plan: Option<String> = None;
 
         let supports = file.supports_quota.unwrap_or(false);
-        if supports && remaining_pct.is_none() {
+        if supports {
             if let Ok(fetched) = fetch_live_quota(http, &cfg.proxy_base_url(), key, &id).await {
-                if let Some(bucket) = fetched
-                    .groups
-                    .iter()
-                    .flat_map(|g| g.buckets.iter())
-                    .find(|b| b.remaining().is_some())
-                {
-                    remaining_pct = bucket.remaining();
-                    if reset_at.is_none() {
-                        reset_at = bucket.reset();
+                plan = fetched.subscription.as_ref().and_then(|s| s.plan_label());
+                let fetched_windows = windows_from_fetch(&fetched);
+                if !fetched_windows.is_empty() {
+                    windows = fetched_windows;
+                }
+                if remaining_pct.is_none() {
+                    if let Some(bucket) = fetched
+                        .groups
+                        .iter()
+                        .flat_map(|g| g.buckets.iter())
+                        .find(|b| b.remaining().is_some())
+                    {
+                        remaining_pct = bucket.remaining();
+                        if reset_at.is_none() {
+                            reset_at = bucket.reset();
+                        }
                     }
                 }
+            }
+        }
+
+        if remaining_pct.is_none() {
+            remaining_pct = windows.iter().find_map(|w| w.remaining_pct);
+        }
+        if reset_at.is_none() {
+            reset_at = windows.iter().find_map(|w| w.reset_at.clone());
+        }
+        if windows.is_empty() {
+            if let Some(rem) = remaining_pct {
+                windows.push(QuotaWindow {
+                    id: "limit".into(),
+                    label: "Limit".into(),
+                    remaining_pct: Some(rem),
+                    reset_at: reset_at.clone(),
+                });
             }
         }
 
@@ -309,6 +420,7 @@ async fn build_snapshot(
             provider,
             label,
             email,
+            plan,
             remaining_pct,
             reset_at,
             cooldown_seconds,
@@ -321,6 +433,7 @@ async fn build_snapshot(
                     "unavailable".into()
                 }
             }),
+            windows,
         });
     }
 
@@ -376,6 +489,99 @@ async fn fetch_live_quota(
         return Ok(res.json().await?);
     }
     Err(anyhow!("no quota fetch endpoint"))
+}
+
+fn windows_from_fetch(fetched: &QuotaFetchResponse) -> Vec<QuotaWindow> {
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for group in &fetched.groups {
+        let gname = group.name();
+        for bucket in &group.buckets {
+            let rem = bucket.remaining();
+            if rem.is_none() && bucket.reset().is_none() {
+                continue;
+            }
+            let id = bucket.window_id(gname.as_deref());
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            out.push(QuotaWindow {
+                id: id.clone(),
+                label: gname
+                    .clone()
+                    .filter(|n| !n.trim().is_empty())
+                    .unwrap_or_else(|| window_label(&id)),
+                remaining_pct: rem,
+                reset_at: bucket.reset(),
+            });
+        }
+    }
+    out.sort_by_key(|a| window_sort_key(&a.id));
+    out
+}
+
+fn windows_from_signals(obs: Option<&QuotaObservation>) -> Vec<QuotaWindow> {
+    let Some(signals) = obs.and_then(|o| o.signals.as_ref()) else {
+        return Vec::new();
+    };
+    let mut by_id: HashMap<String, QuotaWindow> = HashMap::new();
+
+    for (k, v) in signals {
+        let key = k.to_ascii_lowercase();
+        let id = if key.contains("5h") {
+            "5h".to_string()
+        } else if key.contains("7d") {
+            "7d".to_string()
+        } else if key.contains("primary") {
+            "primary".to_string()
+        } else if key.contains("secondary") {
+            "secondary".to_string()
+        } else {
+            continue;
+        };
+        let entry = by_id.entry(id.clone()).or_insert_with(|| QuotaWindow {
+            id: id.clone(),
+            label: window_label(&id),
+            remaining_pct: None,
+            reset_at: None,
+        });
+        if key.contains("used-percent") || key.contains("used_percent") {
+            if let Ok(n) = v.parse::<f64>() {
+                entry.remaining_pct = Some((100.0 - n).clamp(0.0, 100.0));
+            }
+        } else if key.contains("utilization") {
+            if let Ok(n) = v.parse::<f64>() {
+                let used = if n <= 1.0 { n * 100.0 } else { n };
+                entry.remaining_pct = Some((100.0 - used).clamp(0.0, 100.0));
+            }
+        } else if key.contains("remaining") && key.contains("percent") {
+            if let Ok(n) = v.parse::<f64>() {
+                entry.remaining_pct = Some(n.clamp(0.0, 100.0));
+            }
+        } else if key.contains("reset-after-seconds") {
+            if let Ok(secs) = v.parse::<i64>() {
+                let at = Utc::now() + chrono::Duration::seconds(secs.max(0));
+                entry.reset_at = Some(at.to_rfc3339());
+            }
+        } else if key.ends_with("-reset") || key.ends_with("_reset") || key.contains("reset-at") {
+            if let Some(iso) = parse_reset_value(v) {
+                entry.reset_at = Some(iso);
+            }
+        }
+    }
+
+    let mut out: Vec<_> = by_id.into_values().collect();
+    out.sort_by_key(|a| window_sort_key(&a.id));
+    out
+}
+
+fn window_sort_key(id: &str) -> i32 {
+    match id {
+        "5h" | "primary" => 0,
+        "7d" | "secondary" => 1,
+        "limit" => 9,
+        _ => 5,
+    }
 }
 
 fn remaining_from_signals(obs: Option<&QuotaObservation>) -> Option<f64> {
@@ -446,11 +652,7 @@ fn reset_from_signals(obs: Option<&QuotaObservation>) -> Option<String> {
 fn parse_reset_value(v: &str) -> Option<String> {
     if let Ok(n) = v.parse::<i64>() {
         // Unix seconds (or ms).
-        let secs = if n > 1_000_000_000_000 {
-            n / 1000
-        } else {
-            n
-        };
+        let secs = if n > 1_000_000_000_000 { n / 1000 } else { n };
         return Utc.timestamp_opt(secs, 0).single().map(|t| t.to_rfc3339());
     }
     if DateTime::parse_from_rfc3339(v).is_ok() {
@@ -552,12 +754,14 @@ pub fn local_fallback_snapshot(
             } else {
                 None
             },
+            plan: None,
             remaining_pct: None,
             reset_at: None,
             cooldown_seconds: None,
             supports_quota: false,
             loaded: true,
             status: "local".into(),
+            windows: Vec::new(),
         });
     }
     let mut providers = Vec::new();
@@ -591,7 +795,6 @@ pub fn local_fallback_snapshot(
         note: "Proxy management unreachable — account list only; remaining % withheld until live quota signals exist. Burn shown as tok/h from traffic.".into(),
     }
 }
-
 
 /// Assumed tokens remaining from summed account percentages (production path).
 pub fn remaining_tokens_from_pct_sum(remaining_pct_sum: f64) -> f64 {
@@ -708,23 +911,29 @@ pub fn provider_quota_from_accounts(
 mod tests {
     use super::*;
 
-    fn acct(
-        id: &str,
-        remaining: Option<f64>,
-        loaded: bool,
-        reset: Option<&str>,
-    ) -> QuotaAccount {
+    fn acct(id: &str, remaining: Option<f64>, loaded: bool, reset: Option<&str>) -> QuotaAccount {
         QuotaAccount {
             id: id.into(),
             provider: "claude".into(),
             label: id.into(),
             email: None,
+            plan: None,
             remaining_pct: remaining,
             reset_at: reset.map(str::to_string),
             cooldown_seconds: None,
             supports_quota: remaining.is_some(),
             loaded,
             status: if loaded { "loaded" } else { "unavailable" }.into(),
+            windows: remaining
+                .map(|r| {
+                    vec![QuotaWindow {
+                        id: "limit".into(),
+                        label: "Limit".into(),
+                        remaining_pct: Some(r),
+                        reset_at: reset.map(str::to_string),
+                    }]
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -754,7 +963,11 @@ mod tests {
         assert_eq!(q.known_count, 1);
         assert!((q.capacity_pct - 100.0).abs() < 1e-9);
         assert!((q.remaining_pct - 40.0).abs() < 1e-9);
-        assert!(q.next_reset.contains("+60%") || q.next_reset.contains("reset"), "{}", q.next_reset);
+        assert!(
+            q.next_reset.contains("+60%") || q.next_reset.contains("reset"),
+            "{}",
+            q.next_reset
+        );
         assert_eq!(q.burn_pct_per_hour, 0.0);
     }
 
@@ -768,7 +981,11 @@ mod tests {
         assert!(q.pool_empty.contains("pending"), "{}", q.pool_empty);
         assert!(q.next_reset.contains("pending"), "{}", q.next_reset);
         assert_eq!(q.burn_pct_per_hour, 0.0);
-        assert!(q.burn_last_horizon.contains("12000"), "{}", q.burn_last_horizon);
+        assert!(
+            q.burn_last_horizon.contains("12000"),
+            "{}",
+            q.burn_last_horizon
+        );
     }
 
     #[test]

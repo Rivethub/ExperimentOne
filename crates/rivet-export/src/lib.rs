@@ -72,7 +72,10 @@ pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<TrafficEvent>)> {
     Ok((manifest, events))
 }
 
-pub async fn import_into_store(store: Arc<dyn TrafficStore>, path: &Path) -> Result<ExportManifest> {
+pub async fn import_into_store(
+    store: Arc<dyn TrafficStore>,
+    path: &Path,
+) -> Result<ExportManifest> {
     let (manifest, events) = import_bag(path)?;
     store.insert_batch(&events).await?;
     Ok(manifest)

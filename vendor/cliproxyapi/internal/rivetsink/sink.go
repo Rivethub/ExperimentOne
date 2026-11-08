@@ -108,14 +108,14 @@ type streamWrapper struct {
 	started   time.Time
 	provider  string
 
-	mu         sync.Mutex
-	head       []byte
-	tail       []byte
-	apiReq     []byte
-	apiResp    []byte
-	status     int
-	closed     bool
-	finished   time.Time
+	mu       sync.Mutex
+	head     []byte
+	tail     []byte
+	apiReq   []byte
+	apiResp  []byte
+	status   int
+	closed   bool
+	finished time.Time
 	// Usage accumulated from every chunk, independent of the text buffer.
 	tokensIn  uint32
 	tokensOut uint32
@@ -343,6 +343,12 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 	}
 	endpoint := w.ingestURL + "/v1/ingest"
 	_ = url // retained for future request-path tagging
+	// Prefer the key captured at Wrap; fall back to live env so a rebuilt
+	// rivetd that refreshes RIVET_INGEST_KEY still authenticates.
+	ingestKey := w.ingestKey
+	if ingestKey == "" {
+		ingestKey = strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY"))
+	}
 	go func() {
 		for attempt := 0; attempt < 3; attempt++ {
 			req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
@@ -350,12 +356,12 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 				return
 			}
 			req.Header.Set("Content-Type", "application/json")
-			if w.ingestKey != "" {
-				req.Header.Set("X-Rivet-Ingest-Key", w.ingestKey)
+			if ingestKey != "" {
+				req.Header.Set("X-Rivet-Ingest-Key", ingestKey)
 			}
 			resp, err := w.client.Do(req)
 			if err != nil {
-				log.Debugf("rivet sink attempt %d: %v", attempt+1, err)
+				log.Warnf("rivet sink attempt %d: %v", attempt+1, err)
 				time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
 				continue
 			}
@@ -364,7 +370,7 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 			if code >= 200 && code < 300 {
 				return
 			}
-			log.Debugf("rivet sink attempt %d: HTTP %d", attempt+1, code)
+			log.Warnf("rivet sink attempt %d: HTTP %d (check RIVET_INGEST_KEY matches rivetd)", attempt+1, code)
 			time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
 		}
 	}()
@@ -849,12 +855,12 @@ func headerFirst(headers map[string][]string, names ...string) string {
 }
 
 var (
-	reBearer     = regexp.MustCompile(`(?i)(Authorization["']?\s*[:=]\s*["']?Bearer\s+)[A-Za-z0-9._\-+=/]+`)
-	reAPIKeyHdr  = regexp.MustCompile(`(?i)((?:x-api-key|api[_-]?key|anthropic-api-key)["']?\s*[:=]\s*["']?)[A-Za-z0-9._\-+=/]+`)
-	reSkToken    = regexp.MustCompile(`\b(sk-[A-Za-z0-9]{10,})\b`)
-	reRivetKey   = regexp.MustCompile(`\b(rivet_[a-f0-9]{20,})\b`)
-	reOpenAIKey  = regexp.MustCompile(`\b(sk-proj-[A-Za-z0-9\-_]{10,})\b`)
-	reJWT        = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
+	reBearer    = regexp.MustCompile(`(?i)(Authorization["']?\s*[:=]\s*["']?Bearer\s+)[A-Za-z0-9._\-+=/]+`)
+	reAPIKeyHdr = regexp.MustCompile(`(?i)((?:x-api-key|api[_-]?key|anthropic-api-key)["']?\s*[:=]\s*["']?)[A-Za-z0-9._\-+=/]+`)
+	reSkToken   = regexp.MustCompile(`\b(sk-[A-Za-z0-9]{10,})\b`)
+	reRivetKey  = regexp.MustCompile(`\b(rivet_[a-f0-9]{20,})\b`)
+	reOpenAIKey = regexp.MustCompile(`\b(sk-proj-[A-Za-z0-9\-_]{10,})\b`)
+	reJWT       = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
 )
 
 func redactSecrets(s string) string {

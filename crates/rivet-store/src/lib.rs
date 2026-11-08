@@ -1,13 +1,8 @@
-//! Persistence layer.
-//!
-//! Local MVP writes traffic into SQLite with a ClickHouse-shaped schema so we can
-//! dual-write / migrate to a bundled ClickHouse sidecar without changing callers.
-//! Enterprise deployments point the same trait at ClickHouse.
+//! Persistence layer — ClickHouse for traffic, JSON files for meta.
 
 mod clickhouse;
 mod meta;
 mod redacting;
-mod traffic_sqlite;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -15,10 +10,9 @@ use rivet_core::{RivetPaths, TrafficEvent, UsageTotals};
 use std::sync::Arc;
 use tracing::info;
 
-pub use clickhouse::{ClickHouseTrafficStore, DualWriteStore, TRAFFIC_EVENTS_DDL};
-pub use meta::{EmbeddingRow, MetaStore, WikiPageMeta};
+pub use clickhouse::{ClickHouseTrafficStore, TRAFFIC_EVENTS_DDL};
+pub use meta::{EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, WikiPageMeta};
 pub use redacting::RedactingStore;
-pub use traffic_sqlite::SqliteTrafficStore;
 
 #[async_trait]
 pub trait TrafficStore: Send + Sync {
@@ -34,7 +28,6 @@ pub trait TrafficStore: Send + Sync {
 /// Open local stores under Application Support.
 pub struct LocalStores {
     pub meta: Arc<MetaStore>,
-    pub traffic: SqliteTrafficStore,
 }
 
 impl LocalStores {
@@ -42,36 +35,25 @@ impl LocalStores {
         paths.ensure()?;
         Ok(Self {
             meta: Arc::new(MetaStore::open(paths)?),
-            traffic: SqliteTrafficStore::open(paths)?,
         })
     }
 
-    /// SQLite primary, optional ClickHouse dual-write, always redacted on write.
-    ///
-    /// `clickhouse_url` — when set (bundled sidecar or `RIVET_CLICKHOUSE_URL`),
-    /// inserts are dual-written. Reads stay on SQLite.
-    pub fn traffic_store(&self) -> Arc<dyn TrafficStore> {
+    /// ClickHouse-only traffic (redacted on write). Requires a reachable URL.
+    pub fn traffic_store(&self) -> Result<Arc<dyn TrafficStore>> {
         self.traffic_store_with_clickhouse(ClickHouseTrafficStore::from_env_url())
     }
 
     pub fn traffic_store_with_clickhouse(
         &self,
         clickhouse_url: Option<String>,
-    ) -> Arc<dyn TrafficStore> {
-        let primary: Arc<dyn TrafficStore> = Arc::new(self.traffic.clone());
-        let secondary: Option<Arc<dyn TrafficStore>> = clickhouse_url.and_then(|url| {
-            match ClickHouseTrafficStore::new(&url) {
-                Ok(ch) => {
-                    info!(%url, "ClickHouse dual-write enabled");
-                    Some(Arc::new(ch) as Arc<dyn TrafficStore>)
-                }
-                Err(err) => {
-                    tracing::warn!(?err, "invalid ClickHouse URL — SQLite only");
-                    None
-                }
-            }
-        });
-        let dual = Arc::new(DualWriteStore::new(primary, secondary));
-        Arc::new(RedactingStore::new(dual))
+    ) -> Result<Arc<dyn TrafficStore>> {
+        let url = clickhouse_url.ok_or_else(|| {
+            anyhow::anyhow!(
+                "ClickHouse required: set RIVET_CLICKHOUSE_URL or ship the clickhouse sidecar"
+            )
+        })?;
+        let ch = ClickHouseTrafficStore::new(&url)?;
+        info!(%url, "ClickHouse traffic store enabled");
+        Ok(Arc::new(RedactingStore::new(Arc::new(ch))))
     }
 }
