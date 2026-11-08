@@ -591,6 +591,101 @@ button:disabled {
   display: block;
 }
 
+.quota-accounts {
+  margin-top: 14px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quota-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0e0e11;
+  font-size: 12.5px;
+}
+
+.quota-account.is-empty {
+  background: #1a1210;
+}
+
+.quota-account.is-down {
+  opacity: 0.7;
+}
+
+.quota-account.empty-row {
+  color: var(--faint);
+  justify-content: flex-start;
+}
+
+.qa-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.qa-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.qa-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--faint);
+}
+
+.qa-dot.ok {
+  background: var(--ok);
+}
+
+.qa-dot.empty {
+  background: var(--claude);
+}
+
+.qa-dot.down {
+  background: #71717a;
+}
+
+.qa-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+.qa-tag.empty {
+  color: var(--claude);
+  border-color: #3f2a1c;
+}
+
+.qa-meta {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.qa-sep {
+  color: var(--faint);
+}
+
 .chart-legend {
   display: flex;
   gap: 14px;

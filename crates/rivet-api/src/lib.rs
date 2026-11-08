@@ -1,5 +1,8 @@
 //! Control plane HTTP API used by the desktop UI.
 
+mod quota;
+
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -184,6 +187,8 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/accounts/login", post(login_start))
         .route("/v1/accounts/login/status", get(login_status))
         .route("/v1/accounts/login/cancel", post(login_cancel))
+        .route("/v1/quota", get(quota_snapshot))
+        .route("/v1/quota/refresh", post(quota_refresh))
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
         .route("/v1/wiki", get(wiki_info))
@@ -508,11 +513,119 @@ async fn proxy_stop(
 async fn accounts(
     State(state): State<ApiState>,
 ) -> Result<Json<Vec<AccountInfo>>, (StatusCode, Json<ErrBody>)> {
-    state
-        .control
-        .list_accounts()
+    let mut accounts = state.control.list_accounts().map_err(err_response)?;
+    // Prefer live management signals for limit/reset hints when the proxy is up.
+    if let Ok(snap) = build_quota_snapshot(&state).await {
+        for acct in &mut accounts {
+            if let Some(q) = snap.accounts.iter().find(|a| {
+                a.id == acct.id
+                    || a.id.ends_with(&acct.id)
+                    || a.id.contains(&format!("{}.json", acct.id))
+                    || a.label == acct.label
+                    || a.email.as_deref() == Some(acct.label.as_str())
+                    || a.email.as_deref() == Some(acct.id.as_str())
+            }) {
+                if let Some(email) = &q.email {
+                    acct.label = email.clone();
+                }
+                acct.limit_hint = q
+                    .remaining_pct
+                    .map(|p| format!("{p:.0}% left"))
+                    .unwrap_or_else(|| "— pending live".into());
+                acct.reset_hint = q
+                    .reset_at
+                    .clone()
+                    .map(|r| format_account_reset(&r))
+                    .or_else(|| {
+                        q.cooldown_seconds
+                            .map(|s| format!("cooldown {s}s"))
+                    })
+                    .unwrap_or_else(|| "—".into());
+            }
+        }
+    }
+    Ok(Json(accounts))
+}
+
+async fn quota_snapshot(
+    State(state): State<ApiState>,
+) -> Result<Json<quota::QuotaSnapshot>, (StatusCode, Json<ErrBody>)> {
+    build_quota_snapshot(&state)
+        .await
         .map(Json)
         .map_err(err_response)
+}
+
+async fn quota_refresh(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let cfg = state.config.read().await.clone();
+    let refreshed = quota::refresh_credentials(&cfg)
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    let snap = build_quota_snapshot(&state)
+        .await
+        .map_err(err_response)?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "refresh": refreshed,
+        "quota": snap,
+    })))
+}
+
+async fn build_quota_snapshot(state: &ApiState) -> Result<quota::QuotaSnapshot, String> {
+    let cfg = state.config.read().await.clone();
+    let burn = burn_by_provider(state).await;
+    match quota::fetch_quota_snapshot(&cfg, &burn).await {
+        Ok(snap) => Ok(snap),
+        Err(err) => {
+            tracing::debug!(error = %err, "quota management fetch failed; using local fallback");
+            let local = state
+                .control
+                .list_accounts()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|a| (a.id, a.provider, a.label))
+                .collect::<Vec<_>>();
+            Ok(quota::local_fallback_snapshot(&local, &burn))
+        }
+    }
+}
+
+async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
+    let mut out: HashMap<String, f64> = HashMap::new();
+    let Ok(events) = state.store.recent(400).await else {
+        return out;
+    };
+    let cutoff = Utc::now() - Duration::hours(3);
+    let mut earliest = Utc::now();
+    for ev in &events {
+        if ev.ts < cutoff {
+            continue;
+        }
+        if ev.ts < earliest {
+            earliest = ev.ts;
+        }
+        let provider = match ev.provider {
+            ProviderKind::Claude => "claude",
+            ProviderKind::Codex | ProviderKind::OpenAi => "codex",
+            ProviderKind::Gemini => "gemini",
+            ProviderKind::Other => "other",
+        };
+        *out.entry(provider.into()).or_default() += (ev.tokens_in + ev.tokens_out) as f64;
+    }
+    let hours = ((Utc::now() - earliest).num_seconds().max(1) as f64 / 3600.0).max(0.25);
+    for v in out.values_mut() {
+        *v /= hours;
+    }
+    out
+}
+
+fn format_account_reset(reset_at: &str) -> String {
+    chrono::DateTime::parse_from_rfc3339(reset_at)
+        .ok()
+        .map(|d| d.with_timezone(&Utc).format("%a %H:%M UTC").to_string())
+        .unwrap_or_else(|| reset_at.to_string())
 }
 
 async fn account_delete(
