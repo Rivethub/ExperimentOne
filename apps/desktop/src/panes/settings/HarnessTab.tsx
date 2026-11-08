@@ -18,9 +18,10 @@ export function HarnessTab({
       title="Harness (advanced)"
       lede={
         <>
-          One-click setup lives on each Claude / Codex account. This tab is for copying snippets,
-          writing an isolated Rivet config dir, and climbing the capture ladder (proxy → full bodies
-          → local transcript import).
+          One-click setup lives on each Claude / Codex account. This tab installs Rivet into Claude
+          Code, Codex, and Cursor (proxy + project plugins/hooks + MCP), copies snippets, and climbs
+          the capture ladder (proxy → full bodies → local transcript import). Restart each harness
+          after install so the new config loads.
         </>
       }
     >
@@ -29,15 +30,22 @@ export function HarnessTab({
         <p className={styles.muted} style={{ marginTop: 4, marginBottom: 8 }}>
           Higher rungs add fidelity. Live proxy traffic is always preferred over imports where they
           overlap. Capture stores cwd/bodies as signals and sets `project_id` only on hard evidence
-          (explicit field/header or harness {"projects/<id>/"} key) — workers fill the rest.
+          (explicit field/header, harness {"projects/<id>/"} key, or the Rivet harness plugin).
         </p>
         <Kv>
           <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />
           <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
           <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
+          <KvRow
+            label="L2.5 Plugin"
+            value="SessionStart reports cwd → hard project_id + Rivet MCP"
+          />
           <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
           <KvRow label="L4 Import" value="Claude / Codex / Cursor transcripts already on disk" />
-          <KvRow label="Project" value="Hard evidence only; cwd is a signal for workers" />
+          <KvRow
+            label="Project"
+            value="Hard evidence only; plugin + wire headers beat cwd scraping"
+          />
         </Kv>
         <Actions style={{ marginTop: 8 }}>
           <Button
@@ -57,19 +65,40 @@ export function HarnessTab({
           variant="primary"
           disabled={harness.busy}
           onClick={() => {
+            harness.onWriteAllHarnesses();
+          }}
+        >
+          Install Claude + Codex + Cursor
+        </Button>
+      </Actions>
+      <p className={styles.muted} style={{ marginTop: 8, marginBottom: 8 }}>
+        Writes proxy settings, session→project plugins/hooks, and Rivet MCP. Restart Claude Code,
+        Codex, and Cursor afterward so plugins load.
+      </p>
+      <Actions>
+        <Button
+          disabled={harness.busy}
+          onClick={() => {
             harness.onWriteHarness("claude", "user");
           }}
         >
           Install into ~/.claude
         </Button>
         <Button
-          variant="primary"
           disabled={harness.busy}
           onClick={() => {
             harness.onWriteHarness("codex", "user");
           }}
         >
           Install into ~/.codex
+        </Button>
+        <Button
+          disabled={harness.busy}
+          onClick={() => {
+            harness.onWriteHarness("cursor", "user");
+          }}
+        >
+          Install into ~/.cursor
         </Button>
       </Actions>
       <Actions style={{ marginTop: 8 }}>

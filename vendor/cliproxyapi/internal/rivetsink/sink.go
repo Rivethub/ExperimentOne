@@ -860,7 +860,7 @@ func inferProvider(url string, reqBody []byte) string {
 func parseMeta(provider string, headers map[string][]string, reqBody, respBody []byte) parsedMeta {
 	meta := parsedMeta{Role: "unknown"}
 	// Hard evidence only: explicit project headers/fields. cwd is captured separately.
-	if v := headerFirst(headers, "x-project-id", "project-id", "openai-project", "x-openai-project"); v != "" {
+	if v := headerFirst(headers, "x-project-id", "x-rivet-project-id", "project-id", "openai-project", "x-openai-project"); v != "" {
 		meta.ProjectID = v
 	}
 

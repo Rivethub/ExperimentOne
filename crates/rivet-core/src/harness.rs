@@ -75,24 +75,132 @@ pub fn install_harness(
     config: &RivetConfig,
     isolated_claude_dir: &Path,
     isolated_codex_dir: &Path,
+    plugins_dest: &Path,
 ) -> Result<HarnessInstallResult> {
-    match (target.trim().to_ascii_lowercase().as_str(), mode) {
-        ("claude", HarnessInstallMode::User) => install_claude_user(config),
+    let plugin_note = match install_harness_plugins(config, plugins_dest) {
+        Ok(path) => format!(" Plugins ready at {}.", path.display()),
+        Err(err) => format!(" Plugin install skipped: {err}."),
+    };
+    let mut result = match (target.trim().to_ascii_lowercase().as_str(), mode) {
+        ("claude", HarnessInstallMode::User) => install_claude_user(config, plugins_dest),
         ("claude", HarnessInstallMode::Isolated) => {
-            install_claude_isolated(config, isolated_claude_dir)
+            install_claude_isolated(config, isolated_claude_dir, plugins_dest)
         },
-        ("codex", HarnessInstallMode::User) => install_codex_user(config),
+        ("codex", HarnessInstallMode::User) => install_codex_user(config, plugins_dest),
         ("codex", HarnessInstallMode::Isolated) => {
-            install_codex_isolated(config, isolated_codex_dir)
+            install_codex_isolated(config, isolated_codex_dir, plugins_dest)
         },
-        (other, _) => bail!("unknown harness target '{other}'"),
-    }
+        ("cursor", HarnessInstallMode::User | HarnessInstallMode::Isolated) => {
+            install_cursor_user(config, plugins_dest)
+        },
+        (other, _) => bail!("unknown harness target '{other}' (expected claude, codex, or cursor)"),
+    }?;
+    result.note.push_str(&plugin_note);
+    Ok(result)
 }
 
-fn install_claude_isolated(config: &RivetConfig, dir: &Path) -> Result<HarnessInstallResult> {
+/// Copy the bundled Rivet marketplace into `plugins_dest` and rewrite MCP URLs.
+pub fn install_harness_plugins(config: &RivetConfig, plugins_dest: &Path) -> Result<PathBuf> {
+    let src = find_bundled_plugins_dir().context(
+        "bundled plugins/ not found (set RIVET_PLUGINS_SRC or run from a Rivet checkout/install)",
+    )?;
+    copy_dir_recursive(&src, plugins_dest)
+        .with_context(|| format!("copy plugins {} → {}", src.display(), plugins_dest.display()))?;
+    rewrite_plugin_mcp_urls(plugins_dest, &config.mcp_url())?;
+    // Ensure hook scripts are executable on Unix.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for rel in [
+            "common/session_hook.py",
+            "rivet/scripts/report-session.sh",
+            "rivet/scripts/custom-headers-helper.sh",
+            "rivet-codex/scripts/report-session.sh",
+            "rivet-cursor/scripts/report-session.sh",
+        ] {
+            let script = plugins_dest.join(rel);
+            if script.is_file() {
+                let mut perms = fs::metadata(&script)?.permissions();
+                perms.set_mode(0o755);
+                fs::set_permissions(&script, perms)?;
+            }
+        }
+    }
+    Ok(plugins_dest.to_path_buf())
+}
+
+fn find_bundled_plugins_dir() -> Option<PathBuf> {
+    if let Ok(raw) = std::env::var("RIVET_PLUGINS_SRC") {
+        let path = PathBuf::from(raw);
+        if path.join(".claude-plugin").join("marketplace.json").is_file() {
+            return Some(path);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            for cand in
+                [parent.join("plugins"), parent.join("../plugins"), parent.join("../../plugins")]
+            {
+                if cand.join(".claude-plugin").join("marketplace.json").is_file() {
+                    return Some(cand.canonicalize().unwrap_or(cand));
+                }
+            }
+        }
+    }
+    let cargo = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_plugins = cargo.join("../../plugins");
+    if repo_plugins.join(".claude-plugin").join("marketplace.json").is_file() {
+        return Some(repo_plugins.canonicalize().unwrap_or(repo_plugins));
+    }
+    None
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst).with_context(|| format!("create {}", dst.display()))?;
+    for entry in fs::read_dir(src).with_context(|| format!("read {}", src.display()))? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let to = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &to)?;
+        } else if ty.is_file() {
+            if let Some(parent) = to.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::copy(entry.path(), &to)
+                .with_context(|| format!("copy {} → {}", entry.path().display(), to.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn rewrite_plugin_mcp_urls(plugins_dest: &Path, mcp_url: &str) -> Result<()> {
+    for rel in ["rivet/.mcp.json", "rivet-cursor/mcp.json"] {
+        let mcp_path = plugins_dest.join(rel);
+        if !mcp_path.is_file() {
+            continue;
+        }
+        let raw = fs::read_to_string(&mcp_path)?;
+        let mut root: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+        if let Some(servers) = root.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+            if let Some(rivet) = servers.get_mut("rivet").and_then(|v| v.as_object_mut()) {
+                rivet.insert("url".into(), Value::String(mcp_url.to_string()));
+            }
+        }
+        fs::write(&mcp_path, format!("{}\n", serde_json::to_string_pretty(&root)?))?;
+    }
+    Ok(())
+}
+
+fn install_claude_isolated(
+    config: &RivetConfig,
+    dir: &Path,
+    plugins_dest: &Path,
+) -> Result<HarnessInstallResult> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join("settings.json");
-    fs::write(&path, crate::proxy_config::claude_settings_json(config))?;
+    let merged = merge_claude_settings("{}", config, Some(plugins_dest))?;
+    fs::write(&path, merged)?;
     Ok(HarnessInstallResult {
         target: "claude".into(),
         path: path.display().to_string(),
@@ -101,24 +209,30 @@ fn install_claude_isolated(config: &RivetConfig, dir: &Path) -> Result<HarnessIn
             "CLAUDE_CONFIG_DIR={}",
             shell_quote(&dir.display().to_string())
         ),
-        note: "Wrote an isolated Claude config. Set CLAUDE_CONFIG_DIR to that path before launching Claude Code (default install untouched).".into(),
+        note: "Wrote an isolated Claude config with Rivet plugin + MCP. Set CLAUDE_CONFIG_DIR to that path before launching Claude Code (default install untouched).".into(),
     })
 }
 
-fn install_codex_isolated(config: &RivetConfig, dir: &Path) -> Result<HarnessInstallResult> {
+fn install_codex_isolated(
+    config: &RivetConfig,
+    dir: &Path,
+    plugins_dest: &Path,
+) -> Result<HarnessInstallResult> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join("config.toml");
-    fs::write(&path, crate::proxy_config::codex_config_toml(config))?;
+    let merged = merge_codex_config("", config, Some(plugins_dest));
+    fs::write(&path, merged)?;
+    write_codex_hooks(dir, plugins_dest)?;
     Ok(HarnessInstallResult {
         target: "codex".into(),
         path: path.display().to_string(),
         backup_path: None,
         env_hint: format!("CODEX_HOME={}", shell_quote(&dir.display().to_string())),
-        note: "Wrote an isolated Codex home. Set CODEX_HOME to that path before launching Codex (default install untouched).".into(),
+        note: "Wrote an isolated Codex home with Rivet MCP + session hooks. Set CODEX_HOME to that path before launching Codex (default install untouched).".into(),
     })
 }
 
-fn install_claude_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
+fn install_claude_user(config: &RivetConfig, plugins_dest: &Path) -> Result<HarnessInstallResult> {
     let path = claude_user_settings_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -129,7 +243,7 @@ fn install_claude_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
     } else {
         String::new()
     };
-    let merged = merge_claude_settings(&existing, config)?;
+    let merged = merge_claude_settings(&existing, config, Some(plugins_dest))?;
     fs::write(&path, merged).with_context(|| format!("write {}", path.display()))?;
     let backup_note =
         backup_path.as_ref().map(|b| format!(" Backup saved to {b}.")).unwrap_or_default();
@@ -139,12 +253,12 @@ fn install_claude_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
         backup_path,
         env_hint: String::new(),
         note: format!(
-            "Merged Rivet into your Claude Code settings.json. Restart Claude Code to pick them up.{backup_note}"
+            "Merged Rivet proxy, MCP, and rivet@rivet plugin into your Claude Code settings.json. Restart Claude Code to pick them up.{backup_note}"
         ),
     })
 }
 
-fn install_codex_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
+fn install_codex_user(config: &RivetConfig, plugins_dest: &Path) -> Result<HarnessInstallResult> {
     let path = codex_user_config_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -155,8 +269,11 @@ fn install_codex_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
     } else {
         String::new()
     };
-    let merged = merge_codex_config(&existing, config);
+    let merged = merge_codex_config(&existing, config, Some(plugins_dest));
     fs::write(&path, merged).with_context(|| format!("write {}", path.display()))?;
+    if let Some(home) = path.parent() {
+        write_codex_hooks(home, plugins_dest)?;
+    }
     let backup_note =
         backup_path.as_ref().map(|b| format!(" Backup saved to {b}.")).unwrap_or_default();
     Ok(HarnessInstallResult {
@@ -165,9 +282,109 @@ fn install_codex_user(config: &RivetConfig) -> Result<HarnessInstallResult> {
         backup_path,
         env_hint: String::new(),
         note: format!(
-            "Merged Rivet as the Codex model provider into your config.toml. Restart Codex to pick it up.{backup_note}"
+            "Merged Rivet as the Codex model provider with MCP + session hooks. Restart Codex to pick it up.{backup_note}"
         ),
     })
+}
+
+fn write_codex_hooks(codex_home: &Path, plugins_dest: &Path) -> Result<()> {
+    let script = plugins_dest.join("rivet-codex").join("scripts").join("report-session.sh");
+    if !script.is_file() {
+        return Ok(());
+    }
+    let cmd = script.display().to_string();
+    let hooks_path = codex_home.join("hooks.json");
+    // Codex has no CwdChanged; UserPromptSubmit refreshes cwd each turn.
+    let hooks = json!({
+        "hooks": {
+            "SessionStart": [{
+                "hooks": [{ "type": "command", "command": &cmd, "timeout": 15 }]
+            }],
+            "UserPromptSubmit": [{
+                "hooks": [{ "type": "command", "command": &cmd, "timeout": 15 }]
+            }],
+            "SessionEnd": [{
+                "hooks": [{ "type": "command", "command": cmd, "timeout": 3 }]
+            }]
+        }
+    });
+    fs::write(&hooks_path, format!("{}\n", serde_json::to_string_pretty(&hooks)?))?;
+    Ok(())
+}
+
+fn install_cursor_user(config: &RivetConfig, plugins_dest: &Path) -> Result<HarnessInstallResult> {
+    let path = cursor_user_hooks_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let backup_path = backup_if_exists(&path)?;
+    let existing = if path.exists() {
+        fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?
+    } else {
+        String::new()
+    };
+    let merged = merge_cursor_hooks(&existing, plugins_dest)?;
+    fs::write(&path, merged).with_context(|| format!("write {}", path.display()))?;
+    write_cursor_mcp_snippet(config)?;
+    let backup_note =
+        backup_path.as_ref().map(|b| format!(" Backup saved to {b}.")).unwrap_or_default();
+    Ok(HarnessInstallResult {
+        target: "cursor".into(),
+        path: path.display().to_string(),
+        backup_path,
+        env_hint: String::new(),
+        note: format!(
+            "Merged Rivet sessionStart/sessionEnd/beforeSubmitPrompt hooks into ~/.cursor/hooks.json and wrote MCP snippet. Restart Cursor to pick them up.{backup_note}"
+        ),
+    })
+}
+
+pub fn cursor_user_hooks_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("no home directory")?;
+    Ok(home.join(".cursor").join("hooks.json"))
+}
+
+fn merge_cursor_hooks(existing: &str, plugins_dest: &Path) -> Result<String> {
+    let script = plugins_dest.join("rivet-cursor").join("scripts").join("report-session.sh");
+    if !script.is_file() {
+        bail!("cursor plugin script missing at {}", script.display());
+    }
+    let cmd = script.display().to_string();
+    let mut root: Value = if existing.trim().is_empty() {
+        json!({ "version": 1, "hooks": {} })
+    } else {
+        serde_json::from_str(existing).context("parse Cursor hooks.json")?
+    };
+    if !root.is_object() {
+        bail!("Cursor hooks.json root must be a JSON object");
+    }
+    let obj = root.as_object_mut().expect("object");
+    obj.entry("version").or_insert(json!(1));
+    let hooks = obj.entry("hooks").or_insert_with(|| Value::Object(Map::new()));
+    if !hooks.is_object() {
+        *hooks = Value::Object(Map::new());
+    }
+    let hooks_obj = hooks.as_object_mut().expect("hooks");
+    for event in ["sessionStart", "beforeSubmitPrompt", "sessionEnd"] {
+        hooks_obj.insert(event.into(), json!([{ "command": cmd }]));
+    }
+    Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
+}
+
+fn write_cursor_mcp_snippet(config: &RivetConfig) -> Result<()> {
+    let home = dirs::home_dir().context("no home directory")?;
+    let dir = home.join(".cursor");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join("rivet.mcp.json");
+    let body = json!({
+        "mcpServers": {
+            "rivet": {
+                "url": config.mcp_url(),
+            }
+        }
+    });
+    fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&body)?))?;
+    Ok(())
 }
 
 pub fn claude_user_settings_path() -> Result<PathBuf> {
@@ -192,11 +409,15 @@ fn backup_if_exists(path: &Path) -> Result<Option<String>> {
     Ok(Some(backup.display().to_string()))
 }
 
-/// Merge Rivet env + MCP into an existing Claude `settings.json` body.
+/// Merge Rivet env + MCP + optional local marketplace plugin into Claude settings.
 ///
-/// Sets only `ANTHROPIC_BASE_URL` and clears gateway auth env vars so Claude Code
+/// Sets `ANTHROPIC_BASE_URL` and clears gateway auth env vars so Claude Code
 /// keeps claude.ai connectors enabled.
-pub fn merge_claude_settings(existing: &str, config: &RivetConfig) -> Result<String> {
+pub fn merge_claude_settings(
+    existing: &str,
+    config: &RivetConfig,
+    plugins_dest: Option<&Path>,
+) -> Result<String> {
     let mut root: Value = if existing.trim().is_empty() {
         json!({})
     } else {
@@ -213,6 +434,9 @@ pub fn merge_claude_settings(existing: &str, config: &RivetConfig) -> Result<Str
     }
     let env_obj = env.as_object_mut().expect("env object");
     env_obj.insert("ANTHROPIC_BASE_URL".into(), Value::String(config.proxy_base_url()));
+    env_obj.insert("RIVET_API_BASE".into(), Value::String(config.api_base_url()));
+    // Richer wire headers for Rivet capture when pointed at a custom base URL.
+    env_obj.insert("CLAUDE_CODE_GATEWAY_HINT_HEADERS".into(), Value::String("1".into()));
     // Anthropic disables claude.ai connectors when these are set.
     env_obj.remove("ANTHROPIC_AUTH_TOKEN");
     env_obj.remove("ANTHROPIC_API_KEY");
@@ -229,6 +453,41 @@ pub fn merge_claude_settings(existing: &str, config: &RivetConfig) -> Result<Str
             "url": config.mcp_url(),
         }),
     );
+
+    if let Some(plugins_dest) = plugins_dest {
+        let marketplace_path = plugins_dest
+            .canonicalize()
+            .unwrap_or_else(|_| plugins_dest.to_path_buf())
+            .display()
+            .to_string();
+        let markets =
+            obj.entry("extraKnownMarketplaces").or_insert_with(|| Value::Object(Map::new()));
+        if !markets.is_object() {
+            *markets = Value::Object(Map::new());
+        }
+        markets.as_object_mut().expect("markets").insert(
+            "rivet".into(),
+            json!({
+                "source": {
+                    "source": "directory",
+                    "path": marketplace_path,
+                }
+            }),
+        );
+        let enabled = obj.entry("enabledPlugins").or_insert_with(|| Value::Object(Map::new()));
+        if !enabled.is_object() {
+            *enabled = Value::Object(Map::new());
+        }
+        enabled.as_object_mut().expect("enabled").insert("rivet@rivet".into(), Value::Bool(true));
+
+        // Forward-compatible: ignored until Claude Code ships customHeadersHelper
+        // (anthropics/claude-code#97949). Then wire headers carry hard project ids.
+        let helper = plugins_dest.join("rivet").join("scripts").join("custom-headers-helper.sh");
+        if helper.is_file() {
+            let helper_path = helper.canonicalize().unwrap_or(helper).display().to_string();
+            obj.insert("customHeadersHelper".into(), Value::String(helper_path));
+        }
+    }
 
     Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
 }
@@ -278,8 +537,12 @@ pub fn migrate_claude_connector_auth(
     Ok(changed)
 }
 
-/// Overlay Rivet provider block into an existing Codex `config.toml`.
-pub fn merge_codex_config(existing: &str, config: &RivetConfig) -> String {
+/// Overlay Rivet provider + MCP into an existing Codex `config.toml`.
+pub fn merge_codex_config(
+    existing: &str,
+    config: &RivetConfig,
+    _plugins_dest: Option<&Path>,
+) -> String {
     let rivet_block = format!(
         r#"model_provider = "rivet"
 
@@ -290,17 +553,43 @@ wire_api = "responses"
 requires_openai_auth = false
 supports_websockets = true
 experimental_bearer_token = "{}"
+
+[mcp_servers.rivet]
+url = "{}"
 "#,
         config.proxy_base_url(),
-        config.proxy_access_key
+        config.proxy_access_key,
+        config.mcp_url(),
     );
 
     let stripped = strip_codex_rivet_sections(existing);
-    if stripped.trim().is_empty() {
+    let mut out = if stripped.trim().is_empty() {
         rivet_block
     } else {
         format!("{}\n{}\n", rivet_block.trim_end(), stripped.trim_start())
+    };
+    out = ensure_codex_hooks_feature(&out);
+    out
+}
+
+fn ensure_codex_hooks_feature(input: &str) -> String {
+    if input.lines().any(|l| {
+        let t = l.trim();
+        t.starts_with("hooks") && t.contains('=') && t.to_ascii_lowercase().contains("true")
+    }) {
+        return input.to_string();
     }
+    if let Some(idx) = input.lines().position(|l| l.trim().eq_ignore_ascii_case("[features]")) {
+        let mut lines: Vec<String> = input.lines().map(str::to_string).collect();
+        lines.insert(idx + 1, "hooks = true".into());
+        let mut out = lines.join("\n");
+        if !input.ends_with('\n') {
+            // keep prior trailing newline habit
+        }
+        out.push('\n');
+        return out;
+    }
+    format!("{input}\n[features]\nhooks = true\n")
 }
 
 /// Remove prior Rivet-managed keys/sections so reinstall is idempotent.
@@ -310,7 +599,8 @@ fn strip_codex_rivet_sections(input: &str) -> String {
     for line in input.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') && trimmed.ends_with(']') {
-            skip_section = trimmed.eq_ignore_ascii_case("[model_providers.rivet]");
+            skip_section = trimmed.eq_ignore_ascii_case("[model_providers.rivet]")
+                || trimmed.eq_ignore_ascii_case("[mcp_servers.rivet]");
             if skip_section {
                 continue;
             }
@@ -366,21 +656,51 @@ mod tests {
     }
 
     #[test]
+    fn cursor_hooks_merge_injects_rivet_commands() {
+        let plugins = std::env::temp_dir().join(format!("rivet-cursor-plugs-{}", Uuid::new_v4()));
+        let script_dir = plugins.join("rivet-cursor").join("scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("report-session.sh");
+        fs::write(&script, "#!/bin/sh\n").unwrap();
+        let out = merge_cursor_hooks(r#"{"version":1,"hooks":{}}"#, &plugins).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v["hooks"]["sessionStart"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("report-session.sh"));
+        assert!(v["hooks"]["sessionEnd"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("report-session.sh"));
+        let _ = fs::remove_dir_all(&plugins);
+    }
+
+    #[test]
     fn claude_merge_preserves_other_keys() {
         let existing = r#"{
   "theme": "dark",
   "env": { "KEEP_ME": "1", "ANTHROPIC_BASE_URL": "old" },
   "mcpServers": { "other": { "type": "stdio", "command": "x" } }
 }"#;
-        let out = merge_claude_settings(existing, &cfg()).unwrap();
+        let plugins = std::env::temp_dir().join(format!("rivet-plugins-{}", Uuid::new_v4()));
+        let _ = fs::create_dir_all(&plugins);
+        let out = merge_claude_settings(existing, &cfg(), Some(&plugins)).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["theme"], "dark");
         assert_eq!(v["env"]["KEEP_ME"], "1");
         assert_eq!(v["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18317");
+        assert_eq!(v["env"]["RIVET_API_BASE"], "http://127.0.0.1:8741");
+        assert_eq!(v["env"]["CLAUDE_CODE_GATEWAY_HINT_HEADERS"], "1");
         assert!(v["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
         assert!(v["env"].get("ANTHROPIC_API_KEY").is_none());
         assert_eq!(v["mcpServers"]["other"]["command"], "x");
         assert_eq!(v["mcpServers"]["rivet"]["url"], "http://127.0.0.1:8742/mcp");
+        assert_eq!(v["enabledPlugins"]["rivet@rivet"], true);
+        assert!(v["extraKnownMarketplaces"]["rivet"]["source"]["path"]
+            .as_str()
+            .unwrap()
+            .contains("rivet-plugins-"));
+        let _ = fs::remove_dir_all(&plugins);
     }
 
     #[test]
@@ -399,12 +719,13 @@ base_url = "http://old"
 [features]
 foo = true
 "#;
-        let out = merge_codex_config(existing, &cfg());
+        let out = merge_codex_config(existing, &cfg(), None);
         assert!(out.contains("model_provider = \"rivet\""));
         assert!(out.contains("experimental_bearer_token = \"rivet_test_key\""));
         assert!(out.contains("[model_providers.openai]"));
         assert!(out.contains("notify = true"));
-        assert!(out.contains("[features]"));
+        assert!(out.contains("[mcp_servers.rivet]"));
+        assert!(out.contains("hooks = true"));
         assert!(!out.contains("http://old"));
         assert_eq!(out.matches("[model_providers.rivet]").count(), 1);
         assert!(!out.contains("model_provider = \"openai\""));
@@ -420,12 +741,27 @@ foo = true
         let bak = backup_if_exists(&settings).unwrap().expect("backup");
         assert!(PathBuf::from(&bak).exists());
         let merged =
-            merge_claude_settings(&fs::read_to_string(&settings).unwrap(), &cfg()).unwrap();
+            merge_claude_settings(&fs::read_to_string(&settings).unwrap(), &cfg(), None).unwrap();
         fs::write(&settings, merged).unwrap();
         let v: Value = serde_json::from_str(&fs::read_to_string(&settings).unwrap()).unwrap();
         assert_eq!(v["theme"], "light");
         assert_eq!(v["env"]["ANTHROPIC_BASE_URL"], "http://127.0.0.1:18317");
         assert!(v["env"].get("ANTHROPIC_AUTH_TOKEN").is_none());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn install_plugins_copies_marketplace() {
+        let dest = std::env::temp_dir().join(format!("rivet-plugdest-{}", Uuid::new_v4()));
+        let _ = fs::remove_dir_all(&dest);
+        let path = install_harness_plugins(&cfg(), &dest).expect("copy plugins");
+        assert!(path.join(".claude-plugin").join("marketplace.json").is_file());
+        assert!(path.join("rivet").join("scripts").join("report-session.sh").is_file());
+        let mcp: Value = serde_json::from_str(
+            &fs::read_to_string(path.join("rivet").join(".mcp.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(mcp["mcpServers"]["rivet"]["url"], "http://127.0.0.1:8742/mcp");
+        let _ = fs::remove_dir_all(&dest);
     }
 }

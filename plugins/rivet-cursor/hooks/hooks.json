@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./scripts/report-session.sh"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "./scripts/report-session.sh"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "./scripts/report-session.sh"
+      }
+    ]
+  }
+}

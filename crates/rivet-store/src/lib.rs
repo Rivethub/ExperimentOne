@@ -15,7 +15,9 @@ use tracing::info;
 pub use clickhouse::{
     ClickHouseTrafficStore, EmbeddingSearchHit, EMBEDDINGS_DDL, TRAFFIC_EVENTS_DDL,
 };
-pub use meta::{EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, WikiPageMeta};
+pub use meta::{
+    EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, WikiPageMeta,
+};
 pub use redacting::RedactingStore;
 
 #[async_trait]

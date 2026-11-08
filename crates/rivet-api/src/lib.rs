@@ -21,10 +21,10 @@ use chrono::{Duration, Utc};
 use rivet_core::{
     claude_mcp_json, claude_settings_json, codex_config_toml, conversations_from_events,
     harness_user_ready, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
-    provider_catalog, Capabilities, ConversationSummary, ProviderKind, RivetConfig, RivetPaths,
-    TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
+    project_id_from_cwd, provider_catalog, resolve_project_root, Capabilities, ConversationSummary,
+    ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
 };
-use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore, WikiPageMeta};
+use rivet_store::{ClickHouseTrafficStore, MetaStore, SessionBinding, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -158,6 +158,24 @@ pub struct HarnessWriteRequest {
     /// `isolated` writes under Rivet's harness dir (requires env override).
     #[serde(default)]
     pub mode: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HarnessSessionRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HarnessSessionQuery {
+    pub session_id: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -396,6 +414,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/logs/{kind}", get(tail_logs))
         .route("/v1/demo/seed", post(demo_seed))
         .route("/v1/harness/write", post(harness_write))
+        .route(
+            "/v1/harness/session",
+            post(harness_session).get(harness_session_get).delete(harness_session_delete),
+        )
         .route("/v1/proxy/start", post(proxy_start))
         .route("/v1/proxy/stop", post(proxy_stop))
         .route("/v1/shutdown", post(shutdown_all))
@@ -1121,6 +1143,77 @@ async fn harness_write(
     Json(body): Json<HarnessWriteRequest>,
 ) -> Result<Json<HarnessWriteResponse>, (StatusCode, Json<ErrBody>)> {
     state.control.write_harness(&body.target, body.mode.as_deref()).map(Json).map_err(err_response)
+}
+
+async fn harness_session(
+    State(state): State<ApiState>,
+    Json(body): Json<HarnessSessionRequest>,
+) -> Result<Json<SessionBinding>, (StatusCode, Json<ErrBody>)> {
+    let session_id = body.session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    let cwd = body
+        .cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(resolve_project_root)
+        .filter(|s| !s.is_empty());
+    let mut project_id =
+        body.project_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    if project_id.is_none() {
+        if let Some(ref cwd) = cwd {
+            project_id = project_id_from_cwd(cwd);
+        }
+    }
+    if project_id.is_none() && cwd.is_none() {
+        return Err(err_response("cwd or project_id required".into()));
+    }
+    let binding = SessionBinding {
+        session_id,
+        project_id,
+        cwd,
+        provider: body.provider.filter(|s| !s.trim().is_empty()),
+        source: body.source.filter(|s| !s.trim().is_empty()).or_else(|| Some("plugin".into())),
+        updated_at: Utc::now().to_rfc3339(),
+    };
+    state.meta.upsert_session_binding(binding).map(Json).map_err(|e| err_response(e.to_string()))
+}
+
+async fn harness_session_get(
+    State(state): State<ApiState>,
+    Query(query): Query<HarnessSessionQuery>,
+) -> Result<Json<SessionBinding>, (StatusCode, Json<ErrBody>)> {
+    let session_id = query.session_id.trim();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    match state.meta.get_session_binding(session_id) {
+        Ok(Some(binding)) => Ok(Json(binding)),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrBody { error: "session binding not found".into() }),
+        )),
+        Err(e) => Err(err_response(e.to_string())),
+    }
+}
+
+async fn harness_session_delete(
+    State(state): State<ApiState>,
+    Query(query): Query<HarnessSessionQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let session_id = query.session_id.trim();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    let removed =
+        state.meta.delete_session_binding(session_id).map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "session_id": session_id,
+        "removed": removed,
+    })))
 }
 
 async fn export_bag(

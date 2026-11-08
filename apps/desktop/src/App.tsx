@@ -363,6 +363,7 @@ export default function App() {
               harnessNote: accountsHook.harnessNote,
               snippet: accountsHook.snippet,
               onWriteHarness: (target, mode) => void accountsHook.writeHarness(target, mode),
+              onWriteAllHarnesses: () => void accountsHook.writeAllHarnesses(),
               onLoadClaude: () => void accountsHook.loadClaude(),
               onLoadCodex: () => void accountsHook.loadCodex(),
               onLoadMcp: () => void accountsHook.loadMcp(),
