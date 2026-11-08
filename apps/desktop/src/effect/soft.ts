@@ -15,6 +15,6 @@ export function softEffect<A>(effect: Effect.Effect<A, unknown>): Effect.Effect<
         lastSoftFailure = cause;
       }),
     ),
-    Effect.catch(() => Effect.succeed(null)),
+    Effect.orElseSucceed(() => null),
   );
 }
