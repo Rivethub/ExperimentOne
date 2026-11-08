@@ -5,7 +5,8 @@ import type { CatalogProvider } from "../lib/provider-utils";
 import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
 
 export const QUOTA_TTL_MS = 5 * 60 * 1000;
-export const HOME_REFETCH_MS = 10_000;
+/** Slow safety net — live cursor invalidation covers most updates. */
+export const HOME_REFETCH_MS = 60_000;
 
 export function refreshErrorMessage(err: unknown): string {
   if (err instanceof Error) {

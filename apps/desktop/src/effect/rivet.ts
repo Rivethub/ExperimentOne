@@ -20,6 +20,7 @@ import {
   ConversationSearchResponseSchema,
   ConversationsSchema,
   HarnessWriteSchema,
+  LiveCursorSchema,
   LoginStatusSchema,
   MessageResultSchema,
   ProvidersResponseSchema,
@@ -109,6 +110,8 @@ export const writeHarness = (
 export const getClaudeEnv = apiText("GET", "/v1/harness/claude.env");
 export const getCodexToml = apiText("GET", "/v1/harness/codex.toml");
 export const getMcpJson = apiText("GET", "/v1/harness/mcp.json");
+
+export const getLiveCursor = apiJsonSchema("GET", "/v1/live", LiveCursorSchema);
 
 export const putConfig = (
   body: JsonObject,

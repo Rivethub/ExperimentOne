@@ -2,6 +2,7 @@
 
 mod clickhouse;
 mod meta;
+mod migrations;
 mod redacting;
 
 use anyhow::Result;
@@ -18,6 +19,7 @@ pub use clickhouse::{
 pub use meta::{
     EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, WikiPageMeta,
 };
+pub use migrations::{run as run_clickhouse_migrations, MIGRATIONS};
 pub use redacting::RedactingStore;
 
 #[async_trait]

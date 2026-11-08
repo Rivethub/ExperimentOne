@@ -23,6 +23,8 @@ export {
   AccountsSchema,
   BagResultSchema,
   ConfigResponseSchema,
+  LiveCursorSchema,
+  PublicConfigSchema,
   HarnessWriteSchema,
   MessageResultSchema,
   QuotaSnapshotSchema,

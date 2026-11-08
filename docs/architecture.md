@@ -111,7 +111,8 @@ flowchart TB
 | Control IPC | `{data}/rivetd.sock` (Windows named pipe) | Host injects key; webview never sees it |
 
 Env overrides: `RIVET_DATA_DIR`, `RIVET_CLICKHOUSE_URL`, `RIVET_PROXY_BIN`,
-`RIVET_CLICKHOUSE_BIN`. Runtime sets `RIVET_INGEST_URL` / `RIVET_INGEST_KEY` when
+`RIVET_CLICKHOUSE_BIN`, `RIVET_OTLP_ENDPOINT` (optional OTLP gRPC, e.g.
+`http://127.0.0.1:4317`). Runtime sets `RIVET_INGEST_URL` / `RIVET_INGEST_KEY` when
 spawning the proxy.
 
 ---
@@ -175,11 +176,21 @@ flowchart LR
   API --> Store[rivet-store]
   Store --> CH[(ClickHouse)]
   Store --> Meta[meta/]
+  Host -->|poll GET /v1/live| IPC
+  Host -->|emit rivet-live| UI
+  Ingest[rivet-ingest] -->|LiveBus| API
+  Worker[rivet-worker] -->|wiki bump| API
+  API -->|SSE GET /v1/events| CLI[CLI / tools]
 ```
 
 Loopback TCP on `api_port` still serves the same control routes for CLI, plus
 ingest for the proxy. The webview never uses TCP to `rivetd` and never sees the
 raw access key.
+
+Live refresh: ingest and wiki workers publish on an in-process `LiveBus`.
+Desktop Tauri polls `GET /v1/live` (cheap cursor: wiki revision + traffic
+count) and emits `rivet-live` into the webview; `useLiveEvents` invalidates
+home/wiki queries. CLI/tools can subscribe to `GET /v1/events` (SSE).
 
 ### 4. Conversations / Data pane
 
@@ -253,11 +264,14 @@ ClickHouse on boot, then renamed `.migrated`.
 
 ```mermaid
 flowchart LR
-  Harness[Harness MCP client] -->|POST :mcp_port/mcp| MCP[rivet-mcp]
+  Harness[Harness MCP client] -->|GET/POST :mcp_port/mcp| MCP[rivet-mcp rmcp]
   MCP -->|search_history| CH[(traffic_events)]
   MCP -->|semantic_search| Emb[(embeddings · HNSW)]
   Emb --> CH
 ```
+
+Streamable HTTP via the official `rmcp` SDK (SSE keep-alive on GET). Legacy
+REST debug routes remain under `/mcp/info` and `/mcp/tools/*`.
 
 ### 10. Export / import
 
@@ -304,15 +318,20 @@ sequenceDiagram
 
 ### ClickHouse
 
-Primary local store. Schema applied at boot (`CREATE DATABASE rivet` + tables).
+Primary local store. Schema applied at boot via versioned migrations in
+`rivet-store` (`schema_migrations` + forward-only `MIGRATIONS`).
 
 | Table / artifact | Role |
 | --- | --- |
+| `schema_migrations` | Applied migration versions |
 | `traffic_events` | One row per captured request/stream segment (`session_id`, optional hard-evidence `project_id`, `cwd`, `body_ref`, `capture_quality`, …) |
 | `embeddings` | Lexical (64-dim) vectors with HNSW `vector_similarity('hnsw', 'cosineDistance', 64)` |
 
 `usage_rollups` and `wiki_pages` as CH tables remain sketched / optional; the
 wiki **index** and quota history samples still live in meta files.
+
+Ingest rejects oversized batches / content before insert (`rivet-core`
+`ingest_validate`).
 
 ### Capture vs classification
 
@@ -373,7 +392,7 @@ Default data root: macOS
 | Proxy | Sidecar process (`:18317`) | Deployment (chart often `:8317`) |
 | ClickHouse | Bundled single-node or URL | Cluster / managed |
 | Workers | In-process Tokio poll | Job pods / queue consumers |
-| Bus | Polling | NATS or Redpanda later |
+| Bus | In-process `LiveBus` + `/v1/live` / SSE | NATS or Redpanda later |
 | UI auth | Loopback + key / control IPC | OIDC + admin portal |
 | Tenancy | Single user | Org / team namespaces |
 
@@ -406,13 +425,18 @@ Close-to-tray; Quit from tray stops `rivetd`.
 - Rust for Rivet backend crates
 - Go only inside the forked proxy sidecar
 - Tauri 2 desktop → DMG / deb+AppImage / NSIS
-- ClickHouse for traffic analytics events
+- ClickHouse for traffic analytics events (official `clickhouse` Rust client)
+- MCP via official `rmcp` streamable HTTP; control contracts via `utoipa` (`GET /v1/openapi.json`); desktop Effect schemas mirror exported OpenAPI (`scripts/export-openapi.sh` → `docs/openapi.json`)
+- Live refresh: `LiveBus` → `GET /v1/live` + `GET /v1/events` (SSE); Tauri emits `rivet-live`
+- Loopback API/ingest: `tower-governor` rate limits + optional Prometheus (`GET /metrics`)
+- Optional OTLP tracing when `RIVET_OTLP_ENDPOINT` is set
+- Proxy logrus: Rivet `RedactHook` masks tokens before stdout/file sinks
 - No TigerBeetle; no Flink locally (Rust workers; Redpanda later for enterprise fan-out)
 
 ## Implementation notes (doc vs code)
 
-1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`), not Unix-socket NDJSON (`ingest.sock` path may exist unused).
-2. **Embeddings** live in ClickHouse with HNSW; **wiki index** and **quota history** remain meta-file backed.
+1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`), not Unix-socket NDJSON (`ingest.sock` path may exist unused). Batches are size-validated before insert.
+2. **Embeddings** live in ClickHouse with HNSW; **wiki index** and **quota history** remain meta-file backed. Schema evolves via versioned CH migrations.
 3. **`body_ref` / `blobs/`** hold spilled full turns when the preview is short; small bodies stay in `content`.
 4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context when needed.
 5. Helm proxy port may differ from the local default `18317`.

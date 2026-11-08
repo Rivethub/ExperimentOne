@@ -42,6 +42,13 @@ export function matchCatalog(ctx: MockRequestContext): MockHttpResult | null {
   if (ctx.m === "GET" && ctx.base === "/v1/status") {
     return ok(currentStatus(store));
   }
+  if (ctx.m === "GET" && ctx.base === "/v1/live") {
+    return ok({
+      wiki_revision: store.wiki?.revision ?? 0,
+      traffic_events: store.traffic.length,
+      observed_at: new Date().toISOString(),
+    });
+  }
   if (ctx.m === "GET" && ctx.base === "/v1/providers") {
     return ok({ providers: store.providers });
   }

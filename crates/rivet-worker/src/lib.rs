@@ -20,7 +20,9 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use rivet_core::{lexical_embed, RivetConfig, RivetPaths, TrafficEvent, LEXICAL_SPACE};
+use rivet_core::{
+    lexical_embed, LiveBus, LiveEvent, RivetConfig, RivetPaths, TrafficEvent, LEXICAL_SPACE,
+};
 use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore, WikiPageMeta};
 use serde::Deserialize;
 use serde_json::json;
@@ -37,6 +39,7 @@ pub struct WorkerPool {
     config: Arc<RwLock<RivetConfig>>,
     http: reqwest::Client,
     wiki_revision: Arc<AtomicU64>,
+    live: LiveBus,
 }
 
 impl std::fmt::Debug for WorkerPool {
@@ -53,6 +56,7 @@ impl WorkerPool {
         paths: RivetPaths,
         config: Arc<RwLock<RivetConfig>>,
         wiki_revision: Arc<AtomicU64>,
+        live: LiveBus,
     ) -> Self {
         Self {
             store,
@@ -65,7 +69,13 @@ impl WorkerPool {
                 .build()
                 .expect("reqwest client"),
             wiki_revision,
+            live,
         }
+    }
+
+    fn bump_wiki_revision(&self) {
+        let revision = self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        self.live.publish(LiveEvent::Wiki { revision });
     }
 
     pub fn wiki_revision(&self) -> Arc<AtomicU64> {
@@ -73,8 +83,12 @@ impl WorkerPool {
     }
 
     pub fn spawn(self: Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
-        let watcher =
-            spawn_wiki_watcher(self.paths.clone(), self.meta.clone(), self.wiki_revision.clone());
+        let watcher = spawn_wiki_watcher(
+            self.paths.clone(),
+            self.meta.clone(),
+            self.wiki_revision.clone(),
+            self.live.clone(),
+        );
         let ticks = tokio::spawn({
             let this = self;
             async move {
@@ -103,7 +117,7 @@ impl WorkerPool {
         // Always keep meta ↔ disk aligned (covers edits while wiki worker is off).
         if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
             if upserts > 0 || removed > 0 {
-                self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                self.bump_wiki_revision();
             }
         }
 
@@ -115,7 +129,7 @@ impl WorkerPool {
             // Worker writes new files; re-index so titles/previews match.
             if let Ok((upserts, removed)) = reconcile_wiki_dir(&self.paths, &self.meta) {
                 if upserts > 0 || removed > 0 {
-                    self.wiki_revision.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    self.bump_wiki_revision();
                 }
             }
         }

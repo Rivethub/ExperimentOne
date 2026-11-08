@@ -7,13 +7,13 @@ use axum::{
     extract::State,
     http::{header, Request, StatusCode},
     middleware::{self, Next},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::post,
     Json, Router,
 };
-use rivet_core::TrafficEvent;
+use rivet_core::{validate_ingest_batch, validate_traffic_event, LiveBus, LiveEvent, TrafficEvent};
 use rivet_store::{MetaStore, TrafficStore};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct IngestState {
@@ -22,6 +22,8 @@ pub struct IngestState {
     pub ingest_key: String,
     /// Optional session→project map filled by harness plugins.
     pub meta: Option<Arc<MetaStore>>,
+    /// Optional live bus so the control API can push traffic updates.
+    pub live: Option<LiveBus>,
 }
 
 impl std::fmt::Debug for IngestState {
@@ -33,6 +35,11 @@ impl std::fmt::Debug for IngestState {
 #[derive(Debug, Deserialize)]
 pub struct IngestBatch {
     pub events: Vec<TrafficEvent>,
+}
+
+#[derive(Debug, Serialize)]
+struct IngestErrorBody {
+    error: String,
 }
 
 async fn require_ingest_auth(
@@ -93,35 +100,55 @@ fn enrich_from_session_map(meta: &MetaStore, event: &mut TrafficEvent) {
     }
 }
 
+fn reject_validation(err: &rivet_core::IngestValidationError) -> Response {
+    tracing::warn!(%err, "rejecting invalid ingest payload");
+    (StatusCode::BAD_REQUEST, Json(IngestErrorBody { error: err.to_string() })).into_response()
+}
+
 async fn ingest_one(
     State(state): State<IngestState>,
     Json(mut event): Json<TrafficEvent>,
-) -> Result<StatusCode, StatusCode> {
+) -> Response {
+    if let Err(err) = validate_traffic_event(&event) {
+        return reject_validation(&err);
+    }
     if let Some(meta) = state.meta.as_ref() {
         enrich_from_session_map(meta, &mut event);
     }
-    state.store.insert_event(&event).await.map_err(|err| {
+    if let Err(err) = state.store.insert_event(&event).await {
         tracing::error!(?err, "ingest failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    Ok(StatusCode::ACCEPTED)
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    if let Some(live) = state.live.as_ref() {
+        live.publish(LiveEvent::Traffic { count: 1 });
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 async fn ingest_batch(
     State(state): State<IngestState>,
     Json(batch): Json<IngestBatch>,
-) -> Result<StatusCode, StatusCode> {
+) -> Response {
+    if let Err(err) = validate_ingest_batch(&batch.events) {
+        return reject_validation(&err);
+    }
     let mut events = batch.events;
     if let Some(meta) = state.meta.as_ref() {
         for event in &mut events {
             enrich_from_session_map(meta, event);
         }
     }
-    state.store.insert_batch(&events).await.map_err(|err| {
+    let n = events.len() as u64;
+    if let Err(err) = state.store.insert_batch(&events).await {
         tracing::error!(?err, "batch ingest failed");
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
-    Ok(StatusCode::ACCEPTED)
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    }
+    if n > 0 {
+        if let Some(live) = state.live.as_ref() {
+            live.publish(LiveEvent::Traffic { count: n });
+        }
+    }
+    StatusCode::ACCEPTED.into_response()
 }
 
 pub async fn serve(addr: std::net::SocketAddr, state: IngestState) -> Result<()> {

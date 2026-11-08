@@ -9,7 +9,7 @@ use rivet_core::{control_request, control_up, exe_name, sidecar_file_name, Rivet
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, RunEvent, WindowEvent,
+    AppHandle, Emitter, Manager, RunEvent, WindowEvent,
 };
 
 #[derive(Debug)]
@@ -354,6 +354,36 @@ async fn ensure_rivetd(app: AppHandle) -> Result<bool, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Poll rivetd `/v1/live` and emit `rivet-live` to the webview when the cursor moves.
+fn spawn_live_watcher(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_body = String::new();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            if STOPPED.load(Ordering::SeqCst) {
+                break;
+            }
+            let Some(paths) = rivet_paths() else {
+                continue;
+            };
+            if !control_up(&paths) {
+                continue;
+            }
+            let key = read_proxy_access_key().unwrap_or_default();
+            let Ok(resp) = control_request(&paths, "GET", "/v1/live", &key, None) else {
+                continue;
+            };
+            if resp.status != 200 || resp.body.is_empty() || resp.body == last_body {
+                continue;
+            }
+            last_body = resp.body.clone();
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&resp.body) {
+                let _ = app.emit("rivet-live", value);
+            }
+        }
+    });
+}
+
 #[derive(serde::Serialize)]
 struct ApiIpcResponse {
     status: u16,
@@ -423,6 +453,7 @@ pub fn run() {
             std::thread::spawn(move || {
                 let _ = spawn_rivetd(&handle);
             });
+            spawn_live_watcher(app.handle().clone());
 
             let show_i = MenuItem::with_id(app, "show", "Open Rivet", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit Rivet", true, None::<&str>)?;

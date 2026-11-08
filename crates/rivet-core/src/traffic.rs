@@ -1,10 +1,12 @@
 use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::providers::normalize_provider_id;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, ToSchema, JsonSchema)]
 pub enum ProviderKind {
     Claude,
     Codex,
@@ -60,7 +62,9 @@ impl ProviderKind {
 }
 
 /// How the event was captured / how trustworthy the session linkage is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum CaptureQuality {
     /// Live proxy capture with a real harness session marker.
@@ -113,7 +117,7 @@ impl<'de> Deserialize<'de> for ProviderKind {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TrafficRole {
     System,
@@ -124,7 +128,7 @@ pub enum TrafficRole {
 }
 
 /// One captured unit of proxy traffic. Safe to export (no credentials).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TrafficEvent {
     pub id: Uuid,
     pub ts: DateTime<Utc>,
@@ -186,7 +190,7 @@ impl TrafficEvent {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct UsageTotals {
     pub events: u64,
     pub tokens_in: u64,
@@ -194,7 +198,7 @@ pub struct UsageTotals {
 }
 
 /// One historical conversation, projected from traffic events sharing a session.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct ConversationSummary {
     /// `session_id`, or `event:{uuid}` when the event has no session.
     pub id: String,

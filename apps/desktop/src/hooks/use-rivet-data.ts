@@ -7,6 +7,7 @@ import { notify } from "../lib/notify";
 import { queryKeys } from "../lib/query-keys";
 import type { CatalogProvider } from "../lib/provider-utils";
 import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
+import { useLiveEvents } from "./use-live-events";
 import {
   HOME_REFETCH_MS,
   QUOTA_TTL_MS,
@@ -43,9 +44,13 @@ export function useRivetData(opts: {
   const lastHomeError = useRef<string | null>(null);
   const warned = useRef(new Set<string>());
 
+  // Invalidate home/wiki when rivetd publishes live cursor changes.
+  useLiveEvents(true);
+
   const homeQuery = useQuery({
     queryKey: queryKeys.home,
     queryFn: loadHomeSnapshot,
+    // Live events drive most refreshes; keep a slow safety poll.
     refetchInterval: HOME_REFETCH_MS,
   });
 
