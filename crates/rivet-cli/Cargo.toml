@@ -26,4 +26,4 @@ serde.workspace = true
 serde_json.workspace = true
 tar = "0.4"
 tokio.workspace = true
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
