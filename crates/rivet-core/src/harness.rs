@@ -90,7 +90,10 @@ pub fn install_harness(
         ("codex", HarnessInstallMode::Isolated) => {
             install_codex_isolated(config, isolated_codex_dir, plugins_dest)
         },
-        (other, _) => bail!("unknown harness target '{other}'"),
+        ("cursor", HarnessInstallMode::User) | ("cursor", HarnessInstallMode::Isolated) => {
+            install_cursor_user(config, plugins_dest)
+        },
+        (other, _) => bail!("unknown harness target '{other}' (expected claude, codex, or cursor)"),
     }?;
     result.note.push_str(&plugin_note);
     Ok(result)
@@ -109,8 +112,11 @@ pub fn install_harness_plugins(config: &RivetConfig, plugins_dest: &Path) -> Res
     {
         use std::os::unix::fs::PermissionsExt;
         for rel in [
+            "common/session_hook.py",
             "rivet/scripts/report-session.sh",
+            "rivet/scripts/custom-headers-helper.sh",
             "rivet-codex/scripts/report-session.sh",
+            "rivet-cursor/scripts/report-session.sh",
         ] {
             let script = plugins_dest.join(rel);
             if script.is_file() {
@@ -168,18 +174,20 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 }
 
 fn rewrite_plugin_mcp_urls(plugins_dest: &Path, mcp_url: &str) -> Result<()> {
-    let mcp_path = plugins_dest.join("rivet").join(".mcp.json");
-    if !mcp_path.is_file() {
-        return Ok(());
-    }
-    let raw = fs::read_to_string(&mcp_path)?;
-    let mut root: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
-    if let Some(servers) = root.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
-        if let Some(rivet) = servers.get_mut("rivet").and_then(|v| v.as_object_mut()) {
-            rivet.insert("url".into(), Value::String(mcp_url.to_string()));
+    for rel in ["rivet/.mcp.json", "rivet-cursor/mcp.json"] {
+        let mcp_path = plugins_dest.join(rel);
+        if !mcp_path.is_file() {
+            continue;
         }
+        let raw = fs::read_to_string(&mcp_path)?;
+        let mut root: Value = serde_json::from_str(&raw).unwrap_or_else(|_| json!({}));
+        if let Some(servers) = root.get_mut("mcpServers").and_then(|v| v.as_object_mut()) {
+            if let Some(rivet) = servers.get_mut("rivet").and_then(|v| v.as_object_mut()) {
+                rivet.insert("url".into(), Value::String(mcp_url.to_string()));
+            }
+        }
+        fs::write(&mcp_path, format!("{}\n", serde_json::to_string_pretty(&root)?))?;
     }
-    fs::write(&mcp_path, format!("{}\n", serde_json::to_string_pretty(&root)?))?;
     Ok(())
 }
 
@@ -283,18 +291,101 @@ fn write_codex_hooks(codex_home: &Path, plugins_dest: &Path) -> Result<()> {
     if !script.is_file() {
         return Ok(());
     }
+    let cmd = script.display().to_string();
     let hooks_path = codex_home.join("hooks.json");
+    // Codex has no CwdChanged; UserPromptSubmit refreshes cwd each turn.
     let hooks = json!({
         "hooks": {
             "SessionStart": [{
-                "hooks": [{
-                    "type": "command",
-                    "command": script.display().to_string()
-                }]
+                "hooks": [{ "type": "command", "command": cmd.clone(), "timeout": 15 }]
+            }],
+            "UserPromptSubmit": [{
+                "hooks": [{ "type": "command", "command": cmd.clone(), "timeout": 15 }]
+            }],
+            "SessionEnd": [{
+                "hooks": [{ "type": "command", "command": cmd, "timeout": 3 }]
             }]
         }
     });
     fs::write(&hooks_path, format!("{}\n", serde_json::to_string_pretty(&hooks)?))?;
+    Ok(())
+}
+
+fn install_cursor_user(config: &RivetConfig, plugins_dest: &Path) -> Result<HarnessInstallResult> {
+    let path = cursor_user_hooks_path()?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let backup_path = backup_if_exists(&path)?;
+    let existing = if path.exists() {
+        fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?
+    } else {
+        String::new()
+    };
+    let merged = merge_cursor_hooks(&existing, plugins_dest)?;
+    fs::write(&path, merged).with_context(|| format!("write {}", path.display()))?;
+    write_cursor_mcp_snippet(config)?;
+    let backup_note =
+        backup_path.as_ref().map(|b| format!(" Backup saved to {b}.")).unwrap_or_default();
+    Ok(HarnessInstallResult {
+        target: "cursor".into(),
+        path: path.display().to_string(),
+        backup_path,
+        env_hint: String::new(),
+        note: format!(
+            "Merged Rivet sessionStart/sessionEnd/beforeSubmitPrompt hooks into ~/.cursor/hooks.json and wrote MCP snippet. Restart Cursor to pick them up.{backup_note}"
+        ),
+    })
+}
+
+pub fn cursor_user_hooks_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("no home directory")?;
+    Ok(home.join(".cursor").join("hooks.json"))
+}
+
+fn merge_cursor_hooks(existing: &str, plugins_dest: &Path) -> Result<String> {
+    let script = plugins_dest
+        .join("rivet-cursor")
+        .join("scripts")
+        .join("report-session.sh");
+    if !script.is_file() {
+        bail!("cursor plugin script missing at {}", script.display());
+    }
+    let cmd = script.display().to_string();
+    let mut root: Value = if existing.trim().is_empty() {
+        json!({ "version": 1, "hooks": {} })
+    } else {
+        serde_json::from_str(existing).context("parse Cursor hooks.json")?
+    };
+    if !root.is_object() {
+        bail!("Cursor hooks.json root must be a JSON object");
+    }
+    let obj = root.as_object_mut().expect("object");
+    obj.entry("version").or_insert(json!(1));
+    let hooks = obj.entry("hooks").or_insert_with(|| Value::Object(Map::new()));
+    if !hooks.is_object() {
+        *hooks = Value::Object(Map::new());
+    }
+    let hooks_obj = hooks.as_object_mut().expect("hooks");
+    for event in ["sessionStart", "beforeSubmitPrompt", "sessionEnd"] {
+        hooks_obj.insert(event.into(), json!([{ "command": cmd }]));
+    }
+    Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
+}
+
+fn write_cursor_mcp_snippet(config: &RivetConfig) -> Result<()> {
+    let home = dirs::home_dir().context("no home directory")?;
+    let dir = home.join(".cursor");
+    fs::create_dir_all(&dir)?;
+    let path = dir.join("rivet.mcp.json");
+    let body = json!({
+        "mcpServers": {
+            "rivet": {
+                "url": config.mcp_url(),
+            }
+        }
+    });
+    fs::write(&path, format!("{}\n", serde_json::to_string_pretty(&body)?))?;
     Ok(())
 }
 
@@ -390,6 +481,17 @@ pub fn merge_claude_settings(
             *enabled = Value::Object(Map::new());
         }
         enabled.as_object_mut().expect("enabled").insert("rivet@rivet".into(), Value::Bool(true));
+
+        // Forward-compatible: ignored until Claude Code ships customHeadersHelper
+        // (anthropics/claude-code#97949). Then wire headers carry hard project ids.
+        let helper = plugins_dest
+            .join("rivet")
+            .join("scripts")
+            .join("custom-headers-helper.sh");
+        if helper.is_file() {
+            let helper_path = helper.canonicalize().unwrap_or(helper).display().to_string();
+            obj.insert("customHeadersHelper".into(), Value::String(helper_path));
+        }
     }
 
     Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
@@ -556,6 +658,20 @@ mod tests {
         assert_eq!(harness_target_for_provider("codex"), Some("codex"));
         assert_eq!(harness_target_for_provider("openai"), Some("codex"));
         assert_eq!(harness_target_for_provider("gemini"), None);
+    }
+
+    #[test]
+    fn cursor_hooks_merge_injects_rivet_commands() {
+        let plugins = std::env::temp_dir().join(format!("rivet-cursor-plugs-{}", Uuid::new_v4()));
+        let script_dir = plugins.join("rivet-cursor").join("scripts");
+        fs::create_dir_all(&script_dir).unwrap();
+        let script = script_dir.join("report-session.sh");
+        fs::write(&script, "#!/bin/sh\n").unwrap();
+        let out = merge_cursor_hooks(r#"{"version":1,"hooks":{}}"#, &plugins).unwrap();
+        let v: Value = serde_json::from_str(&out).unwrap();
+        assert!(v["hooks"]["sessionStart"][0]["command"].as_str().unwrap().contains("report-session.sh"));
+        assert!(v["hooks"]["sessionEnd"][0]["command"].as_str().unwrap().contains("report-session.sh"));
+        let _ = fs::remove_dir_all(&plugins);
     }
 
     #[test]

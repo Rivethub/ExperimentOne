@@ -414,7 +414,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/logs/{kind}", get(tail_logs))
         .route("/v1/demo/seed", post(demo_seed))
         .route("/v1/harness/write", post(harness_write))
-        .route("/v1/harness/session", post(harness_session).get(harness_session_get))
+        .route(
+            "/v1/harness/session",
+            post(harness_session).get(harness_session_get).delete(harness_session_delete),
+        )
         .route("/v1/proxy/start", post(proxy_start))
         .route("/v1/proxy/stop", post(proxy_stop))
         .route("/v1/shutdown", post(shutdown_all))
@@ -1202,6 +1205,25 @@ async fn harness_session_get(
         )),
         Err(e) => Err(err_response(e.to_string())),
     }
+}
+
+async fn harness_session_delete(
+    State(state): State<ApiState>,
+    Query(query): Query<HarnessSessionQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let session_id = query.session_id.trim();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    let removed = state
+        .meta
+        .delete_session_binding(session_id)
+        .map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "session_id": session_id,
+        "removed": removed,
+    })))
 }
 
 async fn export_bag(

@@ -331,9 +331,11 @@ present, and `capture_quality` (`wire` / `soft` / `imported`).
 Cwd and path text in prompts alone are signals, not project classifications —
 unless the plugin attested the session’s project.
 
-**Harness plugins** (`plugins/rivet`, `plugins/rivet-codex`) also enable Rivet
-MCP and Claude gateway hint headers. Harness install copies them under
-Application Support and enables `rivet@rivet`.
+**Harness plugins** (`plugins/rivet`, `plugins/rivet-codex`, `plugins/rivet-cursor`)
+report SessionStart / cwd heartbeats, clear bindings on SessionEnd, enable Rivet
+MCP, and (for Claude) install a forward-compatible `customHeadersHelper` that
+emits `X-Project-Id` / `X-Rivet-Project-Id` once Claude Code ships that setting.
+Harness install copies them under Application Support.
 
 **Classification** (workers) fills gaps when hard evidence was absent — assign
 or reconcile projects from cwd + content + session affinity.

@@ -1,5 +1,5 @@
 {
-  "description": "Report Claude Code session + cwd to Rivet so traffic gets a hard project_id",
+  "description": "Bind Claude Code sessions to Rivet project ids; clear on SessionEnd",
   "hooks": {
     "SessionStart": [
       {
@@ -19,6 +19,28 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/report-session.sh\"",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/report-session.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/report-session.sh\"",
+            "timeout": 10
           }
         ]
       }

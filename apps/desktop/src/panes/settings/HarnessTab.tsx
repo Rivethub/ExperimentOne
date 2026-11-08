@@ -78,6 +78,15 @@ export function HarnessTab({
         >
           Install into ~/.codex
         </Button>
+        <Button
+          variant="primary"
+          disabled={harness.busy}
+          onClick={() => {
+            harness.onWriteHarness("cursor", "user");
+          }}
+        >
+          Install into ~/.cursor
+        </Button>
       </Actions>
       <Actions style={{ marginTop: 8 }}>
         <Button onClick={harness.onLoadClaude}>Copy Claude snippet</Button>

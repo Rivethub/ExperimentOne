@@ -1,0 +1,17 @@
+{
+  "name": "rivet",
+  "owner": {
+    "name": "Rivet",
+    "url": "https://github.com/wSedlacek/Rivet"
+  },
+  "metadata": {
+    "description": "Rivet local traffic + history plugins for Cursor"
+  },
+  "plugins": [
+    {
+      "name": "rivet",
+      "source": "rivet-cursor",
+      "description": "Bind Cursor sessions to Rivet project ids and enable Rivet MCP"
+    }
+  ]
+}

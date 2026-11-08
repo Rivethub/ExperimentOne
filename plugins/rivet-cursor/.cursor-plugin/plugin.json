@@ -1,0 +1,8 @@
+{
+  "name": "rivet",
+  "version": "0.1.0",
+  "description": "Bind Cursor agent sessions to Rivet project ids and enable Rivet MCP history tools",
+  "author": {
+    "name": "Rivet"
+  }
+}

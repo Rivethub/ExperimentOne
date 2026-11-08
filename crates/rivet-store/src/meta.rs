@@ -171,6 +171,20 @@ impl MetaStore {
         Ok(file.by_session.get(id).cloned())
     }
 
+    pub fn delete_session_binding(&self, session_id: &str) -> Result<bool> {
+        let id = session_id.trim();
+        if id.is_empty() {
+            anyhow::bail!("session_id required");
+        }
+        let _g = self.lock.lock().expect("meta lock");
+        let mut file: SessionBindingsFile = Self::read_json(&self.paths.sessions)?;
+        let removed = file.by_session.remove(id).is_some();
+        if removed {
+            Self::write_json_atomic(&self.paths.sessions, &file)?;
+        }
+        Ok(removed)
+    }
+
     pub fn job_cursor(&self, name: &str) -> Result<Option<String>> {
         let _g = self.lock.lock().expect("meta lock");
         let jobs: JobsFile = Self::read_json(&self.paths.jobs)?;
