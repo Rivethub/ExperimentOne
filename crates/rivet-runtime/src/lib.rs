@@ -90,18 +90,6 @@ impl Runtime {
                     clickhouse_url = Some(url.clone());
                     std::env::set_var("RIVET_CLICKHOUSE_URL", &url);
                 }
-                if let Ok(ch) =
-                    ClickHouseTrafficStore::new(clickhouse_url.as_deref().unwrap_or(&url))
-                {
-                    if let Err(err) = ch.ensure_schema().await {
-                        tracing::warn!(
-                            ?err,
-                            "clickhouse ensure_schema failed (will retry on insert)"
-                        );
-                    } else {
-                        info!("clickhouse schema ready (database rivet)");
-                    }
-                }
             },
             Ok(false) => {
                 if clickhouse_url.is_none() {
@@ -120,14 +108,31 @@ impl Runtime {
             },
         }
 
-        let store = self.stores.traffic_store_with_clickhouse(clickhouse_url.clone())?;
+        let (store, ch) = self.stores.traffic_store_with_clickhouse(clickhouse_url.clone())?;
+        if let Err(err) = ch.ensure_schema().await {
+            tracing::warn!(?err, "clickhouse ensure_schema failed (will retry on insert)");
+        } else {
+            info!("clickhouse schema ready (database rivet + embeddings HNSW)");
+        }
+
         let meta = self.stores.meta.clone();
+        match meta.take_legacy_embeddings() {
+            Ok(legacy) if !legacy.is_empty() => {
+                if let Err(err) = ch.import_legacy_embeddings(&legacy).await {
+                    tracing::warn!(?err, "legacy embeddings.json migration failed");
+                }
+            },
+            Ok(_) => {},
+            Err(err) => tracing::warn!(?err, "failed reading legacy embeddings.json"),
+        }
+
         let config = Arc::new(RwLock::new(self.config.clone()));
 
         let traffic_backend = "clickhouse";
         let wiki_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let worker = Arc::new(WorkerPool::new(
             store.clone(),
+            ch.clone(),
             meta.clone(),
             self.paths.clone(),
             config.clone(),
@@ -137,6 +142,7 @@ impl Runtime {
         let api_state = ApiState {
             config: config.clone(),
             store: store.clone(),
+            ch: ch.clone(),
             control: self.proxy.clone(),
             paths: self.paths.clone(),
             meta: meta.clone(),
@@ -148,8 +154,7 @@ impl Runtime {
         let ingest_state =
             IngestState { store: store.clone(), ingest_key: self.config.proxy_access_key.clone() };
 
-        let mcp_state =
-            McpState { store: store.clone(), meta: meta.clone(), config: config.clone() };
+        let mcp_state = McpState { store: store.clone(), ch: ch.clone(), config: config.clone() };
 
         let _worker_handles = worker.spawn();
 

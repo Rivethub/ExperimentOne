@@ -23,7 +23,16 @@ Without a sidecar **and** without `RIVET_CLICKHOUSE_URL`, `rivetd` refuses to st
 | macOS / Linux x64 & arm64 | Official single binary via `scripts/build-sidecars.sh` |
 | Windows aarch64 | No official CH binary yet — set `RIVET_CLICKHOUSE_BIN` or URL |
 
+## Embeddings (HNSW)
+
+Lexical vectors live in ClickHouse `embeddings` with a native
+`vector_similarity('hnsw', 'cosineDistance', 64)` index. Semantic search uses
+`ORDER BY cosineDistance(dims, q) LIMIT k` so the engine can use HNSW.
+
+Legacy `meta/embeddings.json` is imported once on boot (then renamed
+`.migrated`).
+
 ## Meta (not ClickHouse)
 
-Quota history samples, wiki page index, embeddings, and job cursors live as JSON/JSONL
+Quota history samples, wiki page index, and job cursors live as JSON/JSONL
 under `{data}/meta/` — see `rivet-store` `MetaStore`.

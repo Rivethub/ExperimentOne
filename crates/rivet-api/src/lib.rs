@@ -19,12 +19,12 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rivet_core::{
-    claude_mcp_json, claude_settings_json, codex_config_toml, conversations_from_events, cosine,
+    claude_mcp_json, claude_settings_json, codex_config_toml, conversations_from_events,
     harness_user_ready, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
     provider_catalog, Capabilities, ConversationSummary, ProviderKind, RivetConfig, RivetPaths,
-    TrafficEvent, TrafficRole, UsageTotals,
+    TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
 };
-use rivet_store::{MetaStore, TrafficStore, WikiPageMeta};
+use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -55,6 +55,8 @@ pub trait ControlApi: Send + Sync {
 pub struct ApiState {
     pub config: Arc<RwLock<RivetConfig>>,
     pub store: Arc<dyn TrafficStore>,
+    /// `ClickHouse` client used for HNSW vector search / embedding counts.
+    pub ch: Arc<ClickHouseTrafficStore>,
     pub control: Arc<dyn ControlApi>,
     pub paths: RivetPaths,
     pub meta: Arc<MetaStore>,
@@ -445,7 +447,7 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         workers: WorkersStatus {
             vector_search: cfg.capabilities.vector_search,
             wiki: cfg.capabilities.wiki,
-            embeddings: state.meta.embedding_count().unwrap_or(0),
+            embeddings: state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0),
             wiki_pages: state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
             vectorize_cursor: state.meta.job_cursor("vectorize").ok().flatten(),
             wiki_cursor: state.meta.job_cursor("wiki").ok().flatten(),
@@ -627,16 +629,20 @@ async fn semantic_conversation_search(
     limit: u32,
 ) -> Result<(&'static str, Vec<ConversationSummary>), String> {
     let query_vec = lexical_embed(query);
-    let embeddings = state.meta.all_embeddings().map_err(|e| e.to_string())?;
+    // Overscan so conversation projection still has enough distinct sessions.
+    let fetch = limit.saturating_mul(4).max(limit);
+    let hits = state
+        .ch
+        .search_embeddings(LEXICAL_SPACE, &query_vec, fetch)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let mut scored: Vec<(f32, String)> = embeddings
+    // cosineDistance on unit vectors: similarity ≈ 1 - distance. Keep weak hits out.
+    let scored: Vec<(f32, String)> = hits
         .into_iter()
-        .filter(|(_, dims)| dims.len() == query_vec.len())
-        .map(|(id, dims)| (cosine(&query_vec, &dims), id))
+        .map(|h| (1.0 - h.distance, h.event_id))
         .filter(|(score, _)| *score > 0.05)
         .collect();
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    scored.truncate((limit as usize).saturating_mul(4).max(limit as usize));
 
     if scored.is_empty() {
         let results =
@@ -1319,7 +1325,7 @@ async fn workers_tick(
     let cfg = state.config.read().await;
     Ok(Json(serde_json::json!({
         "ok": true,
-        "embeddings": state.meta.embedding_count().unwrap_or(0),
+        "embeddings": state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0),
         "wiki_pages": state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
     })))
 }

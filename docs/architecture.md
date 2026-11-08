@@ -78,7 +78,7 @@ Routing features Theo cares about (session affinity, soonest-reset-first) live i
 
 **ClickHouse** (bundled sidecar or `RIVET_CLICKHOUSE_URL`) — primary local traffic store for `traffic_events`; the desktop status API reports `traffic_backend: clickhouse`.
 
-**File-backed meta** — app config, wiki page index, job cursors, and quota history samples under `meta/` in the Rivet data directory (via `rivet-store` `MetaStore`).
+**File-backed meta** — app config, wiki page index, job cursors, and quota history samples under `meta/` in the Rivet data directory (via `rivet-store` `MetaStore`). Embeddings are stored in ClickHouse (not meta JSON).
 
 **Object/blob dir** — large bodies / export packages under the OS data directory
 (macOS `~/Library/Application Support/Rivet`, Linux `~/.local/share/Rivet`,
@@ -88,7 +88,7 @@ Windows `%APPDATA%\Rivet`; override with `RIVET_DATA_DIR`).
 
 - `traffic_events` — one row per request or stream segment (ts, account_id, provider, model, session_id, project_id, role, tokens_in/out, latency_ms, body_ref)
 - `usage_rollups` — materialized views by account/model/day
-- `embeddings` — optional; vector column or external index pointer
+- `embeddings` — lexical (64-dim) vectors with ClickHouse HNSW `vector_similarity` index
 - `wiki_pages` — optional generated docs (markdown under `wiki/` + file meta index)
 
 ## Workers

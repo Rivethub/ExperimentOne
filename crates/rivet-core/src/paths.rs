@@ -48,7 +48,7 @@ impl RivetPaths {
         self.root.join("config.json")
     }
 
-    /// Jobs, wiki index, embeddings, quota history (JSON / JSONL).
+    /// Jobs, wiki index, quota history (JSON / JSONL). Embeddings live in `ClickHouse`.
     pub fn meta_dir(&self) -> Utf8PathBuf {
         self.root.join("meta")
     }

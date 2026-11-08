@@ -1,12 +1,16 @@
-//! `ClickHouse` traffic store — sole persistence for captured events.
+//! `ClickHouse` traffic store — sole persistence for captured events + embeddings.
+
+use std::collections::HashSet;
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone, Utc};
-use rivet_core::{ProviderKind, TrafficEvent, TrafficRole, UsageTotals};
+use rivet_core::{
+    ProviderKind, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_EMBED_DIMS, LEXICAL_SPACE,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use tracing::warn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::TrafficStore;
@@ -32,6 +36,26 @@ CREATE TABLE IF NOT EXISTS traffic_events (
 ) ENGINE = MergeTree
 ORDER BY (ts, id);
 ";
+
+/// Lexical (64-dim) vectors with a `ClickHouse` HNSW `vector_similarity` index.
+pub const EMBEDDINGS_DDL: &str = r"
+CREATE TABLE IF NOT EXISTS embeddings (
+  event_id UUID,
+  space LowCardinality(String),
+  dims Array(Float32),
+  updated_at DateTime64(3, 'UTC'),
+  INDEX vec_hnsw dims TYPE vector_similarity('hnsw', 'cosineDistance', 64)
+) ENGINE = ReplacingMergeTree(updated_at)
+ORDER BY (space, event_id);
+";
+
+/// One ANN hit from [`ClickHouseTrafficStore::search_embeddings`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddingSearchHit {
+    pub event_id: String,
+    /// `cosineDistance` (0 = identical for unit vectors).
+    pub distance: f32,
+}
 
 #[derive(Clone, Debug)]
 struct HttpEndpoint {
@@ -64,6 +88,38 @@ struct UsageTotalsRow {
     tokens_in: u64,
     #[serde(default)]
     tokens_out: u64,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct EmbeddingCountRow {
+    #[serde(default)]
+    n: u64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct EmbeddingIdRow {
+    event_id: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct EmbeddingHitRow {
+    event_id: String,
+    distance: f32,
+}
+
+fn format_f32_array(dims: &[f32]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(dims.len() * 8 + 2);
+    out.push('[');
+    for (i, x) in dims.iter().enumerate() {
+        if i > 0 {
+            out.push(',');
+        }
+        // Force decimal form so ClickHouse parses as Float, not Int.
+        let _ = write!(out, "{x:.8}");
+    }
+    out.push(']');
+    out
 }
 
 /// HTTP client for a single-node `ClickHouse` (tiny tokio TCP — no reqwest).
@@ -103,7 +159,156 @@ impl ClickHouseTrafficStore {
         self.exec_sql_on("default", &format!("CREATE DATABASE IF NOT EXISTS {}", self.database))
             .await?;
         self.exec_sql_on(&self.database, TRAFFIC_EVENTS_DDL).await?;
+        self.exec_sql_on(&self.database, EMBEDDINGS_DDL).await?;
         Ok(())
+    }
+
+    /// Insert or replace one embedding (`ReplacingMergeTree` on `updated_at`).
+    pub async fn upsert_embedding(&self, space: &str, event_id: &str, dims: &[f32]) -> Result<()> {
+        self.upsert_embeddings_batch(space, &[(event_id.to_string(), dims.to_vec())]).await?;
+        Ok(())
+    }
+
+    /// Bulk upsert embeddings. Rows with the wrong length for `lexical` are skipped.
+    pub async fn upsert_embeddings_batch(
+        &self,
+        space: &str,
+        rows: &[(String, Vec<f32>)],
+    ) -> Result<u64> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let expect_dims = if space == LEXICAL_SPACE { Some(LEXICAL_EMBED_DIMS) } else { None };
+        let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
+        let mut body = String::new();
+        let mut n = 0u64;
+        for (event_id, dims) in rows {
+            if expect_dims.is_some_and(|d| dims.len() != d) {
+                warn!(
+                    %event_id,
+                    got = dims.len(),
+                    want = LEXICAL_EMBED_DIMS,
+                    "skip embedding with wrong dimensionality"
+                );
+                continue;
+            }
+            if Uuid::parse_str(event_id).is_err() {
+                warn!(%event_id, "skip embedding with non-UUID event id");
+                continue;
+            }
+            let row = serde_json::json!({
+                "event_id": event_id,
+                "space": space,
+                "dims": dims,
+                "updated_at": now,
+            });
+            body.push_str(&serde_json::to_string(&row)?);
+            body.push('\n');
+            n += 1;
+        }
+        if n == 0 {
+            return Ok(0);
+        }
+        let path = format!(
+            "/?database={}&query=INSERT%20INTO%20embeddings%20FORMAT%20JSONEachRow",
+            self.database
+        );
+        self.http_post(&path, "application/json", body.as_bytes()).await?;
+        Ok(n)
+    }
+
+    /// Event ids that already have at least one row in `space` (duplicates ok).
+    pub async fn embedded_event_ids(&self, space: &str) -> Result<HashSet<String>> {
+        let space = Self::escape_literal(space);
+        let body = self
+            .query_json_rows(&format!(
+                "SELECT DISTINCT toString(event_id) AS event_id FROM embeddings WHERE space = '{space}'"
+            ))
+            .await?;
+        let mut out = HashSet::new();
+        for line in body.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let row: EmbeddingIdRow = serde_json::from_str(line)
+                .with_context(|| format!("parse embedding id row: {line}"))?;
+            out.insert(row.event_id);
+        }
+        Ok(out)
+    }
+
+    pub async fn embedding_count(&self, space: &str) -> Result<u64> {
+        let space = Self::escape_literal(space);
+        let body = self
+            .query_json_rows(&format!(
+                "SELECT uniqExact(event_id) AS n FROM embeddings WHERE space = '{space}'"
+            ))
+            .await?;
+        let line = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("{\"n\":0}");
+        let row: EmbeddingCountRow = serde_json::from_str(line).unwrap_or_default();
+        Ok(row.n)
+    }
+
+    /// Approximate nearest neighbors via `ClickHouse` HNSW (`cosineDistance` ASC).
+    pub async fn search_embeddings(
+        &self,
+        space: &str,
+        query_dims: &[f32],
+        limit: u32,
+    ) -> Result<Vec<EmbeddingSearchHit>> {
+        let limit = limit.clamp(1, 5000);
+        if space == LEXICAL_SPACE && query_dims.len() != LEXICAL_EMBED_DIMS {
+            bail!("lexical query dims {} != expected {}", query_dims.len(), LEXICAL_EMBED_DIMS);
+        }
+        let space_lit = Self::escape_literal(space);
+        let q = format_f32_array(query_dims);
+        // Fetch a small overscan so ReplacingMergeTree duplicates can be collapsed.
+        let fetch = limit.saturating_mul(4).max(limit);
+        let body = self
+            .query_json_rows(&format!(
+                "WITH {q} AS q SELECT toString(event_id) AS event_id, cosineDistance(dims, q) AS distance \
+                 FROM embeddings WHERE space = '{space_lit}' AND length(dims) = {dim} \
+                 ORDER BY distance ASC LIMIT {fetch}",
+                dim = query_dims.len(),
+            ))
+            .await?;
+
+        let mut hits = Vec::new();
+        let mut seen = HashSet::new();
+        for line in body.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let row: EmbeddingHitRow = serde_json::from_str(line)
+                .with_context(|| format!("parse embedding hit: {line}"))?;
+            if !seen.insert(row.event_id.clone()) {
+                continue;
+            }
+            hits.push(EmbeddingSearchHit { event_id: row.event_id, distance: row.distance });
+            if hits.len() >= limit as usize {
+                break;
+            }
+        }
+        Ok(hits)
+    }
+
+    /// One-shot import of legacy `meta/embeddings.json` rows into `ClickHouse`.
+    pub async fn import_legacy_embeddings(&self, rows: &[(String, Vec<f32>)]) -> Result<u64> {
+        if rows.is_empty() {
+            return Ok(0);
+        }
+        let existing = self.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+        if existing > 0 {
+            info!(existing, "skip legacy embeddings import — ClickHouse already has vectors");
+            return Ok(0);
+        }
+        let n = self.upsert_embeddings_batch(LEXICAL_SPACE, rows).await?;
+        if n > 0 {
+            info!(n, "migrated legacy embeddings.json into ClickHouse");
+        }
+        Ok(n)
     }
 
     async fn exec_sql_on(&self, database: &str, sql: &str) -> Result<()> {
@@ -430,5 +635,25 @@ impl TrafficStore for ClickHouseTrafficStore {
             )
             .await?;
         Self::parse_events(&body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_f32_array_is_bracketed() {
+        let s = format_f32_array(&[1.0, -0.5, 0.0]);
+        assert!(s.starts_with('['));
+        assert!(s.ends_with(']'));
+        assert!(s.contains("1.00000000"));
+        assert!(s.contains("-0.50000000"));
+    }
+
+    #[test]
+    fn embeddings_ddl_declares_hnsw() {
+        assert!(EMBEDDINGS_DDL.contains("vector_similarity('hnsw', 'cosineDistance', 64)"));
+        assert!(EMBEDDINGS_DDL.contains("ReplacingMergeTree"));
     }
 }

@@ -16,8 +16,8 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
-use rivet_core::{lexical_embed, RivetConfig, RivetPaths, TrafficEvent};
-use rivet_store::{MetaStore, TrafficStore, WikiPageMeta};
+use rivet_core::{lexical_embed, RivetConfig, RivetPaths, TrafficEvent, LEXICAL_SPACE};
+use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore, WikiPageMeta};
 use serde::Deserialize;
 use serde_json::json;
 use tokio::sync::RwLock;
@@ -27,6 +27,7 @@ pub use wiki_fs::{reconcile_wiki_dir, spawn_wiki_watcher};
 
 pub struct WorkerPool {
     store: Arc<dyn TrafficStore>,
+    ch: Arc<ClickHouseTrafficStore>,
     meta: Arc<MetaStore>,
     paths: RivetPaths,
     config: Arc<RwLock<RivetConfig>>,
@@ -43,6 +44,7 @@ impl std::fmt::Debug for WorkerPool {
 impl WorkerPool {
     pub fn new(
         store: Arc<dyn TrafficStore>,
+        ch: Arc<ClickHouseTrafficStore>,
         meta: Arc<MetaStore>,
         paths: RivetPaths,
         config: Arc<RwLock<RivetConfig>>,
@@ -50,6 +52,7 @@ impl WorkerPool {
     ) -> Self {
         Self {
             store,
+            ch,
             meta,
             paths,
             config,
@@ -116,32 +119,36 @@ impl WorkerPool {
     }
 
     async fn embed_new_events(&self, _cfg: &RivetConfig) -> Result<()> {
-        // Lexical-only (same space as MCP queries). Walk full export backlog so
-        // imports older than the recent window are not stranded forever.
+        // Lexical-only (same space as MCP/API queries + CH HNSW index).
+        // Walk full export backlog so imports older than the recent window are
+        // not stranded forever.
         let all = self.store.export_all().await?;
-        let mut n = 0u32;
+        let existing = self.ch.embedded_event_ids(LEXICAL_SPACE).await?;
+        let mut batch: Vec<(String, Vec<f32>)> = Vec::new();
 
         for event in all {
             let id = event.id.to_string();
-            if self.meta.embedding_for(&id)?.is_some() {
+            if existing.contains(&id) {
                 continue;
             }
             let text = event.content.as_deref().unwrap_or("").trim();
             if text.is_empty() {
                 continue;
             }
-
-            let dims = lexical_embed(text);
-
-            self.meta.upsert_embedding(&id, &dims)?;
-            n += 1;
-            if n >= 120 {
+            batch.push((id, lexical_embed(text)));
+            if batch.len() >= 120 {
                 break; // keep each tick bounded; next tick continues the backlog
             }
         }
 
+        let n = self.ch.upsert_embeddings_batch(LEXICAL_SPACE, &batch).await?;
         if n > 0 {
-            info!(n, mode = "lexical", "vector worker embedded events");
+            info!(
+                n,
+                mode = "lexical",
+                backend = "clickhouse-hnsw",
+                "vector worker embedded events"
+            );
         }
         self.meta.set_job_cursor("vectorize", &Utc::now().to_rfc3339())?;
         Ok(())
@@ -327,8 +334,8 @@ impl WorkerPool {
         let _ = writeln!(readme, "- Events: **{}**", totals.events);
         let _ = writeln!(readme, "- Tokens in: **{}**", totals.tokens_in);
         let _ = writeln!(readme, "- Tokens out: **{}**", totals.tokens_out);
-        let _ =
-            writeln!(readme, "- Embeddings: **{}**\n", self.meta.embedding_count().unwrap_or(0));
+        let emb_n = self.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+        let _ = writeln!(readme, "- Embeddings: **{emb_n}**\n");
         readme.push_str("## Table of contents\n\n");
         if toc.is_empty() {
             readme.push_str("_No pages yet — capture traffic to populate this wiki._\n");
