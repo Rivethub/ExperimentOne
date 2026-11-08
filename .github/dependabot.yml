@@ -1,3 +1,10 @@
+# Dependabot commit messages must satisfy Conventional Commits + Rivet scopes
+# (`committed.toml` / `scripts/lint-commit-msg.sh`). Embed an allowed scope in
+# `prefix` (do not use `include: scope` — that forces Dependabot's `deps` /
+# `deps-dev`, which are not project scopes).
+#
+# After changing this file, recreate open Dependabot PRs
+# (`@dependabot recreate`) so their commits pick up the new prefix.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -5,27 +12,37 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(ci)"
 
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(repo)"
 
   - package-ecosystem: cargo
     directory: /apps/desktop/src-tauri
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(desktop)"
 
   - package-ecosystem: npm
     directory: /apps/desktop
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(desktop)"
 
   - package-ecosystem: gomod
     directory: /vendor/cliproxyapi
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(proxy)"
