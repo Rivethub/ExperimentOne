@@ -8,7 +8,7 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 authors.workspace = true
-description = "Export/import .rivetbag traffic packages (no credentials)"
+description = "Export/import .rivetbag packages and local harness transcript ingest (no credentials)"
 
 [lints]
 workspace = true
@@ -17,12 +17,14 @@ workspace = true
 anyhow.workspace = true
 camino.workspace = true
 chrono.workspace = true
+dirs.workspace = true
 rivet-core.workspace = true
 rivet-store.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 flate2 = "1"
 tar = "0.4"
 

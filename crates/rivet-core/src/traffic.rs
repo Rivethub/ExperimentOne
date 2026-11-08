@@ -17,6 +17,7 @@ pub enum ProviderKind {
     Meta,
     Devin,
     Vertex,
+    Cursor,
     Other,
 }
 
@@ -34,6 +35,7 @@ impl ProviderKind {
             Self::Meta => "meta",
             Self::Devin => "devin",
             Self::Vertex => "vertex",
+            Self::Cursor => "cursor",
             Self::Other => "other",
         }
     }
@@ -51,7 +53,49 @@ impl ProviderKind {
             "meta" => Self::Meta,
             "devin" => Self::Devin,
             "vertex" => Self::Vertex,
+            "cursor" => Self::Cursor,
             _ => Self::Other,
+        }
+    }
+}
+
+/// How the event was captured / how trustworthy the session linkage is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureQuality {
+    /// Live proxy capture with a real harness session marker.
+    #[default]
+    Wire,
+    /// Live proxy capture grouped by a soft hash (no harness session id).
+    Soft,
+    /// Imported from a local harness transcript on disk.
+    Imported,
+}
+
+impl CaptureQuality {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Wire => "wire",
+            Self::Soft => "soft",
+            Self::Imported => "imported",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "soft" | "soft-id" | "soft_id" => Self::Soft,
+            "imported" | "import" | "local" => Self::Imported,
+            _ => Self::Wire,
+        }
+    }
+
+    /// Lower fidelity wins when summarizing a conversation.
+    pub fn worse(self, other: Self) -> Self {
+        use CaptureQuality::*;
+        match (self, other) {
+            (Soft, _) | (_, Soft) => Soft,
+            (Imported, _) | (_, Imported) => Imported,
+            _ => Wire,
         }
     }
 }
@@ -88,7 +132,13 @@ pub struct TrafficEvent {
     pub account_label: Option<String>,
     pub model: Option<String>,
     pub session_id: Option<String>,
+    /// Hard-evidence project id only: explicit API/header field, or the harness's own project key
+    /// (e.g. Claude/Cursor `projects/<id>/` folder). Never inferred from cwd or prompt text.
     pub project_id: Option<String>,
+    /// Working-directory signal when present on wire or local transcript. Soft context for workers —
+    /// not promoted to `project_id` by itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     pub request_id: Option<String>,
     pub role: TrafficRole,
     pub content: Option<String>,
@@ -98,6 +148,9 @@ pub struct TrafficEvent {
     pub status_code: Option<u16>,
     /// Relative path under blobs/ when body was spilled to disk.
     pub body_ref: Option<String>,
+    /// Capture fidelity: `wire`, `soft`, or `imported`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_quality: Option<CaptureQuality>,
 }
 
 impl TrafficEvent {
@@ -110,6 +163,7 @@ impl TrafficEvent {
             model: None,
             session_id: None,
             project_id: None,
+            cwd: None,
             request_id: None,
             role: TrafficRole::Unknown,
             content: None,
@@ -118,6 +172,7 @@ impl TrafficEvent {
             latency_ms: None,
             status_code: None,
             body_ref: None,
+            capture_quality: None,
         }
     }
 
@@ -148,11 +203,17 @@ pub struct ConversationSummary {
     pub provider: ProviderKind,
     pub model: Option<String>,
     pub project_id: Option<String>,
+    /// Latest captured cwd signal for the conversation (not a classified project).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
     pub started_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub message_count: u64,
     pub tokens_in: u64,
     pub tokens_out: u64,
+    /// Worst fidelity seen in the conversation (`soft` < `imported` < `wire`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_quality: Option<CaptureQuality>,
 }
 
 fn clip_text(raw: &str, max: usize) -> String {
@@ -241,11 +302,21 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
         message_count: u64,
         tokens_in: u64,
         tokens_out: u64,
+        capture_quality: Option<CaptureQuality>,
     }
 
     let mut by_id: HashMap<String, Acc<'_>> = HashMap::new();
     for ev in events {
         let id = ev.conversation_id();
+        let q = ev.capture_quality.or_else(|| {
+            ev.session_id.as_deref().and_then(|s| {
+                if s.starts_with("soft:") {
+                    Some(CaptureQuality::Soft)
+                } else {
+                    None
+                }
+            })
+        });
         match by_id.get_mut(&id) {
             Some(acc) => {
                 acc.message_count += 1;
@@ -264,6 +335,11 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 if better_title {
                     acc.title_src = ev;
                 }
+                acc.capture_quality = match (acc.capture_quality, q) {
+                    (Some(a), Some(b)) => Some(a.worse(b)),
+                    (None, b) => b,
+                    (a, None) => a,
+                };
             },
             None => {
                 by_id.insert(
@@ -275,6 +351,7 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                         message_count: 1,
                         tokens_in: u64::from(ev.tokens_in),
                         tokens_out: u64::from(ev.tokens_out),
+                        capture_quality: q,
                     },
                 );
             },
@@ -298,11 +375,13 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 provider: acc.last.provider,
                 model: acc.last.model.clone(),
                 project_id: acc.last.project_id.clone(),
+                cwd: acc.last.cwd.clone(),
                 started_at: acc.first.ts,
                 updated_at: acc.last.ts,
                 message_count: acc.message_count,
                 tokens_in: acc.tokens_in,
                 tokens_out: acc.tokens_out,
+                capture_quality: acc.capture_quality,
             }
         })
         .collect();

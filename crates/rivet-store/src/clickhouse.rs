@@ -6,7 +6,8 @@ use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use rivet_core::{
-    ProviderKind, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_EMBED_DIMS, LEXICAL_SPACE,
+    CaptureQuality, ProviderKind, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_EMBED_DIMS,
+    LEXICAL_SPACE,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS traffic_events (
   model LowCardinality(Nullable(String)),
   session_id Nullable(String),
   project_id Nullable(String),
+  cwd Nullable(String),
   request_id Nullable(String),
   role LowCardinality(String),
   content Nullable(String),
@@ -32,9 +34,20 @@ CREATE TABLE IF NOT EXISTS traffic_events (
   tokens_out UInt32,
   latency_ms Nullable(UInt64),
   status_code Nullable(UInt16),
-  body_ref Nullable(String)
+  body_ref Nullable(String),
+  capture_quality LowCardinality(Nullable(String))
 ) ENGINE = MergeTree
 ORDER BY (ts, id);
+";
+
+const TRAFFIC_EVENTS_ADD_CAPTURE_QUALITY: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS capture_quality LowCardinality(Nullable(String))
+";
+
+const TRAFFIC_EVENTS_ADD_CWD: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS cwd Nullable(String)
 ";
 
 /// Lexical (64-dim) vectors with a `ClickHouse` HNSW `vector_similarity` index.
@@ -159,6 +172,9 @@ impl ClickHouseTrafficStore {
         self.exec_sql_on("default", &format!("CREATE DATABASE IF NOT EXISTS {}", self.database))
             .await?;
         self.exec_sql_on(&self.database, TRAFFIC_EVENTS_DDL).await?;
+        // Existing installs created before capture_quality / cwd existed.
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_CAPTURE_QUALITY).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_CWD).await?;
         self.exec_sql_on(&self.database, EMBEDDINGS_DDL).await?;
         Ok(())
     }
@@ -369,6 +385,7 @@ impl ClickHouseTrafficStore {
             "model": event.model,
             "session_id": event.session_id,
             "project_id": event.project_id,
+            "cwd": event.cwd,
             "request_id": event.request_id,
             "role": role,
             "content": event.content,
@@ -377,6 +394,7 @@ impl ClickHouseTrafficStore {
             "latency_ms": event.latency_ms,
             "status_code": event.status_code,
             "body_ref": event.body_ref,
+            "capture_quality": event.capture_quality.map(|q| q.as_str()),
         });
         Ok(serde_json::to_string(&row)?)
     }
@@ -414,6 +432,8 @@ struct ChEventRow {
     #[serde(default)]
     project_id: Option<String>,
     #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
     request_id: Option<String>,
     role: String,
     #[serde(default)]
@@ -428,6 +448,8 @@ struct ChEventRow {
     status_code: Option<u16>,
     #[serde(default)]
     body_ref: Option<String>,
+    #[serde(default)]
+    capture_quality: Option<String>,
 }
 
 impl ChEventRow {
@@ -441,6 +463,7 @@ impl ChEventRow {
             "tool" => TrafficRole::Tool,
             _ => TrafficRole::Unknown,
         };
+        let capture_quality = self.capture_quality.as_deref().map(CaptureQuality::parse);
         Ok(TrafficEvent {
             id,
             ts,
@@ -449,6 +472,7 @@ impl ChEventRow {
             model: self.model,
             session_id: self.session_id,
             project_id: self.project_id,
+            cwd: self.cwd,
             request_id: self.request_id,
             role,
             content: self.content,
@@ -457,6 +481,7 @@ impl ChEventRow {
             latency_ms: self.latency_ms,
             status_code: self.status_code,
             body_ref: self.body_ref,
+            capture_quality,
         })
     }
 }
@@ -552,7 +577,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         let limit = limit.clamp(1, 5000);
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events ORDER BY ts DESC LIMIT {limit}"
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events ORDER BY ts DESC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)
@@ -566,7 +591,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         }
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(session_id, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(session_id, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)
@@ -586,7 +611,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             let eid = Self::escape_literal(event_id);
             let body = self
                 .query_json_rows(&format!(
-                    "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE toString(id) = '{eid}' ORDER BY ts ASC LIMIT {limit}"
+                    "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE toString(id) = '{eid}' ORDER BY ts ASC LIMIT {limit}"
                 ))
                 .await?;
             return Self::parse_events(&body);
@@ -594,7 +619,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         let sid = Self::escape_literal(id);
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE session_id = '{sid}' ORDER BY ts ASC LIMIT {limit}"
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE session_id = '{sid}' ORDER BY ts ASC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)
@@ -611,7 +636,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             .join(",");
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE toString(id) IN ({list})"
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE toString(id) IN ({list})"
             ))
             .await?;
         Self::parse_events(&body)
@@ -631,7 +656,7 @@ impl TrafficStore for ClickHouseTrafficStore {
     async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
         let body = self
             .query_json_rows(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events ORDER BY ts ASC",
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events ORDER BY ts ASC",
             )
             .await?;
         Self::parse_events(&body)

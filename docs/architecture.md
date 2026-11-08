@@ -14,7 +14,9 @@ quota, conversation history, wiki, and MCP.
 ## What is (and isn’t) traffic
 
 **Captured / exportable traffic:** prompts, completions, tool calls, usage counts,
-model IDs, latency, session/project IDs, account labels.
+model IDs, latency, session IDs, cwd signals, account labels, and `project_id`
+only when hard evidence exists (explicit field/header or harness `projects/<id>/`
+key — never guessed from cwd alone).
 
 **Never exported as credentials:** OAuth blobs, API keys, management secrets,
 provider credentials under `proxy/auth/`. Captured text may still be sensitive
@@ -306,11 +308,26 @@ Primary local store. Schema applied at boot (`CREATE DATABASE rivet` + tables).
 
 | Table / artifact | Role |
 | --- | --- |
-| `traffic_events` | One row per captured request/stream segment |
+| `traffic_events` | One row per captured request/stream segment (`session_id`, optional hard-evidence `project_id`, `cwd`, `body_ref`, `capture_quality`, …) |
 | `embeddings` | Lexical (64-dim) vectors with HNSW `vector_similarity('hnsw', 'cosineDistance', 64)` |
 
 `usage_rollups` and `wiki_pages` as CH tables remain sketched / optional; the
 wiki **index** and quota history samples still live in meta files.
+
+### Capture vs classification
+
+**Capture** (proxy batch ingest + local transcript import) records observables:
+bodies / `body_ref`, sessions (wire or soft), usage, account labels, cwd when
+present, and `capture_quality` (`wire` / `soft` / `imported`).
+
+`project_id` is set only with **hard evidence** — an explicit harness/API
+project field or header, or the harness’s own on-disk project key (Claude
+`~/.claude/projects/<id>/`, Cursor `~/.cursor/projects/<slug>/` as stored).
+Cwd and path text in prompts are signals, not project classifications.
+
+**Classification** (workers) fills gaps when hard evidence was absent — assign
+or reconcile projects from cwd + content + session affinity. Ingest does not
+guess.
 
 ### Meta files (`{data}/meta/`)
 
@@ -329,7 +346,7 @@ wiki **index** and quota history samples still live in meta files.
 | `proxy/logs/` | Process + forced error logs |
 | `wiki/` | Generated markdown tree |
 | `exports/` | `.rivetbag` packages |
-| `blobs/` | Reserved for spilled bodies (`body_ref`); content usually inline in CH today |
+| `blobs/` | Spilled full bodies when preview is truncated (`body_ref`); small turns stay inline in `content` |
 | `pids/` | Sidecar PID tracking |
 
 Default data root: macOS
@@ -383,7 +400,8 @@ Close-to-tray; Quit from tray stops `rivetd`.
 
 ## Implementation notes (doc vs code)
 
-1. **Ingest** is HTTP batch to `/v1/ingest/batch`, not Unix-socket NDJSON (`ingest.sock` path may exist unused).
+1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`), not Unix-socket NDJSON (`ingest.sock` path may exist unused).
 2. **Embeddings** live in ClickHouse with HNSW; **wiki index** and **quota history** remain meta-file backed.
-3. **`body_ref` / `blobs/`** are reserved; most bodies live in the `content` column.
-4. Helm proxy port may differ from the local default `18317`.
+3. **`body_ref` / `blobs/`** hold spilled full turns when the preview is short; small bodies stay in `content`.
+4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context when needed.
+5. Helm proxy port may differ from the local default `18317`.

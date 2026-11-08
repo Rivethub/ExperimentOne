@@ -1,4 +1,8 @@
-//! Background workers for vectorize + wiki.
+//! Background workers for vectorize + wiki (+ future project classification).
+//!
+//! Ingest captures signals (`cwd`, bodies) and hard-evidence `project_id` only
+//! (explicit fields / harness project keys). Workers classify when evidence was
+//! missing — never promote cwd alone to a project at capture time.
 //!
 //! - **Vectorize**: embeds traffic content (proxy `/v1/embeddings` when
 //!   `embedding_model` is set, otherwise local lexical vectors).
@@ -475,11 +479,18 @@ fn format_event_line(event: &TrafficEvent) -> String {
         .replace('\n', " ");
     let provider = provider_key(event);
     let model = event.model.as_deref().unwrap_or("-");
+    // Prefer explicit project_id; otherwise surface cwd so later classifiers have a signal.
+    let place = event
+        .project_id
+        .as_deref()
+        .or(event.cwd.as_deref())
+        .unwrap_or("-");
     format!(
-        "`{}` · {} · `{}` · {}/{} tok · {}",
+        "`{}` · {} · `{}` · {} · {}/{} tok · {}",
         event.ts.format("%Y-%m-%d %H:%M"),
         provider,
         model,
+        place,
         event.tokens_in,
         event.tokens_out,
         preview

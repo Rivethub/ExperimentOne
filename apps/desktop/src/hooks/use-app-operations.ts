@@ -161,6 +161,30 @@ export function useAppOperations(opts: {
     }
   }, [refresh, onDataMutated, setBusy, setError]);
 
+  const ingestLocal = useCallback(async () => {
+    setBusy(true);
+    setStatusAction("Importing local sessions…");
+    try {
+      const body = await runApp(
+        Effect.gen(function* () {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.ingestLocal({});
+        }),
+      );
+      if (body.error) throw new Error(body.error);
+      setBagNote(
+        `Imported local sessions — ${body.events_inserted} new, ${body.events_skipped_existing} already present (${body.events_parsed} parsed from ${body.files_scanned} files)`,
+      );
+      await refresh();
+      onDataMutated?.();
+    } catch (err) {
+      setError(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+      setStatusAction(null);
+    }
+  }, [refresh, onDataMutated, setBusy, setStatusAction, setError]);
+
   const searchTraffic = useCallback(
     async (trafficQuery: string) => {
       setBusy(true);
@@ -383,6 +407,7 @@ export function useAppOperations(opts: {
     copyText,
     exportBag,
     importBag,
+    ingestLocal,
     searchTraffic,
     loadConversations,
     searchConversations,
