@@ -18,7 +18,7 @@ mod traffic;
 
 pub use config::{localhost_port_free, Capabilities, RivetConfig};
 pub use control_ipc::{control_endpoint, control_request, control_up, ControlIpcResponse};
-pub use embed::{cosine, lexical_embed};
+pub use embed::{cosine, lexical_embed, LEXICAL_EMBED_DIMS, LEXICAL_SPACE};
 pub use harness::{
     harness_target_for_provider, harness_user_ready, install_harness,
     migrate_claude_connector_auth, HarnessInstallMode, HarnessInstallResult,

@@ -46,7 +46,7 @@ Dev without a published release: build sidecars, then
 Default OS application-support path (override with `RIVET_DATA_DIR`):
 
 - `config.json` — app settings
-- `meta/` — jobs, wiki index, embeddings, quota history
+- `meta/` — jobs, wiki index, quota history (embeddings live in ClickHouse)
 - `wiki/` — markdown pages
 - `clickhouse/` — sidecar config + data
 - `proxy/` — proxy config, auth files, logs

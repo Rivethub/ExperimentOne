@@ -2,14 +2,18 @@
 //! Deterministic bag-of-hashed-tokens — good enough for MCP `semantic_search`
 //! until a real embedding model is pointed at the proxy.
 
-const DIMS: u32 = 64;
+/// Fixed dimensionality for [`lexical_embed`] (and the `ClickHouse` HNSW index).
+pub const LEXICAL_EMBED_DIMS: usize = 64;
+
+/// Embedding space id stored in `ClickHouse` `embeddings.space`.
+pub const LEXICAL_SPACE: &str = "lexical";
 
 /// Hash tokens into a fixed-size unit vector.
 pub fn lexical_embed(text: &str) -> Vec<f32> {
-    let mut v = vec![0f32; DIMS as usize];
+    let mut v = vec![0f32; LEXICAL_EMBED_DIMS];
     for token in tokenize(text) {
         let h = hash64(&token);
-        let idx = usize::try_from(h % u64::from(DIMS)).unwrap_or(0);
+        let idx = usize::try_from(h % u64::try_from(LEXICAL_EMBED_DIMS).unwrap_or(64)).unwrap_or(0);
         let sign = if h & 1 == 0 { 1.0 } else { -1.0 };
         v[idx] += sign;
     }

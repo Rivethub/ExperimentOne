@@ -16,8 +16,8 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use rivet_core::{cosine, lexical_embed, RivetConfig};
-use rivet_store::{MetaStore, TrafficStore};
+use rivet_core::{lexical_embed, RivetConfig, LEXICAL_SPACE};
+use rivet_store::{ClickHouseTrafficStore, TrafficStore};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
@@ -26,7 +26,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 #[derive(Clone)]
 pub struct McpState {
     pub store: Arc<dyn TrafficStore>,
-    pub meta: Arc<MetaStore>,
+    pub ch: Arc<ClickHouseTrafficStore>,
     pub config: Arc<RwLock<RivetConfig>>,
 }
 
@@ -254,16 +254,18 @@ async fn do_semantic_search(
     }
 
     let query_vec = lexical_embed(query);
-    let embeddings = state.meta.all_embeddings().map_err(|e| e.to_string())?;
+    let hits = state
+        .ch
+        .search_embeddings(LEXICAL_SPACE, &query_vec, limit)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    let mut scored: Vec<(f32, String)> = embeddings
+    // cosineDistance on unit vectors: similarity ≈ 1 - distance.
+    let scored: Vec<(f32, String)> = hits
         .into_iter()
-        .filter(|(_, dims)| dims.len() == query_vec.len())
-        .map(|(id, dims)| (cosine(&query_vec, &dims), id))
+        .map(|h| (1.0 - h.distance, h.event_id))
         .filter(|(score, _)| *score > 0.05)
         .collect();
-    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    scored.truncate(limit as usize);
 
     if scored.is_empty() {
         let results = state.store.search_keyword(query, limit).await.map_err(|e| e.to_string())?;

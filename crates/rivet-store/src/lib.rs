@@ -1,4 +1,4 @@
-//! Persistence layer — `ClickHouse` for traffic, JSON files for meta.
+//! Persistence layer — `ClickHouse` for traffic + embeddings, JSON files for meta.
 
 mod clickhouse;
 mod meta;
@@ -12,7 +12,9 @@ use rivet_core::{
 use std::sync::Arc;
 use tracing::info;
 
-pub use clickhouse::{ClickHouseTrafficStore, TRAFFIC_EVENTS_DDL};
+pub use clickhouse::{
+    ClickHouseTrafficStore, EmbeddingSearchHit, EMBEDDINGS_DDL, TRAFFIC_EVENTS_DDL,
+};
 pub use meta::{EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, WikiPageMeta};
 pub use redacting::RedactingStore;
 
@@ -76,22 +78,22 @@ impl LocalStores {
         Ok(Self { meta: Arc::new(MetaStore::open(paths)?) })
     }
 
-    /// ClickHouse-only traffic (redacted on write). Requires a reachable URL.
-    pub fn traffic_store(&self) -> Result<Arc<dyn TrafficStore>> {
+    /// `ClickHouse` traffic (redacted on write) plus the raw CH client for embeddings.
+    pub fn traffic_store(&self) -> Result<(Arc<dyn TrafficStore>, Arc<ClickHouseTrafficStore>)> {
         self.traffic_store_with_clickhouse(ClickHouseTrafficStore::from_env_url())
     }
 
     pub fn traffic_store_with_clickhouse(
         &self,
         clickhouse_url: Option<String>,
-    ) -> Result<Arc<dyn TrafficStore>> {
+    ) -> Result<(Arc<dyn TrafficStore>, Arc<ClickHouseTrafficStore>)> {
         let url = clickhouse_url.ok_or_else(|| {
             anyhow::anyhow!(
                 "ClickHouse required: set RIVET_CLICKHOUSE_URL or ship the clickhouse sidecar"
             )
         })?;
-        let ch = ClickHouseTrafficStore::new(&url)?;
+        let ch = Arc::new(ClickHouseTrafficStore::new(&url)?);
         info!(%url, "ClickHouse traffic store enabled");
-        Ok(Arc::new(RedactingStore::new(Arc::new(ch))))
+        Ok((Arc::new(RedactingStore::new(ch.clone())), ch))
     }
 }

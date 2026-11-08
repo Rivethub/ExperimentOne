@@ -1,4 +1,5 @@
-//! Local meta store — jobs, wiki index, embeddings, quota history.
+//! Local meta store — jobs, wiki index, quota history (JSON / JSONL).
+//! Embeddings live in `ClickHouse`; legacy `embeddings.json` is migrated once.
 //! File-backed (no SQLite). Wiki page bodies live under `wiki/` on disk.
 
 use anyhow::{Context, Result};
@@ -174,32 +175,27 @@ impl MetaStore {
         Ok(n)
     }
 
-    pub fn upsert_embedding(&self, event_id: &str, dims: &[f32]) -> Result<()> {
+    /// Drain legacy `embeddings.json` for a one-shot `ClickHouse` import.
+    ///
+    /// Returns rows and renames the file to `embeddings.json.migrated` so we do
+    /// not re-import on the next boot. Missing file → empty vec.
+    pub fn take_legacy_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>> {
         let _g = self.lock.lock().expect("meta lock");
-        let mut file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
-        file.by_event.insert(
-            event_id.to_string(),
-            EmbeddingEntry { dims: dims.to_vec(), updated_at: Utc::now().to_rfc3339() },
-        );
-        Self::write_json_atomic(&self.paths.embeddings, &file)
-    }
-
-    pub fn embedding_for(&self, event_id: &str) -> Result<Option<Vec<f32>>> {
-        let _g = self.lock.lock().expect("meta lock");
+        if !self.paths.embeddings.exists() {
+            return Ok(Vec::new());
+        }
         let file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
-        Ok(file.by_event.get(event_id).map(|e| e.dims.clone()))
-    }
-
-    pub fn all_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>> {
-        let _g = self.lock.lock().expect("meta lock");
-        let file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
-        Ok(file.by_event.into_iter().map(|(id, e)| (id, e.dims)).collect())
-    }
-
-    pub fn embedding_count(&self) -> Result<u64> {
-        let _g = self.lock.lock().expect("meta lock");
-        let file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
-        Ok(file.by_event.len() as u64)
+        let out: Vec<(String, Vec<f32>)> =
+            file.by_event.into_iter().map(|(id, e)| (id, e.dims)).collect();
+        let migrated = self.paths.embeddings.with_extension("json.migrated");
+        match fs::rename(&self.paths.embeddings, &migrated) {
+            Ok(()) => {},
+            Err(_) => {
+                // If rename fails (e.g. cross-device), delete so we do not loop.
+                let _ = fs::remove_file(&self.paths.embeddings);
+            },
+        }
+        Ok(out)
     }
 
     pub fn wiki_page_count(&self, project_id: &str) -> Result<u64> {
