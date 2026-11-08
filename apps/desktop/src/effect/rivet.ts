@@ -145,8 +145,10 @@ export type TidyProposal = {
   status: string;
   created_at: string;
 };
-export const listTidy = (): ApiFx<{ proposals: TidyProposal[] }> =>
-  apiJson<{ proposals: TidyProposal[] }>("GET", "/v1/topics/tidy?pending=true");
+export const listTidy = apiJson<{ proposals: TidyProposal[] }>(
+  "GET",
+  "/v1/topics/tidy?pending=true",
+);
 export const decideTidy = (
   id: string,
   status: "approved" | "rejected",
@@ -160,8 +162,7 @@ export type TagSuggestion = {
   status: string;
   created_at: string;
 };
-export const listTags = (): ApiFx<{ suggestions: TagSuggestion[] }> =>
-  apiJson<{ suggestions: TagSuggestion[] }>("GET", "/v1/topics/tags");
+export const listTags = apiJson<{ suggestions: TagSuggestion[] }>("GET", "/v1/topics/tags");
 export const decideTag = (
   id: string,
   status: "accepted" | "rejected",
@@ -176,8 +177,7 @@ export type FlaggedJob = {
   last_error?: string | null;
   updated_at?: string;
 };
-export const listFlagged = (): ApiFx<{ flagged: FlaggedJob[] }> =>
-  apiJson<{ flagged: FlaggedJob[] }>("GET", "/v1/workers/flagged");
+export const listFlagged = apiJson<{ flagged: FlaggedJob[] }>("GET", "/v1/workers/flagged");
 export const retryFlagged = (task: string, job_key: string): ApiFx<{ ok: boolean }> =>
   apiJson<{ ok: boolean }>("POST", "/v1/workers/flagged", { task, job_key });
 

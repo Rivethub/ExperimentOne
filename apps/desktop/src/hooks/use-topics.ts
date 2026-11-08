@@ -36,9 +36,9 @@ export function useTopics(): UseTopicsResult {
         Effect.gen(function* refreshTopicsSnapshot() {
           yield* Rivet.requireBackend;
           const topicsFx = yield* Rivet.listTopics();
-          const tidyFx = yield* Rivet.listTidy();
-          const tagsFx = yield* Rivet.listTags();
-          const flaggedFx = yield* Rivet.listFlagged();
+          const tidyFx = yield* Rivet.listTidy;
+          const tagsFx = yield* Rivet.listTags;
+          const flaggedFx = yield* Rivet.listFlagged;
           return {
             topics: topicsFx,
             tidy: tidyFx.proposals,
