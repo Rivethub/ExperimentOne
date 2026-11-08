@@ -1,5 +1,5 @@
-import type { HTMLAttributes, ReactNode } from "react";
-import { useId } from "react";
+import { useId, type HTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { isDefined } from "../lib/nullish";
 import { cx } from "../styles/cx";
 import styles from "./Modal.module.css";
 
@@ -29,39 +29,42 @@ export function Modal({
   footer,
   headerExtra,
   className,
-}: ModalProps) {
+}: ModalProps): ReactElement | null {
   const autoId = useId();
-  const labelledBy = title ? (titleId ?? autoId) : undefined;
-  if (!open) return null;
+  const labelledBy = isDefined(title) ? (titleId ?? autoId) : undefined;
+  if (!open) {
+    return null;
+  }
 
   return (
     <div
       className={styles.backdrop}
       role="presentation"
-      onClick={() => {
-        if (closeOnBackdrop) onClose();
+      onClick={(event) => {
+        if (event.target === event.currentTarget && closeOnBackdrop) {
+          onClose();
+        }
       }}
     >
       <div
-        className={cx(styles.card, wide && styles.wide, className)}
+        className={cx(styles.card, wide === true && styles.wide, className)}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}
-        onClick={(e) => e.stopPropagation()}
       >
-        {(title != null || headerExtra != null) && (
+        {(isDefined(title) || isDefined(headerExtra)) && (
           <div className={styles.header}>
-            {title != null ? <h2 id={labelledBy}>{title}</h2> : <span />}
+            {isDefined(title) ? <h2 id={labelledBy}>{title}</h2> : <span />}
             {headerExtra}
           </div>
         )}
-        {children != null ? <div className={styles.body}>{children}</div> : null}
-        {footer != null ? <div className={styles.footer}>{footer}</div> : null}
+        {isDefined(children) ? <div className={styles.body}>{children}</div> : null}
+        {isDefined(footer) ? <div className={styles.footer}>{footer}</div> : null}
       </div>
     </div>
   );
 }
 
-export function ModalActions({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
+export function ModalActions({ className, ...rest }: HTMLAttributes<HTMLDivElement>): ReactElement {
   return <div className={cx(styles.footer, className)} {...rest} />;
 }

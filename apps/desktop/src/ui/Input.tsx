@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, ReactElement } from "react";
 import { cx } from "../styles/cx";
 import styles from "./Input.module.css";
 
@@ -7,7 +7,7 @@ export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
   tone?: "mono" | "plain";
 };
 
-export function Input({ tone = "mono", className, ...rest }: InputProps) {
+export function Input({ tone = "mono", className, ...rest }: InputProps): ReactElement {
   return (
     <input className={cx(styles.input, tone === "plain" && styles.plain, className)} {...rest} />
   );

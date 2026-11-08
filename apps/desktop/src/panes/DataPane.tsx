@@ -1,20 +1,16 @@
 import { useDeferredValue, useMemo, useRef, type CSSProperties } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { filterMessages, relativeWhen } from "../conversationUtils";
+import { filterMessages, relativeWhen } from "../lib/conversation-utils";
 import {
   fmt,
   providerChipLabel,
   providerColor,
   providerKey,
   type CatalogProvider,
-} from "../providerUtils";
+} from "../lib/provider-utils";
 import { LimitRecoveryBanner, type LimitHitInfo } from "../quota";
-import {
-  filterTimeline,
-  timelineFromTrafficEvents,
-  TranscriptView,
-} from "../transcript";
-import type { ConversationSummary, SearchMode, TrafficEvent } from "../types";
+import { filterTimeline, timelineFromTrafficEvents, TranscriptView } from "../transcript";
+import type { ConversationSummary, SearchMode, TrafficEvent } from "../lib/types";
 import { Button, Empty, Input, Panel, Pill } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
@@ -193,11 +189,7 @@ export function DataPane({
           <div className={styles.dataListPane}>
             <div className={styles.dataSearchBar}>
               {vectorSearchEnabled ? (
-                <div
-                  className={styles.searchSegment}
-                  role="radiogroup"
-                  aria-label="Search mode"
-                >
+                <div className={styles.searchSegment} role="radiogroup" aria-label="Search mode">
                   {SEARCH_MODES.map(([id, label]) => (
                     <button
                       key={id}

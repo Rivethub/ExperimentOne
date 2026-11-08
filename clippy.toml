@@ -1,0 +1,12 @@
+cognitive-complexity-threshold = 20
+too-many-arguments-threshold = 7
+type-complexity-threshold = 250
+single-char-binding-names-threshold = 2
+trivial-copy-size-limit = 64
+pass-by-value-size-limit = 256
+too-many-lines-threshold = 120
+array-size-threshold = 512_000
+vec-box-size-threshold = 4096
+max-trait-bounds = 4
+max-struct-bools = 3
+max-fn-params-bools = 3

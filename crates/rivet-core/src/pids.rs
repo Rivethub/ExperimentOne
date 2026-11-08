@@ -1,8 +1,6 @@
 //! Pidfiles and single-instance lock for Rivet-owned processes.
 
 use std::fs::{self, File, OpenOptions};
-#[cfg(unix)]
-use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::process::Command;
 
@@ -15,6 +13,7 @@ use anyhow::{bail, Context};
 use crate::RivetPaths;
 
 /// Held for the lifetime of a rivetd process — released on drop.
+#[derive(Debug)]
 pub struct InstanceLock {
     _file: File,
 }
@@ -31,17 +30,11 @@ pub fn try_acquire_rivetd_lock(paths: &RivetPaths) -> Result<InstanceLock> {
         .write(true)
         .truncate(false)
         .open(path.as_std_path())
-        .with_context(|| format!("open {}", path))?;
+        .with_context(|| format!("open {path}"))?;
     #[cfg(unix)]
     {
-        // LOCK_EX | LOCK_NB — portable values on Linux/macOS.
-        const LOCK_EX: i32 = 2;
-        const LOCK_NB: i32 = 4;
-        extern "C" {
-            fn flock(fd: i32, operation: i32) -> i32;
-        }
-        let rc = unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) };
-        if rc != 0 {
+        use fs4::fs_std::FileExt;
+        if file.try_lock_exclusive().is_err() {
             bail!("another rivetd is already running (pids/rivetd.lock held)");
         }
         Ok(InstanceLock { _file: file })
@@ -77,10 +70,7 @@ pub fn write_pid(path: &Path, pid: u32) {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let body = match process_exe(pid) {
-        Some(exe) => format!("{pid}\n{exe}"),
-        None => pid.to_string(),
-    };
+    let body = process_exe(pid).map_or_else(|| pid.to_string(), |exe| format!("{pid}\n{exe}"));
     let _ = fs::write(path, body);
 }
 
@@ -104,10 +94,7 @@ pub fn read_pidfile(path: &Path) -> Option<(u32, Option<String>)> {
     if pid == 0 {
         return None;
     }
-    let expected = lines
-        .next()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let expected = lines.next().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     Some((pid, expected))
 }
 
@@ -188,10 +175,8 @@ fn process_exe_lsof(pid: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn process_exe_from_ps(pid: u32) -> Option<String> {
-    let output = Command::new("ps")
-        .args(["-p", &pid.to_string(), "-ww", "-o", "args="])
-        .output()
-        .ok()?;
+    let output =
+        Command::new("ps").args(["-p", &pid.to_string(), "-ww", "-o", "args="]).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -245,18 +230,12 @@ pub fn exe_from_args_line(line: &str) -> Option<String> {
         if tok.starts_with('-') && !path.is_empty() {
             break;
         }
-        if path.is_empty() {
-            path.push_str(tok);
-        } else {
+        if !path.is_empty() {
             path.push(' ');
-            path.push_str(tok);
         }
+        path.push_str(tok);
     }
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
-    }
+    (!path.is_empty()).then_some(path)
 }
 
 pub fn identity_matches(live: &str, expected: Option<&str>, legacy_hints: &[&str]) -> bool {
@@ -264,10 +243,7 @@ pub fn identity_matches(live: &str, expected: Option<&str>, legacy_hints: &[&str
     if live.is_empty() {
         return false;
     }
-    let live_base = Path::new(live)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(live);
+    let live_base = Path::new(live).file_name().and_then(|s| s.to_str()).unwrap_or(live);
 
     if let Some(exp) = expected.map(str::trim).filter(|s| !s.is_empty()) {
         if exp.contains('/') || exp.contains('\\') {
@@ -321,22 +297,14 @@ pub fn reclaim_proxy_orphan(paths: &RivetPaths) {
     }
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
-            .status();
+        let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
         std::thread::sleep(std::time::Duration::from_millis(150));
-        let _ = Command::new("kill")
-            .args(["-KILL", &format!("-{pid}")])
-            .status();
-        let _ = Command::new("kill")
-            .args(["-KILL", &pid.to_string()])
-            .status();
+        let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
+        let _ = Command::new("kill").args(["-KILL", &pid.to_string()]).status();
     }
     #[cfg(windows)]
     {
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .status();
+        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]).status();
     }
     clear_proxy_pid(paths);
 }
@@ -382,25 +350,15 @@ mod tests {
 
     #[test]
     fn short_expected_matches_basename() {
-        assert!(identity_matches(
-            "/tmp/rivet-proxy",
-            Some("rivet-proxy"),
-            &["nope"],
-        ));
+        assert!(identity_matches("/tmp/rivet-proxy", Some("rivet-proxy"), &["nope"],));
     }
 
     #[test]
     fn legacy_hints_do_not_substring_match() {
-        assert!(!identity_matches(
-            "/opt/homebrew/bin/my-clickhouse-helper",
-            None,
-            &["clickhouse"],
-        ));
-        assert!(identity_matches(
-            "/usr/local/bin/clickhouse",
-            None,
-            &["clickhouse"],
-        ));
+        assert!(
+            !identity_matches("/opt/homebrew/bin/my-clickhouse-helper", None, &["clickhouse"],)
+        );
+        assert!(identity_matches("/usr/local/bin/clickhouse", None, &["clickhouse"],));
     }
 
     #[test]
@@ -429,10 +387,7 @@ mod tests {
             "/Users/me/Library/Application Support/Rivet/bin/clickhouse --cfg x",
         )
         .unwrap();
-        assert_eq!(
-            got,
-            "/Users/me/Library/Application Support/Rivet/bin/clickhouse"
-        );
+        assert_eq!(got, "/Users/me/Library/Application Support/Rivet/bin/clickhouse");
     }
 
     #[test]

@@ -1,4 +1,5 @@
-import { providerLabel, type CatalogProvider } from "../providerUtils";
+import type { ReactElement } from "react";
+import { providerLabel, type CatalogProvider } from "../lib/provider-utils";
 import { Button, Modal } from "../ui";
 
 export type MultiAccountWarnState = {
@@ -21,10 +22,10 @@ export function MultiAccountWarnModal({
   providerAccountCount: (provider: string) => number;
   onDismiss: () => void;
   onConfirm: (pending: NonNullable<MultiAccountWarnState>) => void;
-}) {
+}): ReactElement {
   return (
     <Modal
-      open={!!warn}
+      open={Boolean(warn)}
       onClose={onDismiss}
       title="Add another account?"
       titleId="multi-account-warn-title"
@@ -32,7 +33,13 @@ export function MultiAccountWarnModal({
         warn ? (
           <>
             <Button onClick={onDismiss}>Cancel</Button>
-            <Button variant="primary" disabled={busy} onClick={() => onConfirm(warn)}>
+            <Button
+              variant="primary"
+              disabled={busy}
+              onClick={() => {
+                onConfirm(warn);
+              }}
+            >
               Continue anyway
             </Button>
           </>

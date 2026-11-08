@@ -20,11 +20,7 @@ impl ApiClient {
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .context("build HTTP client")?;
-        Ok(Self {
-            http,
-            base,
-            key: None,
-        })
+        Ok(Self { http, base, key: None })
     }
 
     pub fn base(&self) -> &str {
@@ -115,10 +111,7 @@ impl ApiClient {
             builder = builder.json(&b);
         }
 
-        let res = builder
-            .send()
-            .await
-            .with_context(|| format!("{method} {url}"))?;
+        let res = builder.send().await.with_context(|| format!("{method} {url}"))?;
         let status = res.status();
         let text = res.text().await.unwrap_or_default();
         if !status.is_success() {
@@ -132,14 +125,8 @@ impl ApiClient {
 }
 
 fn host_header(base: &str) -> String {
-    let trimmed = base
-        .trim_start_matches("http://")
-        .trim_start_matches("https://");
-    trimmed
-        .split('/')
-        .next()
-        .unwrap_or("127.0.0.1:8741")
-        .to_string()
+    let trimmed = base.trim_start_matches("http://").trim_start_matches("https://");
+    trimmed.split('/').next().unwrap_or("127.0.0.1:8741").to_string()
 }
 
 pub fn default_api_base() -> String {

@@ -5,14 +5,18 @@ import {
   providerColor,
   providerKey,
   type CatalogProvider,
-} from "../providerUtils";
+} from "../lib/provider-utils";
+import { isDefined } from "../lib/nullish";
 import type { QuotaAccountUx } from "./types";
 import { Button, Kv, KvRow } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 
-function accountDisplay(a: QuotaAccountUx) {
-  return a.email || a.label || a.id;
+function accountDisplay(a: QuotaAccountUx): string {
+  if (isDefined(a.email) && a.email !== "") {
+    return a.email;
+  }
+  return a.label;
 }
 
 export function AccountDetailSheet({
@@ -23,12 +27,14 @@ export function AccountDetailSheet({
   account: QuotaAccountUx | null;
   catalog: CatalogProvider[];
   onClose: () => void;
-}) {
-  if (!account) return null;
+}): React.ReactElement | null {
+  if (!isDefined(account)) {
+    return null;
+  }
   const id = providerKey(account.provider);
   const color = providerColor(id, catalog);
   const windows =
-    account.windows?.length > 0
+    account.windows.length > 0
       ? account.windows
       : [
           {
@@ -54,7 +60,7 @@ export function AccountDetailSheet({
               <h3>{accountDisplay(account)}</h3>
               <div className={styles.meta}>
                 {providerChipLabel(id, catalog)}
-                {account.plan ? ` · ${account.plan}` : ""}
+                {isDefined(account.plan) && account.plan !== "" ? ` · ${account.plan}` : ""}
               </div>
             </div>
           </div>
@@ -68,9 +74,13 @@ export function AccountDetailSheet({
             <KvRow label="Status" value={account.status} />
             <KvRow
               label="Next reset"
-              value={account.reset_at ? new Date(account.reset_at).toLocaleString() : "—"}
+              value={
+                isDefined(account.reset_at) && account.reset_at !== ""
+                  ? new Date(account.reset_at).toLocaleString()
+                  : "—"
+              }
             />
-            {account.cooldown_seconds != null && account.cooldown_seconds > 0 && (
+            {isDefined(account.cooldown_seconds) && account.cooldown_seconds > 0 && (
               <KvRow label="Cooldown" value={`${account.cooldown_seconds}s`} />
             )}
           </Kv>
@@ -79,7 +89,7 @@ export function AccountDetailSheet({
               <strong>{w.label}</strong>
               <div className={styles.meta}>
                 {fmtPct(w.remaining_pct ?? null)} · reset{" "}
-                {w.reset_at ? formatCountdownTo(w.reset_at) : "—"}
+                {isDefined(w.reset_at) && w.reset_at !== "" ? formatCountdownTo(w.reset_at) : "—"}
               </div>
             </div>
           ))}

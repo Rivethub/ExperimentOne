@@ -1,4 +1,5 @@
-import { formatCountdownTo } from "../providerUtils";
+import { formatCountdownTo } from "../lib/provider-utils";
+import { isDefined } from "../lib/nullish";
 import type { LimitHitInfo } from "./types";
 import { Button } from "../ui";
 import styles from "../styles/app.module.css";
@@ -13,17 +14,21 @@ export function LimitRecoveryBanner({
   onRefreshCredentials: () => void;
   onSwitchAccount: () => void;
   onWait: () => void;
-}) {
-  if (!hit) return null;
+}): React.ReactElement | null {
+  if (!isDefined(hit)) {
+    return null;
+  }
+  const resetNote =
+    isDefined(hit.resetAt) && hit.resetAt !== ""
+      ? ` · Reset in ${formatCountdownTo(hit.resetAt)} (${new Date(hit.resetAt).toLocaleString()})`
+      : "";
   return (
     <div className={styles.limitRecoveryBanner} role="status">
       <div className={styles.limitRecoveryCopy}>
         <strong>{hit.windowLabel}</strong>
         <span>
           {hit.reason}
-          {hit.resetAt
-            ? ` · Reset in ${formatCountdownTo(hit.resetAt)} (${new Date(hit.resetAt).toLocaleString()})`
-            : ""}
+          {resetNote}
         </span>
       </div>
       <div className={styles.limitRecoveryActions}>

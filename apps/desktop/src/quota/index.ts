@@ -10,16 +10,17 @@ export type {
 export { AccountConnectCards } from "./AccountConnectCards";
 export { AccountDetailSheet } from "./AccountDetailSheet";
 export { LimitRecoveryBanner } from "./LimitRecoveryBanner";
+export { OnboardingOverlay } from "./OnboardingOverlay";
 export {
-  OnboardingOverlay,
   dismissOnboarding,
   isOnboardingDismissed,
   onboardingIncomplete,
-} from "./OnboardingOverlay";
-export { PooledWindowCards, distinctWindowIds } from "./pooledWindows";
+} from "./onboarding-storage";
+export { PooledWindowCards } from "./pooled-windows";
+export { distinctWindowIds } from "./pooled-window-ids";
 export { StaleStamp } from "./StaleStamp";
-export { detectLimitHit } from "./limitHit";
-export { costForProviderEvents } from "../costEstimate";
+export { detectLimitHit } from "./limit-hit";
+export { costForProviderEvents } from "../lib/cost-estimate";
 
 export { QuotaProviderCard } from "./QuotaProviderCard";
 export { QuotaChart } from "./QuotaChart";

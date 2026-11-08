@@ -1,5 +1,5 @@
-import type { CatalogProvider } from "../providerUtils";
-import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../types";
+import type { CatalogProvider } from "../lib/provider-utils";
+import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
 import type { QuotaAccountUx } from "../quota";
 import type { WikiInfo } from "../components/WikiBoard";
 import type { MockScenario } from "./mode";
@@ -369,7 +369,10 @@ export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
         content = JSON.stringify({
           model: m.model,
           messages: [
-            { role: "user", content: `How do I inspect conversation history for session ${session}?` },
+            {
+              role: "user",
+              content: `How do I inspect conversation history for session ${session}?`,
+            },
           ],
         });
       } else if (step === 1) {
@@ -378,7 +381,10 @@ export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
           JSON.stringify({
             model: m.model,
             messages: [
-              { role: "user", content: `How do I inspect conversation history for session ${session}?` },
+              {
+                role: "user",
+                content: `How do I inspect conversation history for session ${session}?`,
+              },
             ],
           }) +
           "\n---\n" +

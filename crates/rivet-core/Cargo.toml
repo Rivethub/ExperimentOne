@@ -3,7 +3,15 @@ name = "rivet-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+authors.workspace = true
 description = "Shared types, paths, and config for Rivet"
+
+[lints]
+workspace = true
 
 [dependencies]
 anyhow.workspace = true
@@ -15,3 +23,4 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
+fs4 = "0.13"

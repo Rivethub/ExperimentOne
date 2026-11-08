@@ -1,7 +1,7 @@
 use crate::config::RivetConfig;
 use crate::paths::RivetPaths;
 
-/// Render a minimal CLIProxyAPI v8 config for Rivet's managed sidecar.
+/// Render a minimal `CLIProxyAPI` v8 config for Rivet's managed sidecar.
 ///
 /// Binds localhost only, leaves client `access.api-keys` empty so Claude Code can
 /// keep its claude.ai login (connectors stay enabled when only

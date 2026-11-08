@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, ReactElement } from "react";
 import { cx } from "../styles/cx";
 import styles from "./FieldRow.module.css";
 
@@ -7,6 +7,6 @@ export type FieldRowProps = HTMLAttributes<HTMLDivElement> & {
   flush?: boolean;
 };
 
-export function FieldRow({ flush, className, ...rest }: FieldRowProps) {
-  return <div className={cx(styles.row, flush && styles.flush, className)} {...rest} />;
+export function FieldRow({ flush, className, ...rest }: FieldRowProps): ReactElement {
+  return <div className={cx(styles.row, flush === true && styles.flush, className)} {...rest} />;
 }

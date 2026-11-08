@@ -1,4 +1,4 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use uuid::Uuid;
 
@@ -21,7 +21,7 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    pub fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
@@ -123,19 +123,15 @@ impl TrafficEvent {
 
     /// Stable conversation key used by the Data pane and conversation APIs.
     pub fn conversation_id(&self) -> String {
-        match self
-            .session_id
+        self.session_id
             .as_deref()
             .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
-            Some(sid) => sid.to_string(),
-            None => format!("event:{}", self.id),
-        }
+            .filter(|session| !session.is_empty())
+            .map_or_else(|| format!("event:{}", self.id), str::to_string)
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct UsageTotals {
     pub events: u64,
     pub tokens_in: u64,
@@ -224,10 +220,7 @@ fn conversation_preview_text(ev: &TrafficEvent) -> Option<String> {
                 }
             }
         }
-        if let Some(msg) = v
-            .pointer("/choices/0/message/content")
-            .and_then(|c| c.as_str())
-        {
+        if let Some(msg) = v.pointer("/choices/0/message/content").and_then(|c| c.as_str()) {
             return Some(clip_text(msg, 120));
         }
     }
@@ -266,11 +259,12 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 }
                 // Prefer earliest user message as the title source.
                 let better_title = matches!(ev.role, TrafficRole::User)
-                    && (ev.ts <= acc.title_src.ts || !matches!(acc.title_src.role, TrafficRole::User));
+                    && (ev.ts <= acc.title_src.ts
+                        || !matches!(acc.title_src.role, TrafficRole::User));
                 if better_title {
                     acc.title_src = ev;
                 }
-            }
+            },
             None => {
                 by_id.insert(
                     id,
@@ -283,7 +277,7 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                         tokens_out: u64::from(ev.tokens_out),
                     },
                 );
-            }
+            },
         }
     }
 
@@ -312,7 +306,7 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
             }
         })
         .collect();
-    out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    out.sort_by_key(|summary| std::cmp::Reverse(summary.updated_at));
     out.truncate(limit.max(1) as usize);
     out
 }
@@ -335,30 +329,31 @@ impl ExportManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Duration;
 
     #[test]
     fn groups_events_by_session_id() {
-        let mut a = TrafficEvent::new(ProviderKind::Claude);
-        a.session_id = Some("s1".into());
-        a.role = TrafficRole::User;
-        a.content = Some("Hello from user".into());
-        a.ts = Utc::now() - Duration::minutes(2);
+        let mut first = TrafficEvent::new(ProviderKind::Claude);
+        first.session_id = Some("s1".into());
+        first.role = TrafficRole::User;
+        first.content = Some("Hello from user".into());
+        first.ts = Utc::now() - Duration::minutes(2);
 
-        let mut b = TrafficEvent::new(ProviderKind::Claude);
-        b.session_id = Some("s1".into());
-        b.role = TrafficRole::Assistant;
-        b.content = Some("Hi there".into());
-        b.ts = Utc::now() - Duration::minutes(1);
+        let mut second = TrafficEvent::new(ProviderKind::Claude);
+        second.session_id = Some("s1".into());
+        second.role = TrafficRole::Assistant;
+        second.content = Some("Hi there".into());
+        second.ts = Utc::now() - Duration::minutes(1);
 
-        let mut c = TrafficEvent::new(ProviderKind::Codex);
-        c.session_id = Some("s2".into());
-        c.role = TrafficRole::User;
-        c.content = Some("Other thread".into());
+        let mut other = TrafficEvent::new(ProviderKind::Codex);
+        other.session_id = Some("s2".into());
+        other.role = TrafficRole::User;
+        other.content = Some("Other thread".into());
 
-        let list = conversations_from_events(&[a, b, c], 10);
+        let list = conversations_from_events(&[first, second, other], 10);
         assert_eq!(list.len(), 2);
-        let s1 = list.iter().find(|c| c.id == "s1").expect("s1");
-        assert_eq!(s1.message_count, 2);
-        assert!(s1.title.contains("Hello"));
+        let session_one = list.iter().find(|summary| summary.id == "s1").expect("s1");
+        assert_eq!(session_one.message_count, 2);
+        assert!(session_one.title.contains("Hello"));
     }
 }

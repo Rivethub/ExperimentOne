@@ -30,24 +30,30 @@ pub struct McpState {
     pub config: Arc<RwLock<RivetConfig>>,
 }
 
-#[derive(Deserialize)]
+impl std::fmt::Debug for McpState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpState").finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct SearchRequest {
     pub query: String,
     #[serde(default = "default_limit")]
     pub limit: u32,
 }
 
-fn default_limit() -> u32 {
+const fn default_limit() -> u32 {
     20
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct SearchResponse {
     pub mode: &'static str,
     pub results: Vec<rivet_core::TrafficEvent>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Copy, Clone, Serialize)]
 pub struct ToolDescriptor {
     pub name: &'static str,
     pub description: &'static str,
@@ -72,16 +78,11 @@ async fn require_mcp_loopback(
         .headers()
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
-        .map(rivet_core::host_is_loopback)
-        .unwrap_or(false);
+        .is_some_and(rivet_core::host_is_loopback);
     if !host_ok {
         return Err(StatusCode::FORBIDDEN);
     }
-    if let Some(origin) = req
-        .headers()
-        .get(header::ORIGIN)
-        .and_then(|v| v.to_str().ok())
-    {
+    if let Some(origin) = req.headers().get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
         if !rivet_core::origin_allowed(origin) {
             return Err(StatusCode::FORBIDDEN);
         }
@@ -91,10 +92,7 @@ async fn require_mcp_loopback(
 
 pub fn router(state: McpState) -> Router {
     let cors = CorsLayer::new().allow_origin(AllowOrigin::predicate(|origin, _| {
-        origin
-            .to_str()
-            .map(rivet_core::origin_allowed)
-            .unwrap_or(false)
+        origin.to_str().is_ok_and(rivet_core::origin_allowed)
     }));
     Router::new()
         // Streamable HTTP: POST only on /mcp. GET returns 405 (not SSE yet).
@@ -184,24 +182,13 @@ async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>)
         "tools/list" => {
             let tools = tool_descriptors(&state).await;
             Ok(tool_list_schema(&tools))
-        }
+        },
         "tools/call" => {
-            let name = req
-                .params
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let args = req.params.get("arguments").cloned().unwrap_or(json!({}));
-            let query = args
-                .get("query")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            let limit = args
-                .get("limit")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(20)
-                .clamp(1, 100) as u32;
+            let name = req.params.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let args = req.params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let limit =
+                args.get("limit").and_then(Value::as_u64).unwrap_or(20).clamp(1, 100) as u32;
             if query.trim().is_empty() {
                 Err(rpc_error(-32602, "query is required"))
             } else {
@@ -223,7 +210,7 @@ async fn jsonrpc(State(state): State<McpState>, Json(req): Json<JsonRpcRequest>)
                     _ => Err(rpc_error(-32601, &format!("unknown tool '{name}'"))),
                 }
             }
-        }
+        },
         "" => Err(rpc_error(-32600, "missing method")),
         other => Err(rpc_error(-32601, &format!("method not found: {other}"))),
     };
@@ -253,15 +240,8 @@ async fn do_search_history(
     query: &str,
     limit: u32,
 ) -> Result<SearchResponse, ()> {
-    let results = state
-        .store
-        .search_keyword(query, limit)
-        .await
-        .map_err(|_| ())?;
-    Ok(SearchResponse {
-        mode: "keyword",
-        results,
-    })
+    let results = state.store.search_keyword(query, limit).await.map_err(|_| ())?;
+    Ok(SearchResponse { mode: "keyword", results })
 }
 
 async fn do_semantic_search(
@@ -286,23 +266,12 @@ async fn do_semantic_search(
     scored.truncate(limit as usize);
 
     if scored.is_empty() {
-        let results = state
-            .store
-            .search_keyword(query, limit)
-            .await
-            .map_err(|e| e.to_string())?;
-        return Ok(SearchResponse {
-            mode: "keyword_fallback",
-            results,
-        });
+        let results = state.store.search_keyword(query, limit).await.map_err(|e| e.to_string())?;
+        return Ok(SearchResponse { mode: "keyword_fallback", results });
     }
 
     let ids: Vec<String> = scored.iter().map(|(_, id)| id.clone()).collect();
-    let found = state
-        .store
-        .get_by_ids(&ids)
-        .await
-        .map_err(|e| e.to_string())?;
+    let found = state.store.get_by_ids(&ids).await.map_err(|e| e.to_string())?;
     let mut by_id = std::collections::HashMap::new();
     for event in found {
         by_id.insert(event.id.to_string(), event);
@@ -313,10 +282,7 @@ async fn do_semantic_search(
             results.push(event);
         }
     }
-    Ok(SearchResponse {
-        mode: "semantic",
-        results,
-    })
+    Ok(SearchResponse { mode: "semantic", results })
 }
 
 async fn search_history(
@@ -326,23 +292,20 @@ async fn search_history(
     do_search_history(&state, &req.query, req.limit)
         .await
         .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|()| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
 async fn semantic_search(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, StatusCode> {
-    do_semantic_search(&state, &req.query, req.limit)
-        .await
-        .map(Json)
-        .map_err(|err| {
-            if err.contains("disabled") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::INTERNAL_SERVER_ERROR
-            }
-        })
+    do_semantic_search(&state, &req.query, req.limit).await.map(Json).map_err(|err| {
+        if err.contains("disabled") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    })
 }
 
 pub async fn serve(addr: std::net::SocketAddr, state: McpState) -> Result<()> {

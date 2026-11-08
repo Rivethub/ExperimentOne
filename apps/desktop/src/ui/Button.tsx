@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, HTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, HTMLAttributes, ReactElement } from "react";
 import { cx } from "../styles/cx";
 import styles from "./Button.module.css";
 
@@ -23,7 +23,7 @@ export function Button({
   type = "button",
   children,
   ...rest
-}: ButtonProps) {
+}: ButtonProps): ReactElement {
   return (
     <button type={type} className={cx(styles.btn, variantClass[variant], className)} {...rest}>
       {children}
@@ -32,6 +32,6 @@ export function Button({
 }
 
 /** Hint line under a provider login label. */
-export function ButtonHint({ className, ...rest }: HTMLAttributes<HTMLSpanElement>) {
+export function ButtonHint({ className, ...rest }: HTMLAttributes<HTMLSpanElement>): ReactElement {
   return <span className={cx(styles.providerHint, className)} {...rest} />;
 }
