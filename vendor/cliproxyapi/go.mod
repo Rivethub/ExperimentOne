@@ -30,7 +30,7 @@ require (
 	github.com/refraction-networking/utls v1.8.2
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
-	github.com/tiktoken-go/tokenizer v0.8.1
+	github.com/tiktoken-go/tokenizer v0.10.0
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.60.0
