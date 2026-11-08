@@ -23,7 +23,7 @@ require (
 	github.com/pion/ice/v4 v4.3.0
 	github.com/pion/interceptor v0.1.45
 	github.com/pion/rtp v1.10.4
-	github.com/pion/sdp/v3 v3.0.19
+	github.com/pion/sdp/v3 v3.0.20
 	github.com/pion/stun/v3 v3.1.6
 	github.com/pion/webrtc/v4 v4.2.17
 	github.com/redis/go-redis/v9 v9.19.0
@@ -31,6 +31,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/tiktoken-go/tokenizer v0.8.1
+	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.30.0
@@ -58,7 +59,6 @@ require (
 	github.com/pion/turn/v5 v5.0.12 // indirect
 	github.com/rogpeppe/go-internal v1.15.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	go.etcd.io/bbolt v1.5.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 )
