@@ -77,9 +77,28 @@ function ConversationRow({
         {c.capture_quality && c.capture_quality !== "wire" ? (
           <Pill tone={c.capture_quality === "soft" ? "warn" : "default"}>{c.capture_quality}</Pill>
         ) : null}
+        {(c.agent_ids?.length ?? 0) > 0 || (c.subagent_events ?? 0) > 0 ? (
+          <Pill tone="ok">
+            {(c.agent_ids?.length ?? 0) > 0
+              ? `${c.agent_ids!.length} agent${c.agent_ids!.length === 1 ? "" : "s"}`
+              : "subagents"}
+          </Pill>
+        ) : null}
+        {(c.tool_names?.length ?? 0) > 0 ? (
+          <Pill>
+            {c.tool_names!.length} tool{c.tool_names!.length === 1 ? "" : "s"}
+          </Pill>
+        ) : null}
+        {(c.thinking_events ?? 0) > 0 ? <Pill>thinking</Pill> : null}
+        {(c.error_events ?? 0) > 0 ? <Pill tone="warn">errors</Pill> : null}
+        {(c.media_count ?? 0) > 0 ? <Pill>{c.media_count} media</Pill> : null}
+        {c.git_branch ? <Pill>{c.git_branch}</Pill> : null}
         <span className="font-mono text-xs">{c.model ?? "—"}</span>
         <span className="text-muted-foreground">
           {c.message_count} msg · {fmt(c.tokens_in)}/{fmt(c.tokens_out)}
+          {(c.cache_read_tokens ?? 0) > 0 ? ` · cache ${fmt(c.cache_read_tokens!)}` : ""}
+          {(c.thinking_tokens ?? 0) > 0 ? ` · think ${fmt(c.thinking_tokens!)}` : ""}
+          {c.api_format ? ` · ${c.api_format}` : ""}
         </span>
       </div>
       {c.preview ? <div className="truncate text-xs text-muted-foreground">{c.preview}</div> : null}
@@ -274,7 +293,38 @@ export function DataPane({
                       : selected.cwd
                         ? ` · ${selected.cwd}`
                         : ""}
+                    {(selected.agent_ids?.length ?? 0) > 0
+                      ? ` · ${selected.agent_ids!.length} subagent${selected.agent_ids!.length === 1 ? "" : "s"}`
+                      : (selected.subagent_events ?? 0) > 0
+                        ? ` · ${selected.subagent_events} subagent turns`
+                        : ""}
+                    {selected.git_branch ? ` · ${selected.git_branch}` : ""}
+                    {(selected.tool_names?.length ?? 0) > 0
+                      ? ` · ${selected.tool_names!.slice(0, 4).join(", ")}`
+                      : ""}
+                    {(selected.cache_read_tokens ?? 0) > 0
+                      ? ` · cache ${fmt(selected.cache_read_tokens!)}`
+                      : ""}
+                    {(selected.thinking_tokens ?? 0) > 0
+                      ? ` · think ${fmt(selected.thinking_tokens!)}`
+                      : ""}
+                    {selected.api_format ? ` · ${selected.api_format}` : ""}
+                    {(selected.error_events ?? 0) > 0
+                      ? ` · ${selected.error_events} error${selected.error_events === 1 ? "" : "s"}`
+                      : ""}
+                    {(selected.media_count ?? 0) > 0 ? ` · ${selected.media_count} media` : ""}
                   </span>
+                  {(selected.agent_ids?.length ?? 0) > 0 ||
+                  (selected.tool_names?.length ?? 0) > 0 ? (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      {selected.agent_ids?.slice(0, 8).map((id) => (
+                        <Pill key={id}>{id.length > 14 ? `${id.slice(0, 8)}…` : id}</Pill>
+                      ))}
+                      {selected.tool_names?.slice(0, 8).map((name) => (
+                        <Pill key={name}>{name}</Pill>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <Button
                   variant="ghost"

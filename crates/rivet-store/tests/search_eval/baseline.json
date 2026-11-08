@@ -1,0 +1,7 @@
+{
+  "path": ["e-path"],
+  "pr": ["e-pr"],
+  "prose": ["e-oauth", "e-auth"],
+  "shared": ["e-compact"],
+  "boosted": ["e-oauth"]
+}

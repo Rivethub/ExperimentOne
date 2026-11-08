@@ -14,6 +14,14 @@ export type TranscriptPart =
 
 export type TranscriptRole = "user" | "assistant" | "tool" | "system" | "unknown";
 
+/** Proxy-detected subagent context (Claude Code / OpenCode headers). */
+export type AgentContext = {
+  agent_id?: string | null;
+  parent_agent_id?: string | null;
+  request_class?: string | null;
+  agent_type?: string | null;
+};
+
 export type TranscriptTurn = {
   id: string;
   role: TranscriptRole;
@@ -21,6 +29,7 @@ export type TranscriptTurn = {
   ts: string;
   statusCode?: number | null;
   parts: TranscriptPart[];
+  agent?: AgentContext;
 };
 
 /** Flat activity items — mirrors T3 Code conversation timeline. */
@@ -30,18 +39,21 @@ export type TimelineItem =
       id: string;
       ts: string;
       text: string;
+      agent?: AgentContext;
     }
   | {
       kind: "assistant_message";
       id: string;
       ts: string;
       text: string;
+      agent?: AgentContext;
     }
   | {
       kind: "reasoning";
       id: string;
       ts: string;
       text: string;
+      agent?: AgentContext;
     }
   | {
       kind: "command_execution";
@@ -51,6 +63,7 @@ export type TimelineItem =
       output: string;
       exitCode?: number | null;
       isError?: boolean;
+      agent?: AgentContext;
     }
   | {
       kind: "tool";
@@ -61,10 +74,12 @@ export type TimelineItem =
       input: unknown;
       output?: unknown;
       isError?: boolean;
+      agent?: AgentContext;
     }
   | {
       kind: "system";
       id: string;
       ts: string;
       text: string;
+      agent?: AgentContext;
     };

@@ -19,6 +19,8 @@ function WikiPage(): React.ReactElement {
       onOpenFolder={() => void ops.openWiki()}
       onEnable={() => openSettings("intelligence")}
       loadPage={wiki.loadWikiPage}
+      listArchives={wiki.listArchives}
+      loadArchive={wiki.loadArchive}
     />
   );
 }

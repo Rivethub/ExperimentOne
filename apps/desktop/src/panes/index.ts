@@ -6,6 +6,16 @@ export { DataPane, type DataPaneProps } from "./DataPane";
 export { RuntimePane, type RuntimePaneProps } from "./RuntimePane";
 export { WikiPane, type WikiPaneProps } from "./WikiPane";
 export {
+  TopicsPane,
+  flattenTopicTree,
+  type TopicsPaneProps,
+  type TopicCard,
+  type TopicKnowledge,
+  type TidyProposalCard,
+  type TagSuggestionCard,
+  type FlaggedJobCard,
+} from "./TopicsPane";
+export {
   SettingsPane,
   type SettingsPaneProps,
   type SettingsAccountsProps,

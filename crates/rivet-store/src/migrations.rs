@@ -67,6 +67,38 @@ CREATE TABLE IF NOT EXISTS embeddings (
 ORDER BY (space, event_id)
 ",
     },
+    Migration {
+        version: 5,
+        name: "traffic_events_hub_fields",
+        sql: r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS agent_id Nullable(String),
+  ADD COLUMN IF NOT EXISTS parent_agent_id Nullable(String),
+  ADD COLUMN IF NOT EXISTS parent_session_id Nullable(String),
+  ADD COLUMN IF NOT EXISTS request_class LowCardinality(Nullable(String)),
+  ADD COLUMN IF NOT EXISTS agent_type Nullable(String),
+  ADD COLUMN IF NOT EXISTS cache_read_tokens UInt32 DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS cache_creation_tokens UInt32 DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS thinking_tokens UInt32 DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS git_branch Nullable(String),
+  ADD COLUMN IF NOT EXISTS git_repo Nullable(String),
+  ADD COLUMN IF NOT EXISTS task_id Nullable(String),
+  ADD COLUMN IF NOT EXISTS turn_id Nullable(String),
+  ADD COLUMN IF NOT EXISTS upstream_host Nullable(String),
+  ADD COLUMN IF NOT EXISTS attempt_count UInt32 DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS stop_reason LowCardinality(Nullable(String)),
+  ADD COLUMN IF NOT EXISTS tool_names Nullable(String),
+  ADD COLUMN IF NOT EXISTS stream_complete Nullable(UInt8),
+  ADD COLUMN IF NOT EXISTS request_path Nullable(String),
+  ADD COLUMN IF NOT EXISTS api_format LowCardinality(Nullable(String)),
+  ADD COLUMN IF NOT EXISTS error_type LowCardinality(Nullable(String)),
+  ADD COLUMN IF NOT EXISTS error_message Nullable(String),
+  ADD COLUMN IF NOT EXISTS auth_id Nullable(String),
+  ADD COLUMN IF NOT EXISTS has_thinking Nullable(UInt8),
+  ADD COLUMN IF NOT EXISTS media_count UInt32 DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS tool_call_count UInt32 DEFAULT 0
+",
+    },
 ];
 
 const SCHEMA_MIGRATIONS_DDL: &str = r"

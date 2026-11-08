@@ -1,5 +1,5 @@
 {
-  "description": "Bind Claude Code sessions to Rivet project ids; clear on SessionEnd",
+  "description": "Optional: bind Claude Code sessions to Rivet project ids (proxy remains sole traffic ingress). Clear on SessionEnd.",
   "hooks": {
     "SessionStart": [
       {

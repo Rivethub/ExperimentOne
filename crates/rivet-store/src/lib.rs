@@ -1,8 +1,14 @@
-//! Persistence layer — `ClickHouse` for traffic + embeddings, JSON files for meta.
+//! Persistence layer — `ClickHouse` for traffic + embeddings, NATS `JetStream` for
+//! jobs, JSON files for meta.
+
+#![recursion_limit = "256"]
 
 mod clickhouse;
+mod hybrid;
+pub mod jobs;
 mod meta;
 mod migrations;
+mod nats_jobs;
 mod redacting;
 
 use anyhow::Result;
@@ -16,10 +22,24 @@ use tracing::info;
 pub use clickhouse::{
     ClickHouseTrafficStore, EmbeddingSearchHit, EMBEDDINGS_DDL, TRAFFIC_EVENTS_DDL,
 };
+pub use hybrid::{
+    fuse_event_id_arms, fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query,
+};
+pub use jobs::{
+    JobStatus, QueueStats, WorkerJob, WorkerRole, PRIORITY_BACKFILL, PRIORITY_CLASSIFY,
+    PRIORITY_EMBED, PRIORITY_LIVE_COMPACT, PRIORITY_WIKI, TASK_CLASSIFY_SESSION,
+    TASK_COMPACT_SESSION, TASK_CONSOLIDATE_WIKI, TASK_EMBED_EVENT, TASK_ENQUEUE_IDLE,
+    TASK_ENQUEUE_UNEMBEDDED, TASK_ENQUEUE_WIKI_BACKFILL, TASK_EXTRACT_WIKI, TASK_RECOMPILE_WIKI,
+    TASK_SUGGEST_TAGS, TASK_SYNTHESIZE_TOOL, TASK_UPSERT_TOPICS,
+};
 pub use meta::{
-    EmbeddingRow, MetaStore, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, WikiPageMeta,
+    can_nest_under, topic_depth, EmbeddingRow, EnrichmentEvent, LineageExpand, MetaStore,
+    PlacementBy, QuotaSnapshotInsert, QuotaSnapshotRow, SessionBinding, SummaryKind, SummaryMeta,
+    TagSuggestion, TidyProposal, TopicMeta, WikiPageMeta, COMPACT_PIPELINE_VERSION,
+    MAX_TOPIC_DEPTH,
 };
 pub use migrations::{run as run_clickhouse_migrations, MIGRATIONS};
+pub use nats_jobs::{ClaimedJob, NatsJobStore, STREAM_DEAD, STREAM_JOBS};
 pub use redacting::RedactingStore;
 
 #[async_trait]

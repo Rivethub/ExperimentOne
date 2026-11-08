@@ -93,6 +93,10 @@ fn walk_markdown(root: &Path) -> Vec<PathBuf> {
                 continue;
             }
             if path.is_dir() {
+                // Archive spill segments are not indexed as wiki pages.
+                if name.eq_ignore_ascii_case("archive") {
+                    continue;
+                }
                 stack.push(path);
             } else if path
                 .extension()

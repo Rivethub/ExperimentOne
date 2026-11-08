@@ -155,6 +155,85 @@ pub struct TrafficEvent {
     /// Capture fidelity: `wire`, `soft`, or `imported`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_quality: Option<CaptureQuality>,
+    /// Soft fingerprint that this wire session supersedes (soft→wire upgrade).
+    /// Not persisted to `ClickHouse` — ingest records it into meta aliases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub soft_alias: Option<String>,
+    /// Subagent id from proxy headers (e.g. `x-claude-code-agent-id`). Absent on main turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    /// Parent agent id when nested (`x-claude-code-parent-agent-id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_agent_id: Option<String>,
+    /// Parent session when child uses its own session id (e.g. `OpenCode` `x-parent-session-id`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_session_id: Option<String>,
+    /// Request class: `main` | `subagent` | `workflow` | `compaction` | `auxiliary`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_class: Option<String>,
+    /// Agent type / name when present (`x-claude-code-agent-type`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_type: Option<String>,
+    /// Anthropic / `OpenAI` cache-read tokens (also folded into `tokens_in`).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub cache_read_tokens: u32,
+    /// Anthropic cache-creation tokens (also folded into `tokens_in`).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub cache_creation_tokens: u32,
+    /// Thinking / reasoning tokens when reported separately.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub thinking_tokens: u32,
+    /// Git branch from request `git_state` when present on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// Git repo root / remote from `git_state` when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_repo: Option<String>,
+    /// Task lineage id from headers / body metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// Turn lineage id from headers / body metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_id: Option<String>,
+    /// Hostname of the winning upstream attempt (credential pool).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_host: Option<String>,
+    /// Number of upstream credential attempts (failover > 1).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub attempt_count: u32,
+    /// Provider stop / finish reason when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    /// Comma-separated tool names invoked on this turn (wire parse).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_names: Option<String>,
+    /// Whether the captured stream looked complete (`[DONE]` / `message_stop`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_complete: Option<bool>,
+    /// Client request path (`/v1/messages`, `/v1/responses`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_path: Option<String>,
+    /// Wire API shape: `anthropic_messages` | `openai_chat` | `openai_responses` | `gemini` | …
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_format: Option<String>,
+    /// Provider error type/code when status ≥ 400 or body is an error envelope.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_type: Option<String>,
+    /// Short provider error message (redacted/truncated).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_message: Option<String>,
+    /// Credential-pool `auth_id` from the winning upstream attempt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_id: Option<String>,
+    /// True when thinking/reasoning blocks were present on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_thinking: Option<bool>,
+    /// Count of image/file/audio/video parts seen in request/response.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub media_count: u32,
+    /// Number of tool/function invocations observed on this turn.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub tool_call_count: u32,
 }
 
 impl TrafficEvent {
@@ -177,6 +256,32 @@ impl TrafficEvent {
             status_code: None,
             body_ref: None,
             capture_quality: None,
+            soft_alias: None,
+            agent_id: None,
+            parent_agent_id: None,
+            parent_session_id: None,
+            request_class: None,
+            agent_type: None,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            thinking_tokens: 0,
+            git_branch: None,
+            git_repo: None,
+            task_id: None,
+            turn_id: None,
+            upstream_host: None,
+            attempt_count: 0,
+            stop_reason: None,
+            tool_names: None,
+            stream_complete: None,
+            request_path: None,
+            api_format: None,
+            error_type: None,
+            error_message: None,
+            auth_id: None,
+            has_thinking: None,
+            media_count: 0,
+            tool_call_count: 0,
         }
     }
 
@@ -187,6 +292,20 @@ impl TrafficEvent {
             .map(str::trim)
             .filter(|session| !session.is_empty())
             .map_or_else(|| format!("event:{}", self.id), str::to_string)
+    }
+
+    /// True when this event was issued by a subagent (header-detected).
+    #[must_use]
+    pub fn is_subagent(&self) -> bool {
+        if self.agent_id.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+            return true;
+        }
+        if self.parent_session_id.as_deref().is_some_and(|s| !s.trim().is_empty()) {
+            return true;
+        }
+        self.request_class.as_deref().is_some_and(|c| {
+            matches!(c.trim().to_ascii_lowercase().as_str(), "subagent" | "workflow")
+        })
     }
 }
 
@@ -218,6 +337,46 @@ pub struct ConversationSummary {
     /// Worst fidelity seen in the conversation (`soft` < `imported` < `wire`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capture_quality: Option<CaptureQuality>,
+    /// Distinct subagent ids observed in this conversation (from proxy headers).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_ids: Vec<String>,
+    /// Events tagged as subagent / workflow turns.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub subagent_events: u64,
+    /// Sum of cache-read tokens across the conversation.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub cache_read_tokens: u64,
+    /// Sum of thinking / reasoning tokens across the conversation.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub thinking_tokens: u64,
+    /// Distinct tool names observed on the wire.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_names: Vec<String>,
+    /// Latest git branch signal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_branch: Option<String>,
+    /// Events that included thinking/reasoning on the wire.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub thinking_events: u64,
+    /// Sum of media parts across the conversation.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub media_count: u64,
+    /// Events with an error envelope / non-success capture.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub error_events: u64,
+    /// Latest observed API format.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_format: Option<String>,
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde `skip_serializing_if` requires `&T`
+const fn is_zero_u64(n: &u64) -> bool {
+    *n == 0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde `skip_serializing_if` requires `&T`
+const fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
 }
 
 fn clip_text(raw: &str, max: usize) -> String {
@@ -296,6 +455,7 @@ fn conversation_preview_text(ev: &TrafficEvent) -> Option<String> {
 }
 
 /// Group flat traffic events into conversation summaries (newest first).
+#[allow(clippy::too_many_lines)]
 pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<ConversationSummary> {
     use std::collections::HashMap;
 
@@ -307,6 +467,16 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
         tokens_in: u64,
         tokens_out: u64,
         capture_quality: Option<CaptureQuality>,
+        agent_ids: std::collections::BTreeSet<String>,
+        subagent_events: u64,
+        cache_read_tokens: u64,
+        thinking_tokens: u64,
+        tool_names: std::collections::BTreeSet<String>,
+        git_branch: Option<String>,
+        thinking_events: u64,
+        media_count: u64,
+        error_events: u64,
+        api_format: Option<String>,
     }
 
     let mut by_id: HashMap<String, Acc<'_>> = HashMap::new();
@@ -321,44 +491,99 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 }
             })
         });
-        match by_id.get_mut(&id) {
-            Some(acc) => {
-                acc.message_count += 1;
-                acc.tokens_in += u64::from(ev.tokens_in);
-                acc.tokens_out += u64::from(ev.tokens_out);
-                if ev.ts < acc.first.ts {
-                    acc.first = ev;
-                }
-                if ev.ts >= acc.last.ts {
-                    acc.last = ev;
-                }
-                // Prefer earliest user message as the title source.
-                let better_title = matches!(ev.role, TrafficRole::User)
-                    && (ev.ts <= acc.title_src.ts
-                        || !matches!(acc.title_src.role, TrafficRole::User));
-                if better_title {
-                    acc.title_src = ev;
-                }
-                acc.capture_quality = match (acc.capture_quality, quality) {
-                    (Some(prev), Some(next)) => Some(prev.worse(next)),
-                    (None, next) => next,
-                    (prev, None) => prev,
-                };
-            },
-            None => {
-                by_id.insert(
-                    id,
-                    Acc {
-                        first: ev,
-                        last: ev,
-                        title_src: ev,
-                        message_count: 1,
-                        tokens_in: u64::from(ev.tokens_in),
-                        tokens_out: u64::from(ev.tokens_out),
-                        capture_quality: quality,
-                    },
-                );
-            },
+        let agent =
+            ev.agent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+        let sub = u64::from(ev.is_subagent());
+        let tools = ev.tool_names.as_deref().unwrap_or("").split(',').filter_map(|s| {
+            let t = s.trim();
+            (!t.is_empty()).then(|| t.to_string())
+        });
+        let thinking_hit = u64::from(ev.has_thinking.unwrap_or(false) || ev.thinking_tokens > 0);
+        let error_hit = u64::from(
+            ev.error_type.as_deref().is_some_and(|s| !s.trim().is_empty())
+                || ev.status_code.is_some_and(|c| c >= 400),
+        );
+        if let Some(acc) = by_id.get_mut(&id) {
+            acc.message_count += 1;
+            acc.tokens_in += u64::from(ev.tokens_in);
+            acc.tokens_out += u64::from(ev.tokens_out);
+            acc.subagent_events += sub;
+            acc.cache_read_tokens += u64::from(ev.cache_read_tokens);
+            acc.thinking_tokens += u64::from(ev.thinking_tokens);
+            acc.thinking_events += thinking_hit;
+            acc.media_count += u64::from(ev.media_count);
+            acc.error_events += error_hit;
+            for tool in tools {
+                acc.tool_names.insert(tool);
+            }
+            if let Some(branch) = ev.git_branch.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            {
+                acc.git_branch = Some(branch.to_string());
+            }
+            if let Some(fmt) = ev.api_format.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                acc.api_format = Some(fmt.to_string());
+            }
+            if let Some(aid) = agent {
+                acc.agent_ids.insert(aid);
+            }
+            if ev.ts < acc.first.ts {
+                acc.first = ev;
+            }
+            if ev.ts >= acc.last.ts {
+                acc.last = ev;
+            }
+            // Prefer earliest user message as the title source.
+            let better_title = matches!(ev.role, TrafficRole::User)
+                && (ev.ts <= acc.title_src.ts || !matches!(acc.title_src.role, TrafficRole::User));
+            if better_title {
+                acc.title_src = ev;
+            }
+            acc.capture_quality = match (acc.capture_quality, quality) {
+                (Some(prev), Some(next)) => Some(prev.worse(next)),
+                (None, next) => next,
+                (prev, None) => prev,
+            };
+        } else {
+            let mut agent_ids = std::collections::BTreeSet::new();
+            if let Some(aid) = agent {
+                agent_ids.insert(aid);
+            }
+            let mut tool_names = std::collections::BTreeSet::new();
+            for tool in tools {
+                tool_names.insert(tool);
+            }
+            by_id.insert(
+                id,
+                Acc {
+                    first: ev,
+                    last: ev,
+                    title_src: ev,
+                    message_count: 1,
+                    tokens_in: u64::from(ev.tokens_in),
+                    tokens_out: u64::from(ev.tokens_out),
+                    capture_quality: quality,
+                    agent_ids,
+                    subagent_events: sub,
+                    cache_read_tokens: u64::from(ev.cache_read_tokens),
+                    thinking_tokens: u64::from(ev.thinking_tokens),
+                    tool_names,
+                    git_branch: ev
+                        .git_branch
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string),
+                    thinking_events: thinking_hit,
+                    media_count: u64::from(ev.media_count),
+                    error_events: error_hit,
+                    api_format: ev
+                        .api_format
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string),
+                },
+            );
         }
     }
 
@@ -386,6 +611,16 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 tokens_in: acc.tokens_in,
                 tokens_out: acc.tokens_out,
                 capture_quality: acc.capture_quality,
+                agent_ids: acc.agent_ids.into_iter().take(24).collect(),
+                subagent_events: acc.subagent_events,
+                cache_read_tokens: acc.cache_read_tokens,
+                thinking_tokens: acc.thinking_tokens,
+                tool_names: acc.tool_names.into_iter().take(24).collect(),
+                git_branch: acc.git_branch,
+                thinking_events: acc.thinking_events,
+                media_count: acc.media_count,
+                error_events: acc.error_events,
+                api_format: acc.api_format,
             }
         })
         .collect();

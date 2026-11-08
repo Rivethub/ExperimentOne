@@ -8,6 +8,8 @@ import {
   seedStatus,
   seedTraffic,
   seedWiki,
+  wikiArchiveBodies,
+  wikiArchiveIndex,
   wikiPageBodies,
 } from "./fixtures";
 import { getMockScenario, type MockScenario } from "./mode";
@@ -24,6 +26,8 @@ export type MockStore = {
   traffic: ReturnType<typeof seedTraffic>;
   wiki: ReturnType<typeof seedWiki>;
   wikiBodies: Record<string, string>;
+  wikiArchives: Record<string, string[]>;
+  wikiArchiveBodies: Record<string, string>;
   login: LoginStatus | null;
   loginTimer: ReturnType<typeof setTimeout> | null;
   lastExportPath: string | null;
@@ -64,6 +68,8 @@ function createStore(scenario: MockScenario): MockStore {
     traffic,
     wiki: seedWiki(),
     wikiBodies: wikiPageBodies(),
+    wikiArchives: wikiArchiveIndex(),
+    wikiArchiveBodies: wikiArchiveBodies(),
     login: null,
     loginTimer: null,
     lastExportPath: null,

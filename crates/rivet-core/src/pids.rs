@@ -321,6 +321,18 @@ pub fn clear_clickhouse_pid_if_ours(paths: &RivetPaths, pid: u32) {
     clear_pid_if_ours(paths.clickhouse_pid_file().as_std_path(), pid);
 }
 
+pub fn write_nats_pid(paths: &RivetPaths, pid: u32) {
+    write_pid(paths.nats_pid_file().as_std_path(), pid);
+}
+
+pub fn clear_nats_pid(paths: &RivetPaths) {
+    clear_pid(paths.nats_pid_file().as_std_path());
+}
+
+pub fn clear_nats_pid_if_ours(paths: &RivetPaths, pid: u32) {
+    clear_pid_if_ours(paths.nats_pid_file().as_std_path(), pid);
+}
+
 pub fn write_rivetd_pid(paths: &RivetPaths) {
     write_pid(paths.rivetd_pid_file().as_std_path(), std::process::id());
 }

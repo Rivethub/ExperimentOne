@@ -6,6 +6,7 @@ import type { WikiInfo } from "#components/WikiBoard";
 const TITLE_MAP: Record<Page, string> = {
   quota: "Quota Management",
   data: "Data",
+  topics: "Topics",
   runtime: "Runtime",
   wiki: "Wiki",
   settings: "Settings",
@@ -13,6 +14,7 @@ const TITLE_MAP: Record<Page, string> = {
 
 export function pageFromPathname(pathname: string): Page {
   if (pathname.startsWith("/data")) return "data";
+  if (pathname.startsWith("/topics")) return "topics";
   if (pathname.startsWith("/runtime")) return "runtime";
   if (pathname.startsWith("/wiki")) return "wiki";
   if (pathname.startsWith("/settings")) return "settings";
@@ -53,6 +55,8 @@ export function pageSubtitle(opts: {
       } · proxy ${proxyLabel}`;
     case "data":
       return `${fmt(status?.usage.events ?? recentCount)} messages across conversations`;
+    case "topics":
+      return "Durable subjects across sessions and tools";
     case "runtime":
       return status?.proxy_base_url ?? "Control plane · workers · logs";
     case "wiki": {

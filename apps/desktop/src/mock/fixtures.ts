@@ -475,6 +475,44 @@ export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
     }
     // Older steps first within a session so transcripts read top→bottom like T3.
     const stepInSession = i % 4;
+    // Session 1 includes a proxy-detected Explore subagent turn (wire headers).
+    const subagent =
+      !fail && sessionIndex === 1 && (step === 1 || step === 2)
+        ? {
+            agent_id: "agent-explore-01",
+            parent_agent_id: "agent-main",
+            request_class: "subagent" as const,
+            agent_type: "Explore",
+          }
+        : {};
+    const wireExtras =
+      !fail && sessionIndex === 1
+        ? {
+            cache_read_tokens: step === 1 ? 1200 : 0,
+            cache_creation_tokens: step === 0 ? 80 : 0,
+            thinking_tokens: step === 1 ? 640 : 0,
+            git_branch: "t3/evaluate-rivethub",
+            git_repo: "/Users/me/work/rivet",
+            tool_names: step === 1 || step === 2 ? "Bash,semantic_search" : null,
+            tool_call_count: step === 1 || step === 2 ? 2 : 0,
+            stop_reason: step === 3 ? "end_turn" : step === 1 ? "tool_use" : null,
+            stream_complete: true,
+            attempt_count: 1,
+            upstream_host: "api.anthropic.com",
+            request_path: "/v1/messages",
+            api_format: "anthropic_messages",
+            has_thinking: step === 1,
+            media_count: 0,
+            auth_id: "alice.json",
+          }
+        : fail
+          ? {
+              error_type: "rate_limit_error",
+              error_message: "quota exhausted for window",
+              api_format: "anthropic_messages",
+              request_path: "/v1/messages",
+            }
+          : {};
     rows.push({
       id: uuid(i + 1),
       ts: hoursAgo(sessionIndex * 0.5 + (3 - stepInSession) * 0.08),
@@ -489,6 +527,8 @@ export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
       latency_ms: fail ? 80 : 450 + (i % 9) * 60,
       session_id: `mock-session-${sessionIndex}`,
       project_id: i % 8 === 0 ? "rivet" : null,
+      ...subagent,
+      ...wireExtras,
     });
   }
   return rows;
@@ -531,6 +571,16 @@ export function seedWiki(): WikiInfo {
         updated_at: hoursAgo(20),
         preview: "Sample wiki project for mock IPC walks.",
       },
+      {
+        id: "rivet/topics/oauth-pkce",
+        project_id: "rivet",
+        title: "OAuth PKCE",
+        path: "wiki/rivet/topics/oauth-pkce.md",
+        relative_path: "topics/oauth-pkce.md",
+        folder: "topics",
+        updated_at: hoursAgo(2),
+        preview: "Currently, Rivet uses PKCE for local login flows.",
+      },
     ],
   };
 }
@@ -540,6 +590,22 @@ export function wikiPageBodies(): Record<string, string> {
     "rivet/README": `# Rivet\n\nLocal AI proxy — see [Architecture](architecture.md).\n`,
     "rivet/architecture": `# Architecture\n\n- ClickHouse traffic\n- File meta under \`meta/\`\n- Desktop GUI over Tauri IPC\n`,
     "demo/README": `# Demo\n\nMock wiki page for browser-only UI work.\n`,
+    "rivet/topics/oauth-pkce": `<!-- rivet:knowledge -->\n# OAuth PKCE\n\nCurrently, Rivet uses PKCE for local login flows.\n`,
+  };
+}
+
+export function wikiArchiveIndex(): Record<string, string[]> {
+  return {
+    "rivet/oauth-pkce": ["2026-03.md", "2026-01.md"],
+  };
+}
+
+export function wikiArchiveBodies(): Record<string, string> {
+  return {
+    "rivet/oauth-pkce/2026-03.md":
+      "# Archive · oauth-pkce · 2026-03\n\nOlder PKCE notes spilled from the live page.\n",
+    "rivet/oauth-pkce/2026-01.md":
+      "# Archive · oauth-pkce · 2026-01\n\nInitial OAuth spike notes.\n",
   };
 }
 
@@ -585,6 +651,14 @@ export function seedStatus(
       wiki_pages: 3,
       vectorize_cursor: events > 0 ? (opts.traffic[0]?.id ?? null) : null,
       wiki_cursor: "demo/README",
+      role: "all",
+      queue: {
+        pending: events > 0 ? 2 : 0,
+        running: 0,
+        done: Math.min(events, 24),
+        failed: 0,
+        dead: 0,
+      },
     },
     capabilities: {
       mcp: true,

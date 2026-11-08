@@ -186,7 +186,7 @@ jobs:
             macOS)   triple=aarch64-apple-darwin; ext= ;;
             *) echo "unsupported OS ${{ runner.os }}"; exit 1 ;;
           esac
-          for name in rivetd rivet-proxy clickhouse; do
+          for name in rivetd rivet-proxy clickhouse nats-server; do
             path="binaries/${name}-${triple}${ext}"
             printf '#!/bin/sh\necho stub\n' > "$path"
             chmod +x "$path" || true

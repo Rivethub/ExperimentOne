@@ -30,36 +30,86 @@ type Wrapper struct {
 	inner    logging.RequestLogger
 	sender   *queueSender
 	blobsDir string
+	// softWire maps soft: fingerprints → hard session ids once a wire id appears.
+	softWire sync.Map
 }
 
 type trafficEvent struct {
-	ID             string  `json:"id"`
-	Ts             string  `json:"ts"`
-	Provider       string  `json:"provider"`
-	AccountLabel   *string `json:"account_label"`
-	Model          *string `json:"model"`
-	SessionID      *string `json:"session_id"`
-	ProjectID      *string `json:"project_id"`
-	Cwd            *string `json:"cwd,omitempty"`
-	RequestID      *string `json:"request_id"`
-	Role           string  `json:"role"`
-	Content        *string `json:"content"`
-	TokensIn       uint32  `json:"tokens_in"`
-	TokensOut      uint32  `json:"tokens_out"`
-	LatencyMs      *uint64 `json:"latency_ms"`
-	StatusCode     *uint16 `json:"status_code"`
-	BodyRef        *string `json:"body_ref"`
-	CaptureQuality *string `json:"capture_quality,omitempty"`
+	ID              string  `json:"id"`
+	Ts              string  `json:"ts"`
+	Provider        string  `json:"provider"`
+	AccountLabel    *string `json:"account_label"`
+	Model           *string `json:"model"`
+	SessionID       *string `json:"session_id"`
+	ProjectID       *string `json:"project_id"`
+	Cwd             *string `json:"cwd,omitempty"`
+	RequestID       *string `json:"request_id"`
+	Role            string  `json:"role"`
+	Content         *string `json:"content"`
+	TokensIn        uint32  `json:"tokens_in"`
+	TokensOut       uint32  `json:"tokens_out"`
+	LatencyMs       *uint64 `json:"latency_ms"`
+	StatusCode      *uint16 `json:"status_code"`
+	BodyRef         *string `json:"body_ref"`
+	CaptureQuality  *string `json:"capture_quality,omitempty"`
+	SoftAlias       *string `json:"soft_alias,omitempty"`
+	AgentID         *string `json:"agent_id,omitempty"`
+	ParentAgentID   *string `json:"parent_agent_id,omitempty"`
+	ParentSessionID *string `json:"parent_session_id,omitempty"`
+	RequestClass    *string `json:"request_class,omitempty"`
+	AgentType       *string `json:"agent_type,omitempty"`
+	// Proxy-only enrichments (headers / bodies / upstream attempt log).
+	CacheReadTokens     uint32  `json:"cache_read_tokens,omitempty"`
+	CacheCreationTokens uint32  `json:"cache_creation_tokens,omitempty"`
+	ThinkingTokens      uint32  `json:"thinking_tokens,omitempty"`
+	GitBranch           *string `json:"git_branch,omitempty"`
+	GitRepo             *string `json:"git_repo,omitempty"`
+	TaskID              *string `json:"task_id,omitempty"`
+	TurnID              *string `json:"turn_id,omitempty"`
+	UpstreamHost        *string `json:"upstream_host,omitempty"`
+	AttemptCount        uint32  `json:"attempt_count,omitempty"`
+	StopReason          *string `json:"stop_reason,omitempty"`
+	ToolNames           *string `json:"tool_names,omitempty"`
+	StreamComplete      *bool   `json:"stream_complete,omitempty"`
+	RequestPath         *string `json:"request_path,omitempty"`
+	APIFormat           *string `json:"api_format,omitempty"`
+	ErrorType           *string `json:"error_type,omitempty"`
+	ErrorMessage        *string `json:"error_message,omitempty"`
+	AuthID              *string `json:"auth_id,omitempty"`
+	HasThinking         *bool   `json:"has_thinking,omitempty"`
+	MediaCount          uint32  `json:"media_count,omitempty"`
+	ToolCallCount       uint32  `json:"tool_call_count,omitempty"`
 }
 
 type parsedMeta struct {
-	Model     string
-	SessionID string
-	ProjectID string
-	Cwd       string
-	Role      string
-	TokensIn  uint32
-	TokensOut uint32
+	Model               string
+	SessionID           string
+	ProjectID           string
+	Cwd                 string
+	Role                string
+	TokensIn            uint32
+	TokensOut           uint32
+	CacheReadTokens     uint32
+	CacheCreationTokens uint32
+	ThinkingTokens      uint32
+	AgentID             string
+	ParentAgentID       string
+	ParentSessionID     string
+	RequestClass        string
+	AgentType           string
+	GitBranch           string
+	GitRepo             string
+	TaskID              string
+	TurnID              string
+	StopReason          string
+	ToolNames           string
+	StreamComplete      *bool
+	APIFormat           string
+	ErrorType           string
+	ErrorMessage        string
+	HasThinking         bool
+	MediaCount          uint32
+	ToolCallCount       uint32
 }
 
 // Wrap returns logger unchanged unless RIVET_INGEST_URL is set.
@@ -562,37 +612,176 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 		}
 	}
 	quality := "wire"
+	var softAlias *string
+	soft := softSessionID(provider, accountStr, meta.Model, reqBody)
 	if meta.SessionID != "" {
 		sessionID = &meta.SessionID
-	} else if soft := softSessionID(provider, accountStr, meta.Model, reqBody); soft != "" {
-		sessionID = &soft
-		quality = "soft"
+		if soft != "" && soft != meta.SessionID {
+			sa := soft
+			softAlias = &sa
+			w.softWire.Store(soft, meta.SessionID)
+		}
+	} else if soft != "" {
+		if wire, ok := w.softWire.Load(soft); ok {
+			if wireID, ok := wire.(string); ok && wireID != "" {
+				sessionID = &wireID
+				quality = "wire"
+				sa := soft
+				softAlias = &sa
+			} else {
+				sessionID = &soft
+				quality = "soft"
+			}
+		} else {
+			sessionID = &soft
+			quality = "soft"
+		}
+	}
+
+	var agentID, parentAgentID, parentSessionID, requestClass, agentType *string
+	if meta.AgentID != "" {
+		v := meta.AgentID
+		agentID = &v
+	}
+	if meta.ParentAgentID != "" {
+		v := meta.ParentAgentID
+		parentAgentID = &v
+	}
+	if meta.ParentSessionID != "" {
+		v := meta.ParentSessionID
+		parentSessionID = &v
+	}
+	if meta.RequestClass != "" {
+		v := meta.RequestClass
+		requestClass = &v
+	}
+	if meta.AgentType != "" {
+		v := meta.AgentType
+		agentType = &v
+	}
+	// Infer request class when agent id is present but class header omitted.
+	if requestClass == nil && agentID != nil {
+		v := "subagent"
+		requestClass = &v
+	}
+
+	var gitBranch, gitRepo, taskID, turnID, stopReason, toolNames, upstreamHost *string
+	if meta.GitBranch != "" {
+		v := meta.GitBranch
+		gitBranch = &v
+	}
+	if meta.GitRepo != "" {
+		v := meta.GitRepo
+		gitRepo = &v
+	}
+	if meta.TaskID != "" {
+		v := meta.TaskID
+		taskID = &v
+	}
+	if meta.TurnID != "" {
+		v := meta.TurnID
+		turnID = &v
+	}
+	if meta.StopReason != "" {
+		v := meta.StopReason
+		stopReason = &v
+	}
+	if meta.ToolNames != "" {
+		v := meta.ToolNames
+		toolNames = &v
+	}
+	attempts, host := upstreamAttemptMeta(apiRequest)
+	if host != "" {
+		upstreamHost = &host
+	}
+	authIDRaw := authIDFromAPIRequest(apiRequest)
+	var authID *string
+	if authIDRaw != "" {
+		authID = &authIDRaw
+	}
+
+	reqPath := requestPathFromURL(url)
+	var requestPath *string
+	if reqPath != "" {
+		requestPath = &reqPath
+	}
+	apiFmt := inferAPIFormat(reqPath, reqBody)
+	if apiFmt == "" {
+		apiFmt = meta.APIFormat
+	}
+	var apiFormat *string
+	if apiFmt != "" {
+		apiFormat = &apiFmt
+	}
+
+	// Prefer status-aware error extraction when the proxy saw a non-2xx.
+	if statusCode >= 400 {
+		extractErrorMeta(respBody, meta)
+	}
+	var errorType, errorMessage *string
+	if meta.ErrorType != "" {
+		v := meta.ErrorType
+		errorType = &v
+	}
+	if meta.ErrorMessage != "" {
+		v := clipRunes(meta.ErrorMessage, 240)
+		errorMessage = &v
+	}
+	var hasThinking *bool
+	if meta.HasThinking || meta.ThinkingTokens > 0 {
+		v := true
+		hasThinking = &v
 	}
 
 	evt := trafficEvent{
-		ID:             eventID,
-		Ts:             time.Now().UTC().Format(time.RFC3339Nano),
-		Provider:       provider,
-		AccountLabel:   accountLabel,
-		Model:          model,
-		SessionID:      sessionID,
-		ProjectID:      projectID,
-		Cwd:            cwd,
-		RequestID:      rid,
-		Role:           role,
-		Content:        &content,
-		TokensIn:       meta.TokensIn,
-		TokensOut:      meta.TokensOut,
-		LatencyMs:      latency,
-		StatusCode:     status,
-		BodyRef:        bodyRef,
-		CaptureQuality: &quality,
+		ID:                  eventID,
+		Ts:                  time.Now().UTC().Format(time.RFC3339Nano),
+		Provider:            provider,
+		AccountLabel:        accountLabel,
+		Model:               model,
+		SessionID:           sessionID,
+		ProjectID:           projectID,
+		Cwd:                 cwd,
+		RequestID:           rid,
+		Role:                role,
+		Content:             &content,
+		TokensIn:            meta.TokensIn,
+		TokensOut:           meta.TokensOut,
+		LatencyMs:           latency,
+		StatusCode:          status,
+		BodyRef:             bodyRef,
+		CaptureQuality:      &quality,
+		SoftAlias:           softAlias,
+		AgentID:             agentID,
+		ParentAgentID:       parentAgentID,
+		ParentSessionID:     parentSessionID,
+		RequestClass:        requestClass,
+		AgentType:           agentType,
+		CacheReadTokens:     meta.CacheReadTokens,
+		CacheCreationTokens: meta.CacheCreationTokens,
+		ThinkingTokens:      meta.ThinkingTokens,
+		GitBranch:           gitBranch,
+		GitRepo:             gitRepo,
+		TaskID:              taskID,
+		TurnID:              turnID,
+		UpstreamHost:        upstreamHost,
+		AttemptCount:        attempts,
+		StopReason:          stopReason,
+		ToolNames:           toolNames,
+		StreamComplete:      meta.StreamComplete,
+		RequestPath:         requestPath,
+		APIFormat:           apiFormat,
+		ErrorType:           errorType,
+		ErrorMessage:        errorMessage,
+		AuthID:              authID,
+		HasThinking:         hasThinking,
+		MediaCount:          meta.MediaCount,
+		ToolCallCount:       meta.ToolCallCount,
 	}
 	payload, err := json.Marshal(evt)
 	if err != nil {
 		return
 	}
-	_ = url // retained for future request-path tagging
 	if w.sender != nil {
 		w.sender.enqueue(payload)
 	}
@@ -880,9 +1069,12 @@ func parseMeta(provider string, headers map[string][]string, reqBody, respBody [
 			}
 		}
 		meta.Cwd = extractCwd(req)
+		extractGitMeta(req, &meta)
 		meta.Role = inferRoleFromRequest(req)
 	}
 	meta.SessionID = extractSessionID(headers, req, reqBody)
+	extractAgentContext(headers, req, &meta)
+	extractTaskTurn(headers, req, &meta)
 
 	// Non-stream JSON response.
 	var resp map[string]any
@@ -896,11 +1088,427 @@ func parseMeta(provider string, headers map[string][]string, reqBody, respBody [
 		if role := inferRoleFromResponse(resp); role != "unknown" {
 			meta.Role = role
 		}
+		extractStopReason(resp, &meta)
+		done := true
+		meta.StreamComplete = &done
 	} else {
 		// SSE / NDJSON stream — scan for usage and model.
 		parseStreamMeta(&meta, provider, string(respBody))
 	}
+	extractToolNames(reqBody, respBody, &meta)
+	extractBodySignals(reqBody, respBody, &meta)
+	meta.APIFormat = inferAPIFormat("", reqBody)
 	return meta
+}
+
+// extractGitMeta pulls branch / repo root when clients embed git_state on the wire.
+func extractGitMeta(req map[string]any, meta *parsedMeta) {
+	if req == nil || meta == nil {
+		return
+	}
+	gs, ok := req["git_state"].(map[string]any)
+	if !ok {
+		if m, ok := req["metadata"].(map[string]any); ok {
+			gs, _ = m["git_state"].(map[string]any)
+		}
+	}
+	if gs == nil {
+		return
+	}
+	for _, key := range []string{"branch", "git_branch", "head_branch", "ref"} {
+		if s := strings.TrimSpace(asString(gs[key])); s != "" {
+			meta.GitBranch = s
+			break
+		}
+	}
+	for _, key := range []string{"repo_root", "root", "repository", "repo", "remote"} {
+		if s := strings.TrimSpace(asString(gs[key])); s != "" {
+			meta.GitRepo = s
+			break
+		}
+	}
+}
+
+// extractTaskTurn pulls task/turn lineage ids from headers or request metadata.
+func extractTaskTurn(headers map[string][]string, req map[string]any, meta *parsedMeta) {
+	if meta == nil {
+		return
+	}
+	if v := headerFirst(headers, "x-claude-code-task-id", "x-task-id", "task-id"); v != "" {
+		meta.TaskID = v
+	}
+	if v := headerFirst(headers, "x-claude-code-turn-id", "x-turn-id", "turn-id"); v != "" {
+		meta.TurnID = v
+	}
+	if req == nil {
+		return
+	}
+	if meta.TaskID == "" {
+		if s := strings.TrimSpace(asString(req["task_id"])); s != "" {
+			meta.TaskID = s
+		}
+	}
+	if meta.TurnID == "" {
+		if s := strings.TrimSpace(asString(req["turn_id"])); s != "" {
+			meta.TurnID = s
+		}
+	}
+	if metaMap, ok := req["metadata"].(map[string]any); ok {
+		if meta.TaskID == "" {
+			if s := strings.TrimSpace(asString(metaMap["task_id"])); s != "" {
+				meta.TaskID = s
+			}
+		}
+		if meta.TurnID == "" {
+			if s := strings.TrimSpace(asString(metaMap["turn_id"])); s != "" {
+				meta.TurnID = s
+			}
+		}
+	}
+}
+
+func extractStopReason(obj map[string]any, meta *parsedMeta) {
+	if obj == nil || meta == nil || meta.StopReason != "" {
+		return
+	}
+	for _, key := range []string{"stop_reason", "finish_reason", "stopReason"} {
+		if s := strings.TrimSpace(asString(obj[key])); s != "" {
+			meta.StopReason = s
+			return
+		}
+	}
+	if choices, ok := obj["choices"].([]any); ok && len(choices) > 0 {
+		if c0, ok := choices[0].(map[string]any); ok {
+			if s := strings.TrimSpace(asString(c0["finish_reason"])); s != "" {
+				meta.StopReason = s
+			}
+		}
+	}
+}
+
+// extractToolNames collects tool/function names actually invoked on this turn.
+func extractToolNames(reqBody, respBody []byte, meta *parsedMeta) {
+	if meta == nil {
+		return
+	}
+	seen := map[string]struct{}{}
+	var names []string
+	var callCount uint32
+	add := func(name string) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		callCount++
+		if _, ok := seen[name]; ok {
+			return
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	scanTools := func(raw []byte) {
+		if len(raw) == 0 {
+			return
+		}
+		var root any
+		if json.Unmarshal(raw, &root) != nil {
+			// SSE: scan each data line.
+			for _, line := range strings.Split(string(raw), "\n") {
+				line = strings.TrimSpace(line)
+				if !strings.HasPrefix(line, "data:") {
+					continue
+				}
+				payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+				if payload == "" || payload == "[DONE]" {
+					continue
+				}
+				var obj any
+				if json.Unmarshal([]byte(payload), &obj) != nil {
+					continue
+				}
+				walkToolNames(obj, add)
+			}
+			return
+		}
+		walkToolNames(root, add)
+	}
+	scanTools(reqBody)
+	scanTools(respBody)
+	if len(names) > 24 {
+		names = names[:24]
+	}
+	if len(names) > 0 {
+		meta.ToolNames = strings.Join(names, ",")
+	}
+	meta.ToolCallCount = callCount
+}
+
+func walkToolNames(v any, add func(string)) {
+	switch t := v.(type) {
+	case map[string]any:
+		typ := strings.ToLower(strings.TrimSpace(asString(t["type"])))
+		switch typ {
+		case "tool_use", "function_call", "tool_call", "custom_tool_call":
+			if name := strings.TrimSpace(asString(t["name"])); name != "" {
+				add(name)
+			} else if fn, ok := t["function"].(map[string]any); ok {
+				add(asString(fn["name"]))
+			} else if name := strings.TrimSpace(asString(t["tool_name"])); name != "" {
+				add(name)
+			} else {
+				add("tool")
+			}
+		default:
+			if name := strings.TrimSpace(asString(t["tool_name"])); name != "" {
+				add(name)
+			}
+		}
+		for _, child := range t {
+			walkToolNames(child, add)
+		}
+	case []any:
+		for _, child := range t {
+			walkToolNames(child, add)
+		}
+	}
+}
+
+// upstreamAttemptMeta counts credential attempts and returns the winning upstream host.
+func upstreamAttemptMeta(apiRequest []byte) (attempts uint32, host string) {
+	if len(apiRequest) == 0 {
+		return 0, ""
+	}
+	var lastUpstream string
+	for _, raw := range strings.Split(string(apiRequest), "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "=== api request") {
+			attempts++
+			continue
+		}
+		if strings.HasPrefix(line, "Upstream URL:") {
+			lastUpstream = strings.TrimSpace(strings.TrimPrefix(line, "Upstream URL:"))
+		}
+	}
+	if lastUpstream == "" {
+		return attempts, ""
+	}
+	u := lastUpstream
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+	}
+	if i := strings.IndexAny(u, "/?"); i >= 0 {
+		u = u[:i]
+	}
+	if i := strings.Index(u, "@"); i >= 0 {
+		u = u[i+1:]
+	}
+	return attempts, u
+}
+
+func authIDFromAPIRequest(apiRequest []byte) string {
+	if len(apiRequest) == 0 {
+		return ""
+	}
+	var last string
+	inHeaders := false
+	for _, raw := range strings.Split(string(apiRequest), "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "=== api request") {
+			inHeaders = true
+			continue
+		}
+		if !inHeaders {
+			continue
+		}
+		if lower == "body:" || strings.HasPrefix(lower, "body:") {
+			inHeaders = false
+			continue
+		}
+		if strings.HasPrefix(lower, "auth:") {
+			if id := parseAuthField(line, "auth_id="); id != "" {
+				last = id
+			}
+		}
+	}
+	return last
+}
+
+func requestPathFromURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u := raw
+	if i := strings.Index(u, "://"); i >= 0 {
+		u = u[i+3:]
+		if j := strings.Index(u, "/"); j >= 0 {
+			u = u[j:]
+		} else {
+			return "/"
+		}
+	}
+	if i := strings.IndexAny(u, "?#"); i >= 0 {
+		u = u[:i]
+	}
+	if u == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(u, "/") {
+		u = "/" + u
+	}
+	return u
+}
+
+func inferAPIFormat(path string, reqBody []byte) string {
+	p := strings.ToLower(path)
+	switch {
+	case strings.Contains(p, "/responses"):
+		return "openai_responses"
+	case strings.Contains(p, "/chat/completions"):
+		return "openai_chat"
+	case strings.Contains(p, "/messages"):
+		return "anthropic_messages"
+	case strings.Contains(p, "/embeddings"):
+		return "embeddings"
+	case strings.Contains(p, ":generatecontent"), strings.Contains(p, "/models/"):
+		return "gemini"
+	}
+	body := strings.ToLower(string(reqBody))
+	switch {
+	case strings.Contains(body, `"input"`) && (strings.Contains(body, `"instructions"`) || bytes.Contains(reqBody, []byte(`"type":"message"`))):
+		return "openai_responses"
+	case bytes.Contains(reqBody, []byte(`"messages"`)) && bytes.Contains(reqBody, []byte(`"max_tokens"`)):
+		return "anthropic_messages"
+	case bytes.Contains(reqBody, []byte(`"messages"`)):
+		return "openai_chat"
+	case strings.Contains(body, "contents") && strings.Contains(body, "parts"):
+		return "gemini"
+	default:
+		return "other"
+	}
+}
+
+func extractBodySignals(reqBody, respBody []byte, meta *parsedMeta) {
+	if meta == nil {
+		return
+	}
+	scan := func(raw []byte) {
+		if len(raw) == 0 {
+			return
+		}
+		var root any
+		if json.Unmarshal(raw, &root) == nil {
+			walkBodySignals(root, meta)
+			return
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload == "" || payload == "[DONE]" {
+				continue
+			}
+			var obj any
+			if json.Unmarshal([]byte(payload), &obj) != nil {
+				continue
+			}
+			walkBodySignals(obj, meta)
+		}
+	}
+	scan(reqBody)
+	scan(respBody)
+	extractErrorMeta(respBody, meta)
+}
+
+func walkBodySignals(v any, meta *parsedMeta) {
+	switch t := v.(type) {
+	case map[string]any:
+		typ := strings.ToLower(strings.TrimSpace(asString(t["type"])))
+		switch typ {
+		case "thinking", "reasoning", "reasoning_text":
+			meta.HasThinking = true
+		case "image", "image_url", "input_image", "input_file", "file", "document", "audio", "video":
+			meta.MediaCount++
+		}
+		if t["thinking"] != nil || t["reasoning"] != nil || t["reasoning_content"] != nil {
+			meta.HasThinking = true
+		}
+		if img, ok := t["image_url"]; ok && img != nil {
+			meta.MediaCount++
+		}
+		if src, ok := t["source"].(map[string]any); ok {
+			if strings.EqualFold(asString(src["type"]), "base64") || asString(src["media_type"]) != "" {
+				meta.MediaCount++
+			}
+		}
+		for _, child := range t {
+			walkBodySignals(child, meta)
+		}
+	case []any:
+		for _, child := range t {
+			walkBodySignals(child, meta)
+		}
+	}
+}
+
+func extractErrorMeta(respBody []byte, meta *parsedMeta) {
+	if meta == nil || len(respBody) == 0 || meta.ErrorType != "" {
+		return
+	}
+	var root map[string]any
+	if json.Unmarshal(respBody, &root) != nil {
+		// Some streams only include a final error object on one line.
+		for _, line := range strings.Split(string(respBody), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "data:") {
+				line = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+			if line == "" || line == "[DONE]" {
+				continue
+			}
+			if json.Unmarshal([]byte(line), &root) == nil {
+				break
+			}
+		}
+	}
+	if root == nil {
+		return
+	}
+	if errObj, ok := root["error"].(map[string]any); ok {
+		if t := strings.TrimSpace(asString(errObj["type"])); t != "" {
+			meta.ErrorType = t
+		} else if c := strings.TrimSpace(asString(errObj["code"])); c != "" {
+			meta.ErrorType = c
+		}
+		if m := strings.TrimSpace(asString(errObj["message"])); m != "" {
+			meta.ErrorMessage = m
+		}
+		return
+	}
+	if typ := strings.TrimSpace(asString(root["type"])); strings.EqualFold(typ, "error") {
+		meta.ErrorType = "error"
+		if m := strings.TrimSpace(asString(root["message"])); m != "" {
+			meta.ErrorMessage = m
+		}
+	}
+}
+
+func clipRunes(s string, limit int) string {
+	if limit <= 0 || s == "" {
+		return s
+	}
+	n := 0
+	for i := range s {
+		if n == limit {
+			return s[:i] + "…"
+		}
+		n++
+	}
+	return s
 }
 
 // extractCwd pulls a working-directory signal when present. This is not a project
@@ -971,8 +1579,12 @@ func applyUsage(meta *parsedMeta, _provider string, obj map[string]any) {
 			usage["completion_tokens"] = float64(v)
 		}
 	}
-	// Gemini thinking tokens are billed/output-adjacent — fold into completion.
+	// Gemini thinking tokens are billed/output-adjacent — fold into completion,
+	// but keep the breakdown separately for analytics.
 	if v := uintFrom(usage, "thoughtsTokenCount"); v > 0 {
+		if v > meta.ThinkingTokens {
+			meta.ThinkingTokens = v
+		}
 		cur := uintFrom(usage, "completion_tokens")
 		usage["completion_tokens"] = float64(cur + v)
 	}
@@ -987,13 +1599,23 @@ func applyUsage(meta *parsedMeta, _provider string, obj map[string]any) {
 
 	// Anthropic-shaped (incl. cache) — high-water across nested/repeated frames.
 	in := uintFrom(usage, "input_tokens")
-	cache := uintFrom(usage, "cache_creation_input_tokens") +
-		uintFrom(usage, "cache_read_input_tokens")
+	cacheRead := uintFrom(usage, "cache_read_input_tokens")
+	cacheCreate := uintFrom(usage, "cache_creation_input_tokens")
+	if cacheRead > meta.CacheReadTokens {
+		meta.CacheReadTokens = cacheRead
+	}
+	if cacheCreate > meta.CacheCreationTokens {
+		meta.CacheCreationTokens = cacheCreate
+	}
+	cache := cacheCreate + cacheRead
 	if frame := in + cache; frame > meta.TokensIn {
 		meta.TokensIn = frame
 	}
 	if v := uintFrom(usage, "output_tokens"); v > meta.TokensOut {
 		meta.TokensOut = v
+	}
+	if v := uintFrom(usage, "reasoning_tokens"); v > meta.ThinkingTokens {
+		meta.ThinkingTokens = v
 	}
 
 	// OpenAI / Codex / Responses — take the higher watermark so a Claude-shaped
@@ -1004,6 +1626,17 @@ func applyUsage(meta *parsedMeta, _provider string, obj map[string]any) {
 	if v := uintFrom(usage, "completion_tokens"); v > meta.TokensOut {
 		meta.TokensOut = v
 	}
+	// OpenAI prompt_tokens_details.cached_tokens / completion reasoning details.
+	if details, ok := usage["prompt_tokens_details"].(map[string]any); ok {
+		if v := uintFrom(details, "cached_tokens"); v > meta.CacheReadTokens {
+			meta.CacheReadTokens = v
+		}
+	}
+	if details, ok := usage["completion_tokens_details"].(map[string]any); ok {
+		if v := uintFrom(details, "reasoning_tokens"); v > meta.ThinkingTokens {
+			meta.ThinkingTokens = v
+		}
+	}
 
 	if meta.TokensIn == 0 && meta.TokensOut == 0 {
 		if total := uintFrom(usage, "total_tokens"); total > 0 {
@@ -1013,10 +1646,15 @@ func applyUsage(meta *parsedMeta, _provider string, obj map[string]any) {
 }
 
 func parseStreamMeta(meta *parsedMeta, provider, raw string) {
+	sawDone := false
 	// SSE: data: {...}
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
-		if line == "" || line == "data: [DONE]" {
+		if line == "" {
+			continue
+		}
+		if line == "data: [DONE]" || line == "[DONE]" {
+			sawDone = true
 			continue
 		}
 		payload := line
@@ -1034,8 +1672,13 @@ func parseStreamMeta(meta *parsedMeta, provider, raw string) {
 		}
 		// applyUsage already walks usage + nested response — do not re-apply.
 		applyUsage(meta, provider, obj)
+		extractStopReason(obj, meta)
+		if typ, _ := obj["type"].(string); typ == "message_stop" || typ == "response.completed" {
+			sawDone = true
+		}
 		if msg, ok := obj["message"].(map[string]any); ok {
 			applyUsage(meta, provider, msg)
+			extractStopReason(msg, meta)
 			if meta.Model == "" {
 				if m, ok := msg["model"].(string); ok {
 					meta.Model = m
@@ -1048,10 +1691,18 @@ func parseStreamMeta(meta *parsedMeta, provider, raw string) {
 					meta.Model = m
 				}
 			}
+			extractStopReason(resp, meta)
 		}
 		if role := inferRoleFromResponse(obj); role != "unknown" {
 			meta.Role = role
 		}
+	}
+	if sawDone {
+		done := true
+		meta.StreamComplete = &done
+	} else if raw != "" {
+		incomplete := false
+		meta.StreamComplete = &incomplete
 	}
 }
 
@@ -1149,6 +1800,53 @@ func uintFrom(m map[string]any, key string) uint32 {
 	}
 }
 
+// extractAgentContext pulls subagent / request-class markers from proxy headers (and
+// a few body fallbacks). Live capture only — no harness ingress.
+// Claude Code: x-claude-code-agent-id, parent-agent-id, request-class, agent-type.
+// OpenCode: x-parent-session-id next to the child session id.
+func extractAgentContext(headers map[string][]string, req map[string]any, meta *parsedMeta) {
+	if meta == nil {
+		return
+	}
+	if v := headerFirst(headers, "x-claude-code-agent-id", "x-agent-id"); v != "" {
+		meta.AgentID = v
+	}
+	if v := headerFirst(headers, "x-claude-code-parent-agent-id", "x-parent-agent-id"); v != "" {
+		meta.ParentAgentID = v
+	}
+	if v := headerFirst(headers, "x-claude-code-request-class", "x-request-class"); v != "" {
+		meta.RequestClass = strings.ToLower(v)
+	}
+	if v := headerFirst(headers, "x-claude-code-agent-type", "x-agent-type"); v != "" {
+		meta.AgentType = v
+	}
+	if v := headerFirst(headers, "x-parent-session-id", "x-claude-code-parent-session-id"); v != "" {
+		meta.ParentSessionID = v
+		if meta.RequestClass == "" {
+			meta.RequestClass = "subagent"
+		}
+	}
+	if req != nil {
+		if metaMap, ok := req["metadata"].(map[string]any); ok {
+			if meta.AgentID == "" {
+				if s := strings.TrimSpace(asString(metaMap["agent_id"])); s != "" {
+					meta.AgentID = s
+				}
+			}
+			if meta.ParentAgentID == "" {
+				if s := strings.TrimSpace(asString(metaMap["parent_agent_id"])); s != "" {
+					meta.ParentAgentID = s
+				}
+			}
+			if meta.RequestClass == "" {
+				if s := strings.TrimSpace(asString(metaMap["request_class"])); s != "" {
+					meta.RequestClass = strings.ToLower(s)
+				}
+			}
+		}
+	}
+}
+
 // extractSessionID resolves harness session markers from headers and request bodies.
 // Claude Code: X-Claude-Code-Session-Id or metadata.user_id JSON / `_session_<uuid>` suffix.
 // Codex / OpenAI-compat: session_id / Session-Id headers and body fields.
@@ -1238,16 +1936,44 @@ var (
 	reBearer    = regexp.MustCompile(`(?i)(Authorization["']?\s*[:=]\s*["']?Bearer\s+)[A-Za-z0-9._\-+=/]+`)
 	reAPIKeyHdr = regexp.MustCompile(`(?i)((?:x-api-key|api[_-]?key|anthropic-api-key)["']?\s*[:=]\s*["']?)[A-Za-z0-9._\-+=/]+`)
 	reSkToken   = regexp.MustCompile(`\b(sk-[A-Za-z0-9]{10,})\b`)
+	reSkAnt     = regexp.MustCompile(`\b(sk-ant-[A-Za-z0-9\-_]{10,})\b`)
 	reRivetKey  = regexp.MustCompile(`\b(rivet_[a-f0-9]{20,})\b`)
 	reOpenAIKey = regexp.MustCompile(`\b(sk-proj-[A-Za-z0-9\-_]{10,})\b`)
+	reXaiKey    = regexp.MustCompile(`\b(xai-[A-Za-z0-9]{20,})\b`)
+	reGskKey    = regexp.MustCompile(`\b(gsk_[A-Za-z0-9]{20,})\b`)
+	reAIza      = regexp.MustCompile(`\b(AIza[A-Za-z0-9_\-]{20,})\b`)
+	reGhp       = regexp.MustCompile(`\b(ghp_[A-Za-z0-9]{20,})\b`)
+	reGho       = regexp.MustCompile(`\b(gho_[A-Za-z0-9]{20,})\b`)
+	reGitPat    = regexp.MustCompile(`\b(github_pat_[A-Za-z0-9_]{20,})\b`)
+	reAKIA      = regexp.MustCompile(`\b(AKIA[A-Z0-9]{16})\b`)
+	reASIA      = regexp.MustCompile(`\b(ASIA[A-Z0-9]{16})\b`)
+	reSlack     = regexp.MustCompile(`\b(xox[baprs]-[A-Za-z0-9-]{10,})\b`)
+	reSlackApp  = regexp.MustCompile(`\b(xapp-[A-Za-z0-9-]{10,})\b`)
+	reNpm       = regexp.MustCompile(`\b(npm_[A-Za-z0-9]{20,})\b`)
+	reOAuthJSON = regexp.MustCompile(`(?i)("(?:access_token|refresh_token|id_token|client_secret|private_key)"\s*:\s*")[^"]+`)
+	rePEM       = regexp.MustCompile(`(?i)-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----`)
 	reJWT       = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b`)
 )
 
 func redactSecrets(s string) string {
 	s = reBearer.ReplaceAllString(s, `${1}[REDACTED]`)
 	s = reAPIKeyHdr.ReplaceAllString(s, `${1}[REDACTED]`)
+	s = reOAuthJSON.ReplaceAllString(s, `${1}[REDACTED]`)
+	s = rePEM.ReplaceAllString(s, `[REDACTED]`)
 	s = reOpenAIKey.ReplaceAllString(s, `[REDACTED]`)
+	s = reSkAnt.ReplaceAllString(s, `[REDACTED]`)
 	s = reSkToken.ReplaceAllString(s, `[REDACTED]`)
+	s = reXaiKey.ReplaceAllString(s, `[REDACTED]`)
+	s = reGskKey.ReplaceAllString(s, `[REDACTED]`)
+	s = reAIza.ReplaceAllString(s, `[REDACTED]`)
+	s = reGhp.ReplaceAllString(s, `[REDACTED]`)
+	s = reGho.ReplaceAllString(s, `[REDACTED]`)
+	s = reGitPat.ReplaceAllString(s, `[REDACTED]`)
+	s = reAKIA.ReplaceAllString(s, `[REDACTED]`)
+	s = reASIA.ReplaceAllString(s, `[REDACTED]`)
+	s = reSlack.ReplaceAllString(s, `[REDACTED]`)
+	s = reSlackApp.ReplaceAllString(s, `[REDACTED]`)
+	s = reNpm.ReplaceAllString(s, `[REDACTED]`)
 	s = reRivetKey.ReplaceAllString(s, `[REDACTED]`)
 	s = reJWT.ReplaceAllString(s, `[REDACTED]`)
 	return s

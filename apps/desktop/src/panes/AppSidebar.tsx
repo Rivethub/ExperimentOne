@@ -14,6 +14,7 @@ export type AppSidebarProps = {
 function navTo(page: Page, settingsTab: SettingsTab) {
   if (page === "quota") return { to: "/" as const };
   if (page === "data") return { to: "/data" as const };
+  if (page === "topics") return { to: "/topics" as const };
   if (page === "runtime") return { to: "/runtime" as const };
   if (page === "wiki") return { to: "/wiki" as const };
   return { to: "/settings/$tab" as const, params: { tab: settingsTab } };

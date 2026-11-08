@@ -25,6 +25,9 @@ pub struct RivetConfig {
     pub mcp_port: u16,
     pub clickhouse_http_port: u16,
     pub clickhouse_native_port: u16,
+    /// Local NATS client port (`JetStream` job plane).
+    #[serde(default = "default_nats_port")]
+    pub nats_port: u16,
     /// Access key harnesses send to the proxy (not a provider credential).
     pub proxy_access_key: String,
     /// Localhost management API key for `CLIProxyAPI` credential/quota endpoints.
@@ -55,6 +58,10 @@ fn default_wiki_project() -> String {
     "default".into()
 }
 
+const fn default_nats_port() -> u16 {
+    4222
+}
+
 const fn default_rate_limit_rps() -> u32 {
     500
 }
@@ -79,6 +86,7 @@ impl Default for RivetConfig {
             mcp_port: 8742,
             clickhouse_http_port: 8123,
             clickhouse_native_port: 9000,
+            nats_port: default_nats_port(),
             proxy_access_key: key.clone(),
             management_secret: key,
             capabilities: Capabilities {

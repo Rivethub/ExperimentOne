@@ -115,13 +115,16 @@ while IFS= read -r -d '' f; do
     rivetd|rivetd-"${TRIPLE}") out="rivetd" ;;
     rivet-proxy|rivet-proxy-"${TRIPLE}") out="rivet-proxy" ;;
     clickhouse|clickhouse-"${TRIPLE}") out="clickhouse" ;;
+    nats-server|nats-server-"${TRIPLE}") out="nats-server" ;;
     *) continue ;;
   esac
   install -m 755 "$f" "${BIN_DIR}/${out}"
 done < <(find "${tmp}/extract" -type f \( \
     -name 'rivet' -o -name 'rivetd' -o -name 'rivet-proxy' -o -name 'clickhouse' \
+    -o -name 'nats-server' \
     -o -name "rivet-${TRIPLE}" -o -name "rivetd-${TRIPLE}" \
     -o -name "rivet-proxy-${TRIPLE}" -o -name "clickhouse-${TRIPLE}" \
+    -o -name "nats-server-${TRIPLE}" \
   \) -print0)
 
 echo "${tag_name}" > "${INSTALL_ROOT}/VERSION"

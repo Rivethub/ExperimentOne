@@ -253,6 +253,23 @@ export function matchWiki(ctx: MockRequestContext): MockHttpResult | null {
     const bodyText = store.wikiBodies[id] ?? `# Missing\n\nNo mock body for \`${id}\`.\n`;
     return ok({ id, markdown: bodyText, content: bodyText });
   }
+  if (ctx.m === "GET" && ctx.base === "/v1/wiki/archives") {
+    const slug = ctx.q.get("slug") ?? "";
+    const project = ctx.q.get("project_id") ?? store.wiki.project_id;
+    const files = store.wikiArchives[`${project}/${slug}`] ?? store.wikiArchives[slug] ?? [];
+    return ok({ project_id: project, slug, files });
+  }
+  if (ctx.m === "GET" && ctx.base === "/v1/wiki/archive") {
+    const slug = ctx.q.get("slug") ?? "";
+    const file = ctx.q.get("file") ?? "";
+    const project = ctx.q.get("project_id") ?? store.wiki.project_id;
+    const key = `${project}/${slug}/${file}`;
+    const content =
+      store.wikiArchiveBodies[key] ??
+      store.wikiArchiveBodies[`${slug}/${file}`] ??
+      `# Archive · ${slug} · ${file}\n\nMock overflow segment.\n`;
+    return ok({ project_id: project, slug, file, content });
+  }
   return null;
 }
 

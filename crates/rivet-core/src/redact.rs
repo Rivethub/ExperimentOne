@@ -36,23 +36,27 @@ fn rules() -> &'static [Rule] {
             (r"\b(gho_[A-Za-z0-9]{20,})\b", false),
             (r"\b(github_pat_[A-Za-z0-9_]{20,})\b", false),
             (r"\b(AKIA[A-Z0-9]{16})\b", false),
+            (r"\b(ASIA[A-Z0-9]{16})\b", false),
             (r"\b(rivet_[a-f0-9]{20,})\b", false),
+            (r"\b(xox[baprs]-[A-Za-z0-9-]{10,})\b", false),
+            (r"\b(xapp-[A-Za-z0-9-]{10,})\b", false),
+            (r"\b(npm_[A-Za-z0-9]{20,})\b", false),
             (
-                r#"(?i)("(?:access_token|refresh_token|id_token|client_secret)"\s*:\s*")[^"]+"#,
+                r#"(?i)("(?:access_token|refresh_token|id_token|client_secret|private_key)"\s*:\s*")[^"]+"#,
                 true,
             ),
             (
-                r"(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+                r"(?i)-----BEGIN (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----",
                 false,
             ),
             (r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", false),
         ]
-        .into_iter()
-        .map(|(p, keep_prefix)| Rule {
-            re: Regex::new(p).expect("redaction regex"),
-            keep_prefix,
-        })
-        .collect()
+            .into_iter()
+            .map(|(p, keep_prefix)| Rule {
+                re: Regex::new(p).expect("redaction regex"),
+                keep_prefix,
+            })
+            .collect()
     })
 }
 

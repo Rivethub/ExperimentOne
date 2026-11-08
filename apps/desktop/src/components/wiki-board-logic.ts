@@ -42,6 +42,52 @@ export function normalizeWikiPath(raw: string): string {
   return raw.replaceAll("\\", "/").replace(/^\.\//u, "").replace(/^\/+/u, "");
 }
 
+/** Archive directory slug for a wiki page (topics or entities), or null if none. */
+export function archiveSlugForPage(page: WikiPageCard): string | null {
+  const rel = normalizeWikiPath(page.relative_path);
+  const topic = /^topics\/([^/]+)\.md$/iu.exec(rel);
+  if (topic?.[1]) {
+    return topic[1];
+  }
+  const typed = /^entities\/([^/]+)\/([^/]+)\.md$/iu.exec(rel);
+  if (typed?.[2]) {
+    return `entity-${typed[2]}`;
+  }
+  const entity = /^entities\/([^/]+)\.md$/iu.exec(rel);
+  if (entity?.[1]) {
+    return `entity-${entity[1]}`;
+  }
+  return null;
+}
+
+export function topicWikiPageId(projectId: string, slug: string, kind?: string): string | null {
+  const project = projectId.trim() || "default";
+  const k = (kind ?? "").toLowerCase();
+  if (k === "type") {
+    return null;
+  }
+  if (k === "entity" || slug.startsWith("entity:")) {
+    const bare = slug.replace(/^entity:/u, "");
+    if (!bare) {
+      return null;
+    }
+    return `${project}/entities/${bare}`;
+  }
+  return `${project}/topics/${slug}`;
+}
+
+export function topicArchiveSlug(slug: string, kind?: string): string | null {
+  const k = (kind ?? "").toLowerCase();
+  if (k === "type") {
+    return null;
+  }
+  if (k === "entity" || slug.startsWith("entity:")) {
+    const bare = slug.replace(/^entity:/u, "");
+    return bare ? `entity-${bare}` : null;
+  }
+  return slug;
+}
+
 export function joinWikiPath(baseDir: string, href: string): string {
   const parts = [
     ...(baseDir !== "" ? baseDir.split("/") : []),

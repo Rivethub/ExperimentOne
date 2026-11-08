@@ -1141,6 +1141,23 @@
   color: var(--muted);
 }
 
+.t3-agent-badge {
+  display: inline-block;
+  margin: 0 0 6px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+  color: var(--muted, #6b7280);
+  background: color-mix(in srgb, var(--fg, #111) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--fg, #111) 10%, transparent);
+}
+
+.t3-row-meta .t3-agent-badge {
+  margin: 0 6px 0 0;
+}
+
 .t3-ok {
   color: #86efac;
 }
@@ -2150,6 +2167,45 @@ pre.snippet {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.wiki-archive-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border-bottom: 1px solid var(--line-soft);
+  background: rgba(14, 14, 18, 0.85);
+}
+
+.wiki-archive-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-right: 4px;
+}
+
+.wiki-archive-chip {
+  border: 1px solid var(--line-soft);
+  background: transparent;
+  color: var(--muted);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.wiki-archive-chip:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.wiki-archive-chip-active {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
 }
 
 .wiki-doc {

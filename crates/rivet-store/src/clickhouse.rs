@@ -54,6 +54,31 @@ struct TrafficEventRow {
     status_code: Option<u16>,
     body_ref: Option<String>,
     capture_quality: Option<String>,
+    agent_id: Option<String>,
+    parent_agent_id: Option<String>,
+    parent_session_id: Option<String>,
+    request_class: Option<String>,
+    agent_type: Option<String>,
+    cache_read_tokens: u32,
+    cache_creation_tokens: u32,
+    thinking_tokens: u32,
+    git_branch: Option<String>,
+    git_repo: Option<String>,
+    task_id: Option<String>,
+    turn_id: Option<String>,
+    upstream_host: Option<String>,
+    attempt_count: u32,
+    stop_reason: Option<String>,
+    tool_names: Option<String>,
+    stream_complete: Option<u8>,
+    request_path: Option<String>,
+    api_format: Option<String>,
+    error_type: Option<String>,
+    error_message: Option<String>,
+    auth_id: Option<String>,
+    has_thinking: Option<u8>,
+    media_count: u32,
+    tool_call_count: u32,
 }
 
 impl TrafficEventRow {
@@ -77,6 +102,31 @@ impl TrafficEventRow {
             status_code: event.status_code,
             body_ref: event.body_ref.clone(),
             capture_quality: event.capture_quality.map(CaptureQuality::as_str).map(str::to_string),
+            agent_id: event.agent_id.clone(),
+            parent_agent_id: event.parent_agent_id.clone(),
+            parent_session_id: event.parent_session_id.clone(),
+            request_class: event.request_class.clone(),
+            agent_type: event.agent_type.clone(),
+            cache_read_tokens: event.cache_read_tokens,
+            cache_creation_tokens: event.cache_creation_tokens,
+            thinking_tokens: event.thinking_tokens,
+            git_branch: event.git_branch.clone(),
+            git_repo: event.git_repo.clone(),
+            task_id: event.task_id.clone(),
+            turn_id: event.turn_id.clone(),
+            upstream_host: event.upstream_host.clone(),
+            attempt_count: event.attempt_count,
+            stop_reason: event.stop_reason.clone(),
+            tool_names: event.tool_names.clone(),
+            stream_complete: event.stream_complete.map(u8::from),
+            request_path: event.request_path.clone(),
+            api_format: event.api_format.clone(),
+            error_type: event.error_type.clone(),
+            error_message: event.error_message.clone(),
+            auth_id: event.auth_id.clone(),
+            has_thinking: event.has_thinking.map(u8::from),
+            media_count: event.media_count,
+            tool_call_count: event.tool_call_count,
         })
     }
 
@@ -106,6 +156,32 @@ impl TrafficEventRow {
             status_code: self.status_code,
             body_ref: self.body_ref,
             capture_quality: self.capture_quality.as_deref().map(CaptureQuality::parse),
+            soft_alias: None,
+            agent_id: self.agent_id,
+            parent_agent_id: self.parent_agent_id,
+            parent_session_id: self.parent_session_id,
+            request_class: self.request_class,
+            agent_type: self.agent_type,
+            cache_read_tokens: self.cache_read_tokens,
+            cache_creation_tokens: self.cache_creation_tokens,
+            thinking_tokens: self.thinking_tokens,
+            git_branch: self.git_branch,
+            git_repo: self.git_repo,
+            task_id: self.task_id,
+            turn_id: self.turn_id,
+            upstream_host: self.upstream_host,
+            attempt_count: self.attempt_count,
+            stop_reason: self.stop_reason,
+            tool_names: self.tool_names,
+            stream_complete: self.stream_complete.map(|v| v != 0),
+            request_path: self.request_path,
+            api_format: self.api_format,
+            error_type: self.error_type,
+            error_message: self.error_message,
+            auth_id: self.auth_id,
+            has_thinking: self.has_thinking.map(|v| v != 0),
+            media_count: self.media_count,
+            tool_call_count: self.tool_call_count,
         }
     }
 }
@@ -354,7 +430,7 @@ fn normalize_http_url(raw: &str) -> String {
     }
 }
 
-const EVENT_SELECT: &str = "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events";
+const EVENT_SELECT: &str = "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality, agent_id, parent_agent_id, parent_session_id, request_class, agent_type, cache_read_tokens, cache_creation_tokens, thinking_tokens, git_branch, git_repo, task_id, turn_id, upstream_host, attempt_count, stop_reason, tool_names, stream_complete, request_path, api_format, error_type, error_message, auth_id, has_thinking, media_count, tool_call_count FROM traffic_events";
 
 #[async_trait]
 impl TrafficStore for ClickHouseTrafficStore {

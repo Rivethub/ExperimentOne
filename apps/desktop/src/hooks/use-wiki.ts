@@ -10,6 +10,8 @@ export type UseWikiResult = {
   wiki: WikiInfo | null;
   refreshWiki: () => Promise<void>;
   loadWikiPage: (wikiPage: WikiPageCard) => Promise<string>;
+  listArchives: (projectId: string, slug: string) => Promise<string[]>;
+  loadArchive: (projectId: string, slug: string, file: string) => Promise<string>;
 };
 
 /**
@@ -32,9 +34,22 @@ export function useWiki(): UseWikiResult {
     [],
   );
 
+  const listArchives = useCallback(
+    (projectId: string, slug: string) => runApp(Rivet.loadWikiArchiveList(slug, projectId)),
+    [],
+  );
+
+  const loadArchive = useCallback(
+    (projectId: string, slug: string, file: string) =>
+      runApp(Rivet.loadWikiArchiveContent(slug, file, projectId)),
+    [],
+  );
+
   return {
     wiki: AsyncResult.getOrElse(result, () => null),
     refreshWiki,
     loadWikiPage,
+    listArchives,
+    loadArchive,
   };
 }

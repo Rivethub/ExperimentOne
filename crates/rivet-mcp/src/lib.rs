@@ -17,8 +17,11 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use rivet_core::{lexical_embed, RivetConfig, LEXICAL_SPACE};
-use rivet_store::{ClickHouseTrafficStore, TrafficStore};
+use rivet_core::{
+    hydrate_event_content, hydrate_events, lexical_embed, normalize_event_turns, RivetConfig,
+    RivetPaths, LEXICAL_SPACE,
+};
+use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager,
     tower::{StreamableHttpServerConfig, StreamableHttpService},
@@ -41,6 +44,8 @@ pub struct McpState {
     pub store: Arc<dyn TrafficStore>,
     pub ch: Arc<ClickHouseTrafficStore>,
     pub config: Arc<RwLock<RivetConfig>>,
+    pub meta: Arc<MetaStore>,
+    pub paths: RivetPaths,
 }
 
 impl std::fmt::Debug for McpState {
@@ -184,6 +189,11 @@ pub fn router(state: McpState) -> Router {
         .route("/mcp/tools", get(tools))
         .route("/mcp/tools/search_history", post(search_history))
         .route("/mcp/tools/semantic_search", post(semantic_search))
+        .route("/mcp/tools/topic_search", post(topic_search_rest))
+        .route("/mcp/tools/topic_get", post(topic_get_rest))
+        .route("/mcp/tools/get_full", post(get_full_rest))
+        .route("/mcp/tools/browse_session", post(browse_session_rest))
+        .route("/mcp/tools/memory_stats", post(memory_stats_rest))
         .with_state(state);
 
     // `route_service` (not nest) so `/mcp/info` and `/mcp/tools/*` stay available.
@@ -198,7 +208,7 @@ async fn manifest() -> Json<serde_json::Value> {
     Json(json!({
         "name": "rivet",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Query Rivet-captured AI traffic history",
+        "description": "Query Rivet-captured AI traffic history, topics, and memory",
         "transport": "streamable-http",
         "protocol": "mcp",
         "sdk": "rmcp",
@@ -211,10 +221,26 @@ async fn tools(State(state): State<McpState>) -> Json<Vec<ToolDescriptor>> {
 }
 
 async fn tool_descriptors(state: &McpState) -> Vec<ToolDescriptor> {
-    let mut tools = vec![ToolDescriptor {
-        name: "search_history",
-        description: "Keyword search over captured prompts and completions",
-    }];
+    let mut tools = vec![
+        ToolDescriptor {
+            name: "search_history",
+            description: "Keyword search over captured prompts and completions",
+        },
+        ToolDescriptor { name: "topic_search", description: "Search durable knowledge topics" },
+        ToolDescriptor { name: "topic_get", description: "Fetch one topic by slug or id" },
+        ToolDescriptor {
+            name: "get_full",
+            description: "Hydrate a traffic event or conversation with full bodies",
+        },
+        ToolDescriptor {
+            name: "browse_session",
+            description: "Browse normalized turns for a session",
+        },
+        ToolDescriptor {
+            name: "memory_stats",
+            description: "Summary stats for memory / topics / wiki",
+        },
+    ];
     if state.config.read().await.capabilities.vector_search {
         tools.push(ToolDescriptor {
             name: "semantic_search",
@@ -297,6 +323,127 @@ async fn semantic_search(
             StatusCode::INTERNAL_SERVER_ERROR
         }
     })
+}
+
+fn do_topic_search(
+    state: &McpState,
+    query: &str,
+    limit: u32,
+) -> Result<serde_json::Value, StatusCode> {
+    let topics = state
+        .meta
+        .search_topics(query, usize::try_from(limit).unwrap_or(20))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(json!({ "results": topics }))
+}
+
+fn do_topic_get(state: &McpState, id: &str) -> Result<serde_json::Value, StatusCode> {
+    let topic = state.meta.get_topic(id).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(json!({ "topic": topic }))
+}
+
+async fn do_get_full(state: &McpState, id: &str) -> Result<serde_json::Value, StatusCode> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut events = if let Some(eid) = id.strip_prefix("event:") {
+        state
+            .store
+            .get_by_ids(&[eid.to_string()])
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else if id.len() == 36 {
+        state
+            .store
+            .get_by_ids(&[id.to_string()])
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    } else {
+        state
+            .store
+            .conversation_events(id, 500)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    };
+    if events.len() == 1 {
+        if let Some(event) = events.first_mut() {
+            hydrate_event_content(&state.paths, event);
+            let turns = normalize_event_turns(event);
+            return Ok(json!({
+                "event": event,
+                "turns": turns,
+                "hydrated": event.body_ref.is_some(),
+            }));
+        }
+    }
+    hydrate_events(&state.paths, &mut events);
+    Ok(json!({ "events": events }))
+}
+
+async fn do_browse_session(
+    state: &McpState,
+    id: &str,
+    limit: u32,
+) -> Result<serde_json::Value, StatusCode> {
+    let mut events = state
+        .store
+        .conversation_events(id, limit.clamp(1, 2000))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    hydrate_events(&state.paths, &mut events);
+    let turns: Vec<_> = events.iter().flat_map(normalize_event_turns).collect();
+    Ok(json!({ "turns": turns, "events": events.len() }))
+}
+
+async fn do_memory_stats(state: &McpState) -> Result<serde_json::Value, StatusCode> {
+    let topics = state.meta.list_topics().map_or(0, |t| t.len());
+    let project = state.config.read().await.wiki_project_id.clone();
+    let wiki = state.meta.list_wiki_pages(&project).map_or(0, |p| p.len());
+    let totals = state.store.usage_totals().await.unwrap_or_default();
+    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    Ok(json!({
+        "topics": topics,
+        "wiki_pages": wiki,
+        "traffic_events": totals.events,
+        "tokens_in": totals.tokens_in,
+        "tokens_out": totals.tokens_out,
+        "embeddings": embeddings,
+    }))
+}
+
+async fn topic_search_rest(
+    State(state): State<McpState>,
+    Json(req): Json<SearchRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_topic_search(&state, &req.query, req.limit.clamp(1, 100)).map(Json)
+}
+
+async fn topic_get_rest(
+    State(state): State<McpState>,
+    Json(req): Json<SearchRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_topic_get(&state, &req.query).map(Json)
+}
+
+async fn get_full_rest(
+    State(state): State<McpState>,
+    Json(req): Json<SearchRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_get_full(&state, &req.query).await.map(Json)
+}
+
+async fn browse_session_rest(
+    State(state): State<McpState>,
+    Json(req): Json<SearchRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_browse_session(&state, &req.query, req.limit.clamp(1, 2000)).await.map(Json)
+}
+
+async fn memory_stats_rest(
+    State(state): State<McpState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    do_memory_stats(&state).await.map(Json)
 }
 
 pub async fn serve(addr: SocketAddr, state: McpState) -> Result<()> {

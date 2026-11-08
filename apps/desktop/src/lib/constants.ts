@@ -1,4 +1,12 @@
-import { Activity, BookOpen, Gauge, MessagesSquare, Settings, type LucideIcon } from "lucide-react";
+import {
+  Activity,
+  BookOpen,
+  Gauge,
+  MessagesSquare,
+  Settings,
+  Tags,
+  type LucideIcon,
+} from "lucide-react";
 import type { CatalogProvider } from "./provider-utils";
 import type { Page, SettingsTab } from "./types";
 
@@ -28,6 +36,7 @@ export const FALLBACK_PROVIDERS: CatalogProvider[] = [
 export const NAV: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: "quota", label: "Quota", icon: Gauge },
   { id: "data", label: "Data", icon: MessagesSquare },
+  { id: "topics", label: "Topics", icon: Tags },
   { id: "runtime", label: "Runtime", icon: Activity },
   { id: "wiki", label: "Wiki", icon: BookOpen },
   { id: "settings", label: "Settings", icon: Settings },

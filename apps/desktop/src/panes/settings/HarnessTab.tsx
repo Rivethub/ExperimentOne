@@ -26,33 +26,34 @@ export function HarnessTab({
       title="Harness (advanced)"
       lede={
         <>
-          One-click setup lives on each Claude / Codex account. This tab installs Rivet into Claude
-          Code, Codex, and Cursor (proxy + project plugins/hooks + MCP), copies snippets, and climbs
-          the capture ladder (proxy → full bodies → local transcript import). Restart each harness
-          after install so the new config loads.
+          One-click setup lives on each Claude / Codex account. This tab points harnesses at the
+          Rivet proxy (sole live traffic ingress), optionally installs session→project bindings +
+          MCP, and can import old on-disk transcripts. Plugins never post traffic — they only help
+          the proxy attach project/cwd. Restart each harness after install.
         </>
       }
     >
       <div className="mb-4">
         <strong className="text-sm">Capture ladder</strong>
         <p className="mt-1 mb-2 text-[13px] text-muted-foreground">
-          Higher rungs add fidelity. Live proxy traffic is always preferred over imports where they
-          overlap. Capture stores cwd/bodies as signals and sets `project_id` only on hard evidence
-          (explicit field/header, harness {"projects/<id>/"} key, or the Rivet harness plugin).
+          Live capture is proxy-only. Plugins are optional fidelity for that path. Offline import
+          backfills history and never replaces the proxy. Capture stores cwd/bodies as signals and
+          sets `project_id` only on hard evidence (explicit field/header, harness {"projects/<id>/"}{" "}
+          key, or the Rivet harness plugin).
         </p>
         <Kv>
           <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />
           <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
           <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
           <KvRow
-            label="L2.5 Plugin"
-            value="SessionStart reports cwd → hard project_id + Rivet MCP"
+            label="L2.5 Plugin (optional)"
+            value="Session bind cwd → project_id at ingest + Rivet MCP; no content ingress"
           />
           <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
-          <KvRow label="L4 Import" value="Claude / Codex / Cursor transcripts already on disk" />
+          <KvRow label="L4 Import" value="Optional offline Claude / Codex / Cursor transcripts" />
           <KvRow
             label="Project"
-            value="Hard evidence only; plugin + wire headers beat cwd scraping"
+            value="Hard evidence only; wire headers + optional plugin beat cwd scraping"
           />
         </Kv>
         <Actions spaced={false} className="mt-2">
@@ -81,8 +82,8 @@ export function HarnessTab({
         </Button>
       </Actions>
       <p className="mt-2 mb-2 text-[13px] text-muted-foreground">
-        Writes proxy settings, session→project plugins/hooks, and Rivet MCP. Restart Claude Code,
-        Codex, and Cursor afterward so plugins load.
+        Writes proxy settings plus optional session→project bindings and Rivet MCP. Capture works
+        with proxy routing alone. Restart Claude Code, Codex, and Cursor afterward so config loads.
       </p>
       <Actions>
         <Button

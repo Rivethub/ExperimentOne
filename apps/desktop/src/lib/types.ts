@@ -3,7 +3,7 @@ import type { OnboardingStatus, QuotaAccountUx } from "../quota";
 export type { CatalogProvider } from "./provider-utils";
 export type { OnboardingStatus, QuotaAccountUx as QuotaAccount, QuotaWindow } from "../quota";
 
-export type Page = "quota" | "data" | "runtime" | "wiki" | "settings";
+export type Page = "quota" | "data" | "runtime" | "wiki" | "topics" | "settings";
 
 export type SettingsTab = "accounts" | "intelligence" | "harness";
 
@@ -27,6 +27,14 @@ export type Status = {
     wiki_pages: number;
     vectorize_cursor?: string | null;
     wiki_cursor?: string | null;
+    role?: string;
+    queue?: {
+      pending: number;
+      running: number;
+      done: number;
+      failed: number;
+      dead: number;
+    };
   };
   capabilities: {
     mcp: boolean;
@@ -143,6 +151,34 @@ export type TrafficEvent = {
   body_ref?: string | null;
   /** `wire` | `soft` | `imported` */
   capture_quality?: "wire" | "soft" | "imported" | null;
+  /** Subagent id from proxy headers (`x-claude-code-agent-id`). */
+  agent_id?: string | null;
+  parent_agent_id?: string | null;
+  parent_session_id?: string | null;
+  /** `main` | `subagent` | `workflow` | `compaction` | `auxiliary` */
+  request_class?: string | null;
+  agent_type?: string | null;
+  cache_read_tokens?: number;
+  cache_creation_tokens?: number;
+  thinking_tokens?: number;
+  git_branch?: string | null;
+  git_repo?: string | null;
+  task_id?: string | null;
+  turn_id?: string | null;
+  upstream_host?: string | null;
+  attempt_count?: number;
+  stop_reason?: string | null;
+  /** Comma-separated tool names invoked on this turn. */
+  tool_names?: string | null;
+  stream_complete?: boolean | null;
+  request_path?: string | null;
+  api_format?: string | null;
+  error_type?: string | null;
+  error_message?: string | null;
+  auth_id?: string | null;
+  has_thinking?: boolean | null;
+  media_count?: number;
+  tool_call_count?: number;
 };
 
 export type ConversationSummary = {
@@ -159,6 +195,18 @@ export type ConversationSummary = {
   tokens_in: number;
   tokens_out: number;
   capture_quality?: "wire" | "soft" | "imported" | null;
+  /** Distinct subagent ids seen in this conversation. */
+  agent_ids?: string[];
+  /** Count of events tagged as subagent/workflow turns. */
+  subagent_events?: number;
+  cache_read_tokens?: number;
+  thinking_tokens?: number;
+  tool_names?: string[];
+  git_branch?: string | null;
+  thinking_events?: number;
+  media_count?: number;
+  error_events?: number;
+  api_format?: string | null;
 };
 
 export type ConversationSearchResponse = {
