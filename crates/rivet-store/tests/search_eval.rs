@@ -1,4 +1,4 @@
-//! Offline hybrid fusion eval — no ClickHouse required.
+//! Offline hybrid fusion eval — no `ClickHouse` required.
 //!
 //! Corpus arms simulate keyword/vector hit lists a live CH search would return.
 //! Harder cases cover path / `PR #` lexical preference, summary lineage, and

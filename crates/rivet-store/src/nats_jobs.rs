@@ -385,6 +385,10 @@ fn payload_routes(payload: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn routes_overlap(a: &[String], b: &[String]) -> bool {
+    a.iter().any(|x| b.iter().any(|y| x == y))
+}
+
 #[cfg(test)]
 mod tests {
     use super::routes_overlap;
@@ -418,8 +422,4 @@ mod tests {
         assert_eq!(claimed[0].job.job_key, "embed-event:smoke-nats-1");
         store.complete_job(claimed.into_iter().next().unwrap(), true, None).await.expect("ack");
     }
-}
-
-fn routes_overlap(a: &[String], b: &[String]) -> bool {
-    a.iter().any(|x| b.iter().any(|y| x == y))
 }

@@ -1497,13 +1497,13 @@ func extractErrorMeta(respBody []byte, meta *parsedMeta) {
 	}
 }
 
-func clipRunes(s string, max int) string {
-	if max <= 0 || s == "" {
+func clipRunes(s string, limit int) string {
+	if limit <= 0 || s == "" {
 		return s
 	}
 	n := 0
 	for i := range s {
-		if n == max {
+		if n == limit {
 			return s[:i] + "…"
 		}
 		n++
@@ -1700,7 +1700,7 @@ func parseStreamMeta(meta *parsedMeta, provider, raw string) {
 	if sawDone {
 		done := true
 		meta.StreamComplete = &done
-	} else if len(raw) > 0 {
+	} else if raw != "" {
 		incomplete := false
 		meta.StreamComplete = &incomplete
 	}

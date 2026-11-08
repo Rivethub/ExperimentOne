@@ -353,7 +353,7 @@ func TestExtractGitTaskToolsAndUpstream(t *testing.T) {
 	}
 	if m.ToolNames != "Bash,Read" && m.ToolNames != "Read,Bash" {
 		// order follows walk order: req then resp
-		if !(strings.Contains(m.ToolNames, "Bash") && strings.Contains(m.ToolNames, "Read")) {
+		if !strings.Contains(m.ToolNames, "Bash") || !strings.Contains(m.ToolNames, "Read") {
 			t.Fatalf("ToolNames=%q", m.ToolNames)
 		}
 	}
