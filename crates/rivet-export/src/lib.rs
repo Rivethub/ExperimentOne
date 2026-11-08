@@ -24,26 +24,52 @@ use rivet_store::TrafficStore;
 use tar::{Archive, Builder};
 
 pub async fn export_bag(store: Arc<dyn TrafficStore>, out_path: &Path) -> Result<ExportManifest> {
-    export_bag_with_paths(store, out_path, None).await
+    export_bag_with_paths(store, out_path, None, None).await
+}
+
+/// Export traffic for specific conversations (session ids or `event:{uuid}`).
+pub async fn export_bag_for_conversations(
+    store: Arc<dyn TrafficStore>,
+    out_path: &Path,
+    conversation_ids: &[String],
+) -> Result<ExportManifest> {
+    export_bag_with_paths(store, out_path, None, Some(conversation_ids)).await
 }
 
 /// Export traffic; when `paths` is set, hydrate `body_ref` blobs into `content` first.
+///
+/// When `conversation_ids` is `Some`, only events for those conversations are packaged.
+/// An empty slice yields an empty bag (still a valid `.rivetbag`).
 pub async fn export_bag_with_paths(
     store: Arc<dyn TrafficStore>,
     out_path: &Path,
     paths: Option<&rivet_core::RivetPaths>,
+    conversation_ids: Option<&[String]>,
 ) -> Result<ExportManifest> {
-    let mut events = store.export_all().await?;
+    let mut events = match conversation_ids {
+        Some(ids) => store.export_for_conversations(ids).await?,
+        None => store.export_all().await?,
+    };
     if let Some(paths) = paths {
         rivet_core::hydrate_events(paths, &mut events);
     }
+    let note = conversation_ids.map_or_else(
+        || "Rivet traffic export — credentials excluded".into(),
+        |ids| {
+            format!(
+                "Rivet traffic export — {} conversation{} — credentials excluded",
+                ids.len(),
+                if ids.len() == 1 { "" } else { "s" }
+            )
+        },
+    );
     let manifest = ExportManifest {
         schema_version: ExportManifest::SCHEMA_VERSION,
         created_at: Utc::now(),
         event_count: events.len() as u64,
         includes_embeddings: false,
         includes_wiki: false,
-        note: Some("Rivet traffic export — credentials excluded".into()),
+        note: Some(note),
     };
 
     let file = File::create(out_path).with_context(|| format!("create {}", out_path.display()))?;
@@ -177,6 +203,59 @@ mod tests {
         let content = events[0].content.as_deref().unwrap_or("");
         assert!(content.contains("[REDACTED]"));
         assert!(!content.contains("sk-secret"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn selective_export_keeps_only_requested_conversations() {
+        let mut keep = TrafficEvent::new(ProviderKind::Claude);
+        keep.session_id = Some("keep-me".into());
+        keep.content = Some("keep".into());
+        let mut drop = TrafficEvent::new(ProviderKind::Codex);
+        drop.session_id = Some("drop-me".into());
+        drop.content = Some("drop".into());
+        let store: Arc<dyn TrafficStore> =
+            Arc::new(MemStore { events: Mutex::new(vec![keep.clone(), drop]) });
+        let dir = std::env::temp_dir().join(format!(
+            "rivet-export-filter-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("filtered.rivetbag");
+        let manifest =
+            export_bag_for_conversations(store, &path, &["keep-me".into()]).await.unwrap();
+        assert_eq!(manifest.event_count, 1);
+        let (_m, events) = import_bag(&path).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].session_id.as_deref(), Some("keep-me"));
+        assert_eq!(events[0].id, keep.id);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn selective_export_includes_soft_and_hard_session_ids() {
+        let mut hard = TrafficEvent::new(ProviderKind::Claude);
+        hard.session_id = Some("wire-session".into());
+        hard.content = Some("hard".into());
+        let mut soft = TrafficEvent::new(ProviderKind::Claude);
+        soft.session_id = Some("soft:fingerprint".into());
+        soft.content = Some("soft".into());
+        let store: Arc<dyn TrafficStore> =
+            Arc::new(MemStore { events: Mutex::new(vec![hard.clone(), soft.clone()]) });
+        let dir = std::env::temp_dir().join(format!(
+            "rivet-export-soft-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("soft.rivetbag");
+        let ids = vec!["wire-session".into(), "soft:fingerprint".into()];
+        let manifest = export_bag_for_conversations(store, &path, &ids).await.unwrap();
+        assert_eq!(manifest.event_count, 2);
+        let (_m, events) = import_bag(&path).unwrap();
+        let sessions: std::collections::HashSet<_> =
+            events.iter().filter_map(|e| e.session_id.clone()).collect();
+        assert!(sessions.contains("wire-session"));
+        assert!(sessions.contains("soft:fingerprint"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

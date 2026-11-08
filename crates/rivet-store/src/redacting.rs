@@ -64,6 +64,17 @@ impl TrafficStore for RedactingStore {
         Ok(events)
     }
 
+    async fn export_for_conversations(
+        &self,
+        conversation_ids: &[String],
+    ) -> Result<Vec<TrafficEvent>> {
+        let mut events = self.inner.export_for_conversations(conversation_ids).await?;
+        for e in &mut events {
+            redact_event(e);
+        }
+        Ok(events)
+    }
+
     async fn list_conversations(&self, limit: u32) -> Result<Vec<ConversationSummary>> {
         self.inner.list_conversations(limit).await
     }

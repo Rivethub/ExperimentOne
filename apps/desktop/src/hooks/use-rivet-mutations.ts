@@ -63,8 +63,8 @@ export function useRivetMutations(opts: { horizon: "1h" | "3h" | "6h" }) {
   });
 
   const exportBag = useMutation({
-    mutationFn: async () => {
-      const result = await withBackend(Rivet.exportBag);
+    mutationFn: async (conversationIds?: string[]) => {
+      const result = await withBackend(Rivet.exportBag(conversationIds));
       await Promise.all([invalidateHome(), invalidateConversations()]);
       return result;
     },

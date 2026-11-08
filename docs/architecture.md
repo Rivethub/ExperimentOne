@@ -465,6 +465,9 @@ flowchart LR
 Embeddings and wiki are not packaged (`includes_embeddings=false`,
 `includes_wiki=false`). Credentials are never included. Export hydrates
 `body_ref` into `content` when blobs are available and re-redacts.
+`POST /v1/export` accepts an optional body
+`{ "conversation_ids": ["…"] }` to package one conversation or the current
+search hit set; omit the body (or ids) for a full traffic dump.
 
 Offline transcript import: `POST /v1/ingest/local` (Claude / Codex / Cursor
 trees) with `capture_quality=imported`.

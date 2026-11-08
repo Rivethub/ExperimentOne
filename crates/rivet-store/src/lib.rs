@@ -51,6 +51,32 @@ pub trait TrafficStore: Send + Sync {
     async fn usage_totals(&self) -> Result<UsageTotals>;
     async fn export_all(&self) -> Result<Vec<TrafficEvent>>;
 
+    /// Events for the given conversation ids (session ids or `event:{uuid}`), chronological.
+    ///
+    /// Default walks `conversation_events` per id. Stores may override for a bulk query.
+    async fn export_for_conversations(
+        &self,
+        conversation_ids: &[String],
+    ) -> Result<Vec<TrafficEvent>> {
+        use std::collections::HashSet;
+
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for raw in conversation_ids {
+            let id = raw.trim();
+            if id.is_empty() {
+                continue;
+            }
+            for event in self.conversation_events(id, 50_000).await? {
+                if seen.insert(event.id) {
+                    out.push(event);
+                }
+            }
+        }
+        out.sort_by_key(|event| event.ts);
+        Ok(out)
+    }
+
     /// Historical conversations grouped by session (newest first).
     async fn list_conversations(&self, limit: u32) -> Result<Vec<ConversationSummary>> {
         let events = self.recent(limit.saturating_mul(8).clamp(50, 2000)).await?;

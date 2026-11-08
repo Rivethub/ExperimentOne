@@ -117,7 +117,11 @@ enum Commands {
         action: ConfigCmd,
     },
     /// Export traffic bag (no credentials).
-    Export,
+    Export {
+        /// Limit export to these conversation ids (session ids or `event:{uuid}`). Repeatable.
+        #[arg(long = "conversation", value_name = "ID")]
+        conversations: Vec<String>,
+    },
     /// Import a .rivetbag traffic package.
     Import { path: String },
     /// Ingest local harness transcripts already on disk (Claude Code / Codex).
@@ -341,8 +345,13 @@ async fn run() -> Result<()> {
                 print_value(&v, cli.json);
             },
         },
-        Commands::Export => {
-            let v = client.post_value("/v1/export", None).await?;
+        Commands::Export { conversations } => {
+            let body = if conversations.is_empty() {
+                None
+            } else {
+                Some(json!({ "conversation_ids": conversations }))
+            };
+            let v = client.post_value("/v1/export", body).await?;
             print_value(&v, cli.json);
         },
         Commands::Import { path } => {

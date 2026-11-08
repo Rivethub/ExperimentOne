@@ -231,6 +231,13 @@ pub struct LocalIngestRequest {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct ExportRequest {
+    /// When set, only package events for these conversation ids (session ids or `event:{uuid}`).
+    #[serde(default)]
+    pub conversation_ids: Option<Vec<String>>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ExportResponse {
     pub path: String,
@@ -1461,24 +1468,76 @@ async fn harness_session_delete(
     })))
 }
 
+/// Expand conversation ids with soft→wire aliases, matching [`conversation_events`].
+fn expand_export_conversation_ids(meta: &MetaStore, ids: &[String]) -> Vec<String> {
+    use std::collections::HashSet;
+
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    for raw in ids {
+        let id = raw.trim();
+        if id.is_empty() || !seen.insert(id.to_string()) {
+            continue;
+        }
+        out.push(id.to_string());
+        if let Ok(aliases) = meta.soft_aliases_for_wire(id) {
+            for soft in aliases {
+                let soft = soft.trim();
+                if soft.is_empty() || !seen.insert(soft.to_string()) {
+                    continue;
+                }
+                out.push(soft.to_string());
+            }
+        }
+    }
+    out
+}
+
 async fn export_bag(
     State(state): State<ApiState>,
+    body: Option<Json<ExportRequest>>,
 ) -> Result<Json<ExportResponse>, (StatusCode, Json<ErrBody>)> {
     state.paths.ensure().map_err(|e| err_response(e.to_string()))?;
-    let name = format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"));
+    let req = body.map(|Json(b)| b).unwrap_or_default();
+    let conversation_ids = req.conversation_ids.and_then(|ids| {
+        let cleaned: Vec<String> =
+            ids.into_iter().map(|id| id.trim().to_string()).filter(|id| !id.is_empty()).collect();
+        (!cleaned.is_empty()).then_some(cleaned)
+    });
+    let export_ids = conversation_ids
+        .as_ref()
+        .map(|ids| expand_export_conversation_ids(&state.meta, ids));
+    let name = match conversation_ids.as_ref() {
+        Some(ids) if ids.len() == 1 => {
+            format!("rivet-export-1conv-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"))
+        },
+        Some(ids) => format!(
+            "rivet-export-{}convs-{}.rivetbag",
+            ids.len(),
+            Utc::now().format("%Y%m%d-%H%M%S")
+        ),
+        None => format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S")),
+    };
     let path = state.paths.exports_dir().join(&name);
     let manifest = rivet_export::export_bag_with_paths(
         state.store.clone(),
         path.as_std_path(),
         Some(&state.paths),
+        export_ids.as_deref(),
     )
     .await
     .map_err(|e| err_response(e.to_string()))?;
-    Ok(Json(ExportResponse {
-        path: path.to_string(),
-        event_count: manifest.event_count,
-        note: "Credentials excluded. Package contains traffic events only.".into(),
-    }))
+    let note = conversation_ids.as_ref().map_or_else(
+        || "Credentials excluded. Package contains traffic events only.".into(),
+        |ids| {
+            format!(
+                "Credentials excluded. Package contains traffic for {} conversation{}.",
+                ids.len(),
+                if ids.len() == 1 { "" } else { "s" }
+            )
+        },
+    );
+    Ok(Json(ExportResponse { path: path.to_string(), event_count: manifest.event_count, note }))
 }
 
 async fn import_bag(
@@ -2344,4 +2403,37 @@ pub async fn serve(addr: std::net::SocketAddr, state: ApiState) -> Result<()> {
     tracing::info!(%addr, "rivet api listening");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod export_alias_tests {
+    use super::*;
+    use rivet_core::RivetPaths;
+
+    #[test]
+    fn expand_export_ids_includes_soft_aliases_and_dedups() {
+        let root = std::env::temp_dir().join(format!(
+            "rivet-api-export-alias-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let root_str = root.to_str().expect("utf8 temp path");
+        let paths = RivetPaths { root: root_str.into() };
+        paths.ensure().unwrap();
+        let meta = MetaStore::open(&paths).unwrap();
+        meta.record_soft_wire("soft:early", "wire-session").unwrap();
+        meta.record_soft_wire("soft:later", "wire-session").unwrap();
+
+        let expanded = expand_export_conversation_ids(
+            &meta,
+            &["wire-session".into(), "wire-session".into(), "other".into()],
+        );
+        assert_eq!(expanded.iter().filter(|id| *id == "wire-session").count(), 1);
+        assert!(expanded.contains(&"soft:early".into()));
+        assert!(expanded.contains(&"soft:later".into()));
+        assert!(expanded.contains(&"other".into()));
+        assert_eq!(expanded.len(), 4);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

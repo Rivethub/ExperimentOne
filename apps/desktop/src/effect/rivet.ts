@@ -225,7 +225,17 @@ export const putConfig = (
   apiJsonSchema("PUT", "/v1/config", ConfigResponseSchema, body);
 export const tickWorkers = apiJsonSchema("POST", "/v1/workers/tick", WorkersTickSchema);
 
-export const exportBag = apiJsonSchema("POST", "/v1/export", BagResultSchema);
+export const exportBag = (
+  conversationIds?: string[],
+): ApiFx<Schema.Schema.Type<typeof BagResultSchema>> =>
+  apiJsonSchema(
+    "POST",
+    "/v1/export",
+    BagResultSchema,
+    conversationIds && conversationIds.length > 0
+      ? { conversation_ids: conversationIds }
+      : undefined,
+  );
 export const importBag = (path: string): ApiFx<Schema.Schema.Type<typeof BagResultSchema>> =>
   apiJsonSchema("POST", "/v1/import", BagResultSchema, { path });
 export const ingestLocal = (
