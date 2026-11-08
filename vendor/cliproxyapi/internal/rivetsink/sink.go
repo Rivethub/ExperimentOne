@@ -22,6 +22,7 @@ import (
 type Wrapper struct {
 	inner     logging.RequestLogger
 	ingestURL string
+	ingestKey string
 	client    *http.Client
 }
 
@@ -61,6 +62,7 @@ func Wrap(inner logging.RequestLogger) logging.RequestLogger {
 	return &Wrapper{
 		inner:     inner,
 		ingestURL: strings.TrimRight(url, "/"),
+		ingestKey: strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY")),
 		client:    &http.Client{Timeout: 2 * time.Second},
 	}
 }
@@ -75,7 +77,7 @@ func (w *Wrapper) SetEnabled(enabled bool) {
 
 func (w *Wrapper) LogRequest(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiResponseErrors []*interfaces.ErrorMessage, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
 	err := w.inner.LogRequest(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, requestID, requestTimestamp, apiResponseTimestamp)
-	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp)
+	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
 	return err
 }
 
@@ -92,6 +94,7 @@ func (w *Wrapper) LogStreamingRequest(url, method string, headers map[string][]s
 		reqBody:   append([]byte(nil), body...),
 		requestID: requestID,
 		started:   time.Now(),
+		provider:  inferProvider(url, body),
 	}, nil
 }
 
@@ -103,24 +106,41 @@ type streamWrapper struct {
 	reqBody   []byte
 	requestID string
 	started   time.Time
+	provider  string
 
 	mu         sync.Mutex
-	chunks     []byte
+	head       []byte
+	tail       []byte
+	apiReq     []byte
 	apiResp    []byte
 	status     int
 	closed     bool
 	finished   time.Time
+	// Usage accumulated from every chunk, independent of the text buffer.
+	tokensIn  uint32
+	tokensOut uint32
+	model     string
+	partial   string // incomplete SSE JSON across chunk boundaries
 }
 
-func appendCapped(dst *[]byte, chunk []byte, capBytes int) {
-	if len(*dst) >= capBytes {
+// appendHeadTail keeps the first headBytes and last tailBytes of a stream so
+// long responses retain both the start (prompt context) and end (usage).
+func appendHeadTail(head, tail *[]byte, chunk []byte, headBytes, tailBytes int) {
+	if len(chunk) == 0 {
 		return
 	}
-	remain := capBytes - len(*dst)
-	if len(chunk) > remain {
-		*dst = append(*dst, chunk[:remain]...)
-	} else {
-		*dst = append(*dst, chunk...)
+	if len(*head) < headBytes {
+		need := headBytes - len(*head)
+		if len(chunk) <= need {
+			*head = append(*head, chunk...)
+			return
+		}
+		*head = append(*head, chunk[:need]...)
+		chunk = chunk[need:]
+	}
+	*tail = append(*tail, chunk...)
+	if len(*tail) > tailBytes {
+		*tail = append([]byte(nil), (*tail)[len(*tail)-tailBytes:]...)
 	}
 }
 
@@ -128,7 +148,23 @@ func (s *streamWrapper) WriteChunkAsync(chunk []byte) {
 	s.inner.WriteChunkAsync(chunk)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	appendCapped(&s.chunks, chunk, 96*1024)
+	appendHeadTail(&s.head, &s.tail, chunk, 48*1024, 48*1024)
+	// Parse complete SSE lines; keep a partial trailing frame across writes.
+	buf := s.partial + string(chunk)
+	lines := strings.Split(buf, "\n")
+	if !strings.HasSuffix(buf, "\n") && len(lines) > 0 {
+		s.partial = lines[len(lines)-1]
+		lines = lines[:len(lines)-1]
+	} else {
+		s.partial = ""
+	}
+	meta := parsedMeta{TokensIn: s.tokensIn, TokensOut: s.tokensOut, Model: s.model}
+	parseStreamMeta(&meta, s.provider, strings.Join(lines, "\n"))
+	s.tokensIn = meta.TokensIn
+	s.tokensOut = meta.TokensOut
+	if meta.Model != "" {
+		s.model = meta.Model
+	}
 }
 
 func (s *streamWrapper) WriteStatus(status int, headers map[string][]string) error {
@@ -139,6 +175,13 @@ func (s *streamWrapper) WriteStatus(status int, headers map[string][]string) err
 }
 
 func (s *streamWrapper) WriteAPIRequest(apiRequest []byte) error {
+	s.mu.Lock()
+	s.apiReq = append([]byte(nil), apiRequest...)
+	// Prefer credential-pool identity once the executor records the upstream attempt.
+	if p := inferProviderFromCapture(s.url, s.reqBody, s.apiReq); p != "" {
+		s.provider = p
+	}
+	s.mu.Unlock()
 	return s.inner.WriteAPIRequest(apiRequest)
 }
 
@@ -173,30 +216,70 @@ func (s *streamWrapper) Close() error {
 	}
 	s.closed = true
 	s.finished = time.Now()
-	resp := append([]byte(nil), s.chunks...)
+	resp := append([]byte(nil), s.head...)
+	if len(s.tail) > 0 {
+		if len(s.head) > 0 {
+			resp = append(resp, []byte("\n…\n")...)
+		}
+		resp = append(resp, s.tail...)
+	}
 	if len(s.apiResp) > 0 {
-		// Prefer upstream API response when present (richer usage JSON).
 		resp = append(resp, '\n')
 		resp = append(resp, s.apiResp...)
 	}
 	status := s.status
 	started := s.started
 	finished := s.finished
+	tokensIn := s.tokensIn
+	tokensOut := s.tokensOut
+	model := s.model
+	provider := inferProviderFromCapture(s.url, s.reqBody, s.apiReq)
+	if provider == "" {
+		provider = s.provider
+	}
 	s.mu.Unlock()
 
-	s.parent.forward(s.url, s.headers, s.reqBody, resp, status, s.requestID, started, finished)
+	s.parent.forwardStream(s.url, s.headers, s.reqBody, resp, status, s.requestID, started, finished, provider, tokensIn, tokensOut, model)
 	return err
 }
 
-func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time) {
-	provider := inferProvider(url, reqBody)
+func (w *Wrapper) forwardStream(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, tokensIn, tokensOut uint32, modelHint string) {
+	if v := headerFirst(headers, "x-rivet-internal"); v != "" {
+		return
+	}
 	meta := parseMeta(provider, headers, reqBody, respBody)
+	if tokensIn > 0 {
+		meta.TokensIn = tokensIn
+	}
+	if tokensOut > 0 {
+		meta.TokensOut = tokensOut
+	}
+	if modelHint != "" && meta.Model == "" {
+		meta.Model = modelHint
+	}
+	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, meta)
+}
 
-	content := truncate(string(reqBody), 64*1024)
+func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, apiRequest []byte) {
+	if v := headerFirst(headers, "x-rivet-internal"); v != "" {
+		return
+	}
+	provider := inferProviderFromCapture(url, reqBody, apiRequest)
+	meta := parseMeta(provider, headers, reqBody, respBody)
+	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, meta)
+}
+
+func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, meta parsedMeta) {
+	// Truncate request only; response may already be a head+tail assembly — keep its ending.
+	reqPart := truncate(string(reqBody), 48*1024)
+	content := reqPart
 	if len(respBody) > 0 {
-		resp := truncate(string(respBody), 64*1024)
-		joined := content + "\n---\n" + resp
-		content = truncate(joined, 96*1024)
+		respPart := string(respBody)
+		if len(respPart) > 96*1024 {
+			// Prefer keeping the end of a long response (usage / final text).
+			respPart = "…\n" + respPart[len(respPart)-96*1024:]
+		}
+		content = reqPart + "\n---\n" + respPart
 	}
 	content = redactSecrets(content)
 
@@ -214,7 +297,7 @@ func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, resp
 	if requestID != "" {
 		rid = &requestID
 	}
-	var model, sessionID, projectID *string
+	var model, sessionID, projectID, accountLabel *string
 	if meta.Model != "" {
 		model = &meta.Model
 	}
@@ -224,71 +307,257 @@ func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, resp
 	if meta.ProjectID != "" {
 		projectID = &meta.ProjectID
 	}
+	if v := headerFirst(headers, "x-rivet-account", "x-account-label", "x-account-email", "x-goog-authenticated-user-email"); v != "" {
+		accountLabel = &v
+	}
 	role := meta.Role
 	if role == "" {
 		role = "unknown"
 	}
+	// Prefer model-derived provider when URL path is ambiguous (OpenAI-compat).
+	if provider == "codex" || provider == "other" {
+		if refined := providerFromModel(meta.Model); refined != "" {
+			provider = refined
+		}
+	}
 
 	evt := trafficEvent{
-		ID:         uuid.NewString(),
-		Ts:         time.Now().UTC().Format(time.RFC3339Nano),
-		Provider:   provider,
-		Model:      model,
-		SessionID:  sessionID,
-		ProjectID:  projectID,
-		RequestID:  rid,
-		Role:       role,
-		Content:    &content,
-		TokensIn:   meta.TokensIn,
-		TokensOut:  meta.TokensOut,
-		LatencyMs:  latency,
-		StatusCode: status,
+		ID:           uuid.NewString(),
+		Ts:           time.Now().UTC().Format(time.RFC3339Nano),
+		Provider:     provider,
+		AccountLabel: accountLabel,
+		Model:        model,
+		SessionID:    sessionID,
+		ProjectID:    projectID,
+		RequestID:    rid,
+		Role:         role,
+		Content:      &content,
+		TokensIn:     meta.TokensIn,
+		TokensOut:    meta.TokensOut,
+		LatencyMs:    latency,
+		StatusCode:   status,
 	}
 	payload, err := json.Marshal(evt)
 	if err != nil {
 		return
 	}
 	endpoint := w.ingestURL + "/v1/ingest"
-	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
+	_ = url // retained for future request-path tagging
 	go func() {
-		resp, err := w.client.Do(req)
-		if err != nil {
-			log.Debugf("rivet sink: %v", err)
-			return
+		for attempt := 0; attempt < 3; attempt++ {
+			req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+			if err != nil {
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			if w.ingestKey != "" {
+				req.Header.Set("X-Rivet-Ingest-Key", w.ingestKey)
+			}
+			resp, err := w.client.Do(req)
+			if err != nil {
+				log.Debugf("rivet sink attempt %d: %v", attempt+1, err)
+				time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
+				continue
+			}
+			code := resp.StatusCode
+			_ = resp.Body.Close()
+			if code >= 200 && code < 300 {
+				return
+			}
+			log.Debugf("rivet sink attempt %d: HTTP %d", attempt+1, code)
+			time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
 		}
-		_ = resp.Body.Close()
 	}()
+}
+
+func providerFromModel(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(m, "claude"):
+		return "claude"
+	case strings.Contains(m, "grok"):
+		return "xai"
+	case strings.Contains(m, "kimi") || strings.Contains(m, "moonshot"):
+		return "kimi"
+	case strings.Contains(m, "gemini"):
+		return "gemini"
+	case strings.Contains(m, "llama"):
+		return "meta"
+	case strings.Contains(m, "gpt"), strings.Contains(m, "codex"),
+		m == "o1", strings.HasPrefix(m, "o1-"),
+		m == "o3", strings.HasPrefix(m, "o3-"),
+		m == "o4", strings.HasPrefix(m, "o4-"):
+		return "codex"
+	default:
+		return ""
+	}
+}
+
+// inferProviderFromCapture prefers the selected credential pool recorded in the
+// upstream API REQUEST section (Auth: provider=… / Upstream URL: …). Client
+// paths like /v1/messages alone cannot distinguish Vertex vs Claude pools.
+func inferProviderFromCapture(clientURL string, reqBody, apiRequest []byte) string {
+	if p := providerFromAPIRequestAuth(apiRequest); p != "" {
+		return p
+	}
+	if u := upstreamURLFromAPIRequest(apiRequest); u != "" {
+		return inferProvider(u, reqBody)
+	}
+	return inferProvider(clientURL, reqBody)
+}
+
+func providerFromAPIRequestAuth(apiRequest []byte) string {
+	if len(apiRequest) == 0 {
+		return ""
+	}
+	// Prefer the *last* successful attempt's Auth line (failover → winning pool).
+	// Only scan attempt header blocks — never the Body payload.
+	var lastProvider, lastAuthID, lastUpstream string
+	inHeaders := false
+	curUpstream, curAuthID, curProvider := "", "", ""
+	flush := func() {
+		if curProvider != "" {
+			lastProvider, lastAuthID, lastUpstream = curProvider, curAuthID, curUpstream
+		}
+		curUpstream, curAuthID, curProvider = "", "", ""
+	}
+	for _, raw := range strings.Split(string(apiRequest), "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "=== api request") {
+			flush()
+			inHeaders = true
+			continue
+		}
+		if !inHeaders {
+			continue
+		}
+		if lower == "body:" || strings.HasPrefix(lower, "body:") {
+			flush()
+			inHeaders = false
+			continue
+		}
+		if strings.HasPrefix(line, "Upstream URL:") {
+			curUpstream = strings.TrimSpace(strings.TrimPrefix(line, "Upstream URL:"))
+			continue
+		}
+		if strings.HasPrefix(lower, "auth:") {
+			curProvider = parseAuthField(line, "provider=")
+			curAuthID = parseAuthField(line, "auth_id=")
+		}
+	}
+	flush()
+	if lastProvider == "" {
+		return ""
+	}
+	p := normalizeCapturedProvider(lastProvider)
+	// KimiExecutor always Identifies as "kimi"; disambiguate the kimi-ai pool.
+	if p == "kimi" && isKimiAIPool(lastUpstream, lastAuthID) {
+		return "kimi-ai"
+	}
+	return p
+}
+
+func parseAuthField(authLine, key string) string {
+	lower := strings.ToLower(authLine)
+	idx := strings.Index(lower, key)
+	if idx < 0 {
+		return ""
+	}
+	rest := authLine[idx+len(key):]
+	if end := strings.IndexAny(rest, ", \t\r"); end >= 0 {
+		rest = rest[:end]
+	}
+	return strings.TrimSpace(rest)
+}
+
+func isKimiAIPool(upstreamURL, authID string) bool {
+	// kimi.com → "kimi" pool; kimi.ai → "kimi-ai" pool. Do not conflate.
+	u := strings.ToLower(upstreamURL)
+	id := strings.ToLower(authID)
+	if strings.Contains(u, "kimi.com") {
+		return false
+	}
+	return strings.Contains(u, "kimi.ai") ||
+		strings.Contains(u, "kimi-ai") ||
+		strings.Contains(id, "kimi-ai") ||
+		strings.Contains(id, "kimi_ai")
+}
+
+func upstreamURLFromAPIRequest(apiRequest []byte) string {
+	if len(apiRequest) == 0 {
+		return ""
+	}
+	for _, line := range strings.Split(string(apiRequest), "\n") {
+		line = strings.TrimSpace(line)
+		const prefix = "Upstream URL:"
+		if strings.HasPrefix(line, prefix) {
+			u := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+			if u != "" && u != "<unknown>" {
+				return u
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeCapturedProvider(p string) string {
+	switch p {
+	case "anthropic":
+		return "claude"
+	case "openai", "chatgpt":
+		return "codex"
+	case "gemini-cli", "gemini_cli":
+		return "gemini"
+	default:
+		return p
+	}
 }
 
 func inferProvider(url string, reqBody []byte) string {
 	u := strings.ToLower(url)
+	// Account-backed multi-model routes: URL/route wins so Claude-on-Vertex
+	// stays attributed to the Vertex pool (not "claude").
+	switch {
+	case strings.Contains(u, "antigravity") || strings.Contains(u, "cloudcode"):
+		return "antigravity"
+	case strings.Contains(u, "vertex") || strings.Contains(u, "aiplatform.googleapis"):
+		return "vertex"
+	case strings.Contains(u, "kimi.ai") || strings.Contains(u, "kimi-ai"):
+		return "kimi-ai"
+	case strings.Contains(u, "devin"):
+		return "devin"
+	}
+
+	// OpenAI-compatible / unknown paths: model id disambiguates.
+	modelHint := ""
+	var req map[string]any
+	if json.Unmarshal(reqBody, &req) == nil {
+		if m, ok := req["model"].(string); ok {
+			modelHint = strings.TrimSpace(m)
+			if p := providerFromModel(m); p != "" {
+				return p
+			}
+		}
+	}
 	switch {
 	case strings.Contains(u, "anthropic") || strings.Contains(u, "/v1/messages"):
 		return "claude"
-	case strings.Contains(u, "openai") || strings.Contains(u, "/v1/responses") || strings.Contains(u, "/v1/chat/completions"):
-		return "codex"
-	case strings.Contains(u, "antigravity") || strings.Contains(u, "cloudcode"):
-		return "antigravity"
-	case strings.Contains(u, "kimi.ai") || strings.Contains(u, "kimi-ai"):
-		return "kimi-ai"
 	case strings.Contains(u, "kimi") || strings.Contains(u, "moonshot"):
 		return "kimi"
 	case strings.Contains(u, "x.ai") || strings.Contains(u, "/xai") || strings.Contains(u, "grok"):
 		return "xai"
 	case strings.Contains(u, "meta.com") || strings.Contains(u, "llama"):
 		return "meta"
-	case strings.Contains(u, "devin"):
-		return "devin"
-	case strings.Contains(u, "vertex") || strings.Contains(u, "aiplatform.googleapis"):
-		return "vertex"
 	case strings.Contains(u, "gemini") || strings.Contains(u, "generativelanguage.googleapis"):
 		return "gemini"
+	case strings.Contains(u, "openai") || strings.Contains(u, "/v1/responses") || strings.Contains(u, "/v1/chat/completions"):
+		// Explicit unrecognized model must not inherit the openai-compat default.
+		if modelHint != "" {
+			return "other"
+		}
+		return "codex"
 	}
-	// Fall back to body shape / model id.
 	body := strings.ToLower(string(reqBody))
 	switch {
 	case strings.Contains(body, `"claude`) || (bytes.Contains(reqBody, []byte(`"messages"`)) && bytes.Contains(reqBody, []byte(`"max_tokens"`))):
@@ -361,34 +630,69 @@ func parseMeta(provider string, headers map[string][]string, reqBody, respBody [
 	return meta
 }
 
-func applyUsage(meta *parsedMeta, provider string, obj map[string]any) {
+func applyUsage(meta *parsedMeta, _provider string, obj map[string]any) {
 	usage, _ := obj["usage"].(map[string]any)
 	if usage == nil {
+		// Gemini / Google Generative Language
+		if um, ok := obj["usageMetadata"].(map[string]any); ok {
+			usage = um
+		}
+	}
+	if usage == nil {
+		// OpenAI Responses streams nest usage under response.
+		if resp, ok := obj["response"].(map[string]any); ok {
+			applyUsage(meta, _provider, resp)
+		}
 		return
 	}
-	switch provider {
-	case "claude":
-		meta.TokensIn = uintFrom(usage, "input_tokens")
-		meta.TokensOut = uintFrom(usage, "output_tokens")
-		// Cache tokens still count as input for rollups.
-		meta.TokensIn += uintFrom(usage, "cache_creation_input_tokens")
-		meta.TokensIn += uintFrom(usage, "cache_read_input_tokens")
-	default:
-		// OpenAI / Codex / Responses API
-		if v := uintFrom(usage, "prompt_tokens"); v > 0 {
-			meta.TokensIn = v
-		} else {
-			meta.TokensIn = uintFrom(usage, "input_tokens")
+	// Normalize Gemini field names into the OpenAI-shaped keys used below.
+	if v := uintFrom(usage, "promptTokenCount"); v > 0 {
+		if _, ok := usage["prompt_tokens"]; !ok {
+			usage["prompt_tokens"] = float64(v)
 		}
-		if v := uintFrom(usage, "completion_tokens"); v > 0 {
-			meta.TokensOut = v
-		} else {
-			meta.TokensOut = uintFrom(usage, "output_tokens")
+	}
+	if v := uintFrom(usage, "candidatesTokenCount"); v > 0 {
+		if _, ok := usage["completion_tokens"]; !ok {
+			usage["completion_tokens"] = float64(v)
 		}
-		if meta.TokensIn == 0 && meta.TokensOut == 0 {
-			if total := uintFrom(usage, "total_tokens"); total > 0 {
-				meta.TokensIn = total
-			}
+	}
+	// Gemini thinking tokens are billed/output-adjacent — fold into completion.
+	if v := uintFrom(usage, "thoughtsTokenCount"); v > 0 {
+		cur := uintFrom(usage, "completion_tokens")
+		usage["completion_tokens"] = float64(cur + v)
+	}
+	if v := uintFrom(usage, "totalTokenCount"); v > 0 {
+		if _, ok := usage["total_tokens"]; !ok {
+			usage["total_tokens"] = float64(v)
+		}
+	}
+	// Usage shape follows the *client/response* schema, not the credential pool.
+	// Vertex/Antigravity serving Claude still emit Anthropic cache fields;
+	// OpenAI-compat clients still emit prompt_tokens even when the pool is Claude.
+
+	// Anthropic-shaped (incl. cache) — high-water across nested/repeated frames.
+	in := uintFrom(usage, "input_tokens")
+	cache := uintFrom(usage, "cache_creation_input_tokens") +
+		uintFrom(usage, "cache_read_input_tokens")
+	if frame := in + cache; frame > meta.TokensIn {
+		meta.TokensIn = frame
+	}
+	if v := uintFrom(usage, "output_tokens"); v > meta.TokensOut {
+		meta.TokensOut = v
+	}
+
+	// OpenAI / Codex / Responses — take the higher watermark so a Claude-shaped
+	// frame is not clobbered by a smaller prompt_tokens on a nested envelope.
+	if v := uintFrom(usage, "prompt_tokens"); v > meta.TokensIn {
+		meta.TokensIn = v
+	}
+	if v := uintFrom(usage, "completion_tokens"); v > meta.TokensOut {
+		meta.TokensOut = v
+	}
+
+	if meta.TokensIn == 0 && meta.TokensOut == 0 {
+		if total := uintFrom(usage, "total_tokens"); total > 0 {
+			meta.TokensIn = total
 		}
 	}
 }
@@ -413,8 +717,8 @@ func parseStreamMeta(meta *parsedMeta, provider, raw string) {
 				meta.Model = m
 			}
 		}
+		// applyUsage already walks usage + nested response — do not re-apply.
 		applyUsage(meta, provider, obj)
-		// Anthropic message_delta / message_start usage nesting
 		if msg, ok := obj["message"].(map[string]any); ok {
 			applyUsage(meta, provider, msg)
 			if meta.Model == "" {
@@ -423,9 +727,12 @@ func parseStreamMeta(meta *parsedMeta, provider, raw string) {
 				}
 			}
 		}
-		if usage, ok := obj["usage"].(map[string]any); ok {
-			tmp := map[string]any{"usage": usage}
-			applyUsage(meta, provider, tmp)
+		if resp, ok := obj["response"].(map[string]any); ok {
+			if meta.Model == "" {
+				if m, ok := resp["model"].(string); ok {
+					meta.Model = m
+				}
+			}
 		}
 		if role := inferRoleFromResponse(obj); role != "unknown" {
 			meta.Role = role

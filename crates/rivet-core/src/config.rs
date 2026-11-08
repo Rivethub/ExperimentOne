@@ -87,10 +87,13 @@ impl RivetConfig {
         }
     }
 
-    /// Management API stays localhost-only; reuse the harness key when unset.
+    /// Management API stays localhost-only. Prefer a distinct secret from the
+    /// harness access key so leaking one does not unlock credential download.
     pub fn ensure_management_secret(&mut self) {
-        if self.management_secret.trim().is_empty() {
-            self.management_secret = self.proxy_access_key.clone();
+        if self.management_secret.trim().is_empty()
+            || self.management_secret == self.proxy_access_key
+        {
+            self.management_secret = generate_access_key();
         }
     }
 

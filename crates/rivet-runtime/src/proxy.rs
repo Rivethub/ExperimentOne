@@ -12,9 +12,33 @@ use rivet_api::{
     AccountInfo, ControlApi, HarnessWriteResponse, LoginStartResponse, LoginStatusResponse,
 };
 use rivet_core::{
-    claude_settings_json, codex_config_toml, write_proxy_config, RivetConfig, RivetPaths,
+    claude_settings_json, codex_config_toml, exe_name, sidecar_file_name, which_bin,
+    write_proxy_config, RivetConfig, RivetPaths,
 };
 use tracing::{info, warn};
+
+/// Quote a path for the host shell (paths often contain spaces).
+fn shell_quote(path: &str) -> String {
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", path.replace('"', "\"\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", path.replace('\'', "'\"'\"'"))
+    }
+}
+
+fn harness_env_hint(var: &str, dir: &str) -> String {
+    #[cfg(windows)]
+    {
+        format!("$env:{var}={}", shell_quote(dir))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("{var}={}", shell_quote(dir))
+    }
+}
 
 pub struct ProxySupervisor {
     paths: RivetPaths,
@@ -77,16 +101,18 @@ impl ProxySupervisor {
             bail!("RIVET_PROXY_BIN set but not a file: {}", p.display());
         }
 
-        let triple = target_triple();
-        let named = format!("rivet-proxy-{triple}");
+        let named = sidecar_file_name("rivet-proxy");
+        let plain = exe_name("rivet-proxy");
 
         // Next to the running binary (Tauri bundle / sidecar layout).
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 for candidate in [
                     dir.join(&named),
+                    dir.join(&plain),
                     dir.join("rivet-proxy"),
                     dir.join("binaries").join(&named),
+                    dir.join("binaries").join(&plain),
                 ] {
                     if candidate.is_file() {
                         return Ok(candidate);
@@ -101,8 +127,12 @@ impl ProxySupervisor {
                 .join("../../apps/desktop/src-tauri/binaries")
                 .join(&named),
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../apps/desktop/src-tauri/binaries")
+                .join(&plain),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("../../apps/desktop/src-tauri/binaries/rivet-proxy"),
             PathBuf::from("/tmp/rivet-proxy"),
+            PathBuf::from("/tmp/rivet-proxy.exe"),
         ];
         for candidate in manifest_candidates {
             if candidate.is_file() {
@@ -111,14 +141,13 @@ impl ProxySupervisor {
         }
 
         for name in ["rivet-proxy", "cli-proxy-api"] {
-            if let Some(p) = which(name) {
+            if let Some(p) = which_bin(name) {
                 return Ok(p);
             }
         }
 
         bail!(
-            "rivet-proxy binary not found — build with: cd vendor/cliproxyapi && \
-             PATH=\"/usr/local/go/bin:$PATH\" go build -o /tmp/rivet-proxy ./cmd/server \
+            "rivet-proxy binary not found — build with scripts/build-sidecars.sh \
              (or set RIVET_PROXY_BIN)"
         )
     }
@@ -132,7 +161,8 @@ impl ProxySupervisor {
             .env(
                 "RIVET_INGEST_URL",
                 format!("http://127.0.0.1:{}", self.config.api_port),
-            );
+            )
+            .env("RIVET_INGEST_KEY", &self.config.proxy_access_key);
         Ok(cmd)
     }
 
@@ -142,12 +172,14 @@ impl ProxySupervisor {
                 Ok(Some(status)) => {
                     warn!(?status, "proxy sidecar exited");
                     *child_slot = None;
+                    crate::pids::clear_proxy_pid(&self.paths);
                     false
                 }
                 Ok(None) => true,
                 Err(err) => {
                     warn!(?err, "proxy status check failed");
                     *child_slot = None;
+                    crate::pids::clear_proxy_pid(&self.paths);
                     false
                 }
             }
@@ -177,6 +209,7 @@ impl ProxySupervisor {
             .spawn()
             .with_context(|| format!("spawn proxy {}", bin.display()))?;
         info!(path = %bin.display(), pid = child.id(), "proxy sidecar started");
+        crate::pids::write_proxy_pid(&self.paths, child.id());
         *child_slot = Some(child);
         *self.running.lock().expect("running lock") = true;
         *self.want_running.lock().expect("want_running lock") = true;
@@ -205,6 +238,25 @@ impl ProxySupervisor {
         if let Some(mut child) = child_slot.take() {
             let pid = child.id();
             info!(pid, "stopping proxy sidecar");
+            // Sidecar was started in its own process group — signal the group first.
+            #[cfg(unix)]
+            {
+                let _ = Command::new("kill")
+                    .args(["-TERM", &format!("-{pid}")])
+                    .status();
+                thread::sleep(Duration::from_millis(150));
+                let _ = Command::new("kill")
+                    .args(["-KILL", &format!("-{pid}")])
+                    .status();
+            }
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
             if let Err(err) = child.kill() {
                 warn!(pid, ?err, "proxy kill failed");
             }
@@ -212,6 +264,7 @@ impl ProxySupervisor {
                 Ok(status) => info!(pid, ?status, "proxy sidecar stopped"),
                 Err(err) => warn!(pid, ?err, "proxy wait failed"),
             }
+            crate::pids::clear_proxy_pid_if_ours(&self.paths, pid);
         } else {
             info!("proxy stop requested but no child handle");
         }
@@ -489,8 +542,8 @@ impl ProxySupervisor {
                 Ok(HarnessWriteResponse {
                     target: "claude".into(),
                     path: path.to_string(),
-                    env_hint: format!("CLAUDE_CONFIG_DIR={}", dir.as_str()),
-                    note: "Default Claude installs are untouched. Export CLAUDE_CONFIG_DIR before launching Claude Code.".into(),
+                    env_hint: harness_env_hint("CLAUDE_CONFIG_DIR", dir.as_str()),
+                    note: "Default Claude installs are untouched. Set CLAUDE_CONFIG_DIR before launching Claude Code.".into(),
                 })
             }
             "codex" => {
@@ -500,8 +553,8 @@ impl ProxySupervisor {
                 Ok(HarnessWriteResponse {
                     target: "codex".into(),
                     path: path.to_string(),
-                    env_hint: format!("CODEX_HOME={}", dir.as_str()),
-                    note: "Default Codex installs are untouched. Export CODEX_HOME before launching Codex.".into(),
+                    env_hint: harness_env_hint("CODEX_HOME", dir.as_str()),
+                    note: "Default Codex installs are untouched. Set CODEX_HOME before launching Codex.".into(),
                 })
             }
             other => bail!("unknown harness target '{other}'"),
@@ -580,50 +633,6 @@ fn spawn_reader(mut pipe: impl Read + Send + 'static, output: Arc<Mutex<String>>
             }
         }
     });
-}
-
-fn which(bin: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        for dir in std::env::split_paths(&paths) {
-            let p = dir.join(bin);
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-        None
-    })
-}
-
-fn target_triple() -> &'static str {
-    // Prefer compile-time target for matching Tauri externalBin names.
-    if let Some(t) = option_env!("TARGET") {
-        return t;
-    }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        "aarch64-apple-darwin"
-    }
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    {
-        "x86_64-apple-darwin"
-    }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        "x86_64-unknown-linux-gnu"
-    }
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    {
-        "aarch64-unknown-linux-gnu"
-    }
-    #[cfg(not(any(
-        all(target_os = "macos", target_arch = "aarch64"),
-        all(target_os = "macos", target_arch = "x86_64"),
-        all(target_os = "linux", target_arch = "x86_64"),
-        all(target_os = "linux", target_arch = "aarch64"),
-    )))]
-    {
-        "unknown"
-    }
 }
 
 fn port_open(port: u16) -> bool {

@@ -23,9 +23,11 @@ pub struct QuotaSnapshot {
 pub struct ProviderQuota {
     pub provider: String,
     pub account_count: u64,
-    /// Sum of remaining % across accounts (e.g. 555 ≈ 5.55 accounts-worth left).
+    /// Accounts that reported a remaining_% (may be less than account_count).
+    pub known_count: u64,
+    /// Sum of remaining % across accounts with signals.
     pub remaining_pct: f64,
-    /// Capacity = account_count × 100.
+    /// Capacity = known_count × 100 (never invents unknown as full).
     pub capacity_pct: f64,
     pub pool_empty: String,
     pub first_empty: String,
@@ -329,70 +331,8 @@ async fn build_snapshot(
 
     let mut providers = Vec::new();
     for (provider, list) in by_provider {
-        let account_count = list.len() as u64;
-        let capacity_pct = (account_count as f64) * 100.0;
-        let known: Vec<f64> = list.iter().filter_map(|a| a.remaining_pct).collect();
-        // Unknown accounts treated as full so pool capacity stays stable until signals arrive.
-        let remaining_pct = if known.is_empty() {
-            list.iter().filter(|a| a.loaded).count() as f64 * 100.0
-        } else {
-            let missing = account_count as usize - known.len();
-            known.iter().sum::<f64>() + missing as f64 * 100.0
-        };
-
         let burn_tok_h = burn_by_provider.get(&provider).copied().unwrap_or(0.0);
-        let assumed_pool_tokens = (capacity_pct / 100.0) * 80_000.0;
-        let burn_pct_per_hour = if assumed_pool_tokens > 0.0 {
-            (burn_tok_h / assumed_pool_tokens) * 100.0
-        } else {
-            0.0
-        };
-
-        let pool_empty = if burn_pct_per_hour > 0.01 && remaining_pct > 0.0 {
-            format_horizon(remaining_pct / burn_pct_per_hour)
-        } else if remaining_pct <= 0.0 {
-            "Empty".into()
-        } else if known.is_empty() {
-            "— pending live quota".into()
-        } else {
-            "Steady".into()
-        };
-
-        let first_empty = list
-            .iter()
-            .filter_map(|a| {
-                let rem = a.remaining_pct?;
-                if burn_pct_per_hour <= 0.01 || account_count == 0 {
-                    return None;
-                }
-                let per = burn_pct_per_hour / account_count as f64;
-                if per <= 0.0 {
-                    return None;
-                }
-                Some((rem / per, a.label.clone()))
-            })
-            .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(h, label)| format!("{label} · {}", format_horizon(h)))
-            .unwrap_or_else(|| "—".into());
-
-        let next_reset = list
-            .iter()
-            .filter_map(|a| a.reset_at.as_ref().map(|r| (r, a.remaining_pct.unwrap_or(0.0))))
-            .min_by(|a, b| a.0.cmp(b.0))
-            .map(|(r, rem)| format_reset_label(r, rem))
-            .unwrap_or_else(|| "— pending live quota".into());
-
-        providers.push(ProviderQuota {
-            provider,
-            account_count,
-            remaining_pct,
-            capacity_pct,
-            pool_empty,
-            first_empty,
-            next_reset,
-            burn_last_horizon: format!("{:.1}%/h", burn_pct_per_hour),
-            burn_pct_per_hour,
-        });
+        providers.push(provider_quota_from_accounts(&provider, &list, burn_tok_h));
     }
     providers.sort_by(|a, b| a.provider.cmp(&b.provider));
 
@@ -406,7 +346,7 @@ async fn build_snapshot(
         credentials_loaded: loaded,
         providers,
         accounts,
-        note: "Live credential signals from the local proxy management API; burn % estimated from Rivet traffic.".into(),
+        note: "Remaining sums only observed provider watermarks (unknown ≠ full). Burn %/h is estimated from captured Rivet traffic, not provider billing.".into(),
     })
 }
 
@@ -622,30 +562,22 @@ pub fn local_fallback_snapshot(
     }
     let mut providers = Vec::new();
     for (provider, account_count) in by_provider {
-        let capacity_pct = account_count as f64 * 100.0;
         let burn_tok_h = burn_by_provider.get(&provider).copied().unwrap_or(0.0);
-        let assumed_pool_tokens = (capacity_pct / 100.0) * 80_000.0;
-        let burn_pct_per_hour = if assumed_pool_tokens > 0.0 {
-            (burn_tok_h / assumed_pool_tokens) * 100.0
-        } else {
-            0.0
-        };
-        let remaining_pct = capacity_pct;
-        let pool_empty = if burn_pct_per_hour > 0.01 {
-            format_horizon(remaining_pct / burn_pct_per_hour)
-        } else {
-            "Sign in / refresh for live quota".into()
-        };
         providers.push(ProviderQuota {
             provider,
             account_count,
-            remaining_pct,
-            capacity_pct,
-            pool_empty,
+            known_count: 0,
+            remaining_pct: 0.0,
+            capacity_pct: 0.0,
+            pool_empty: "— pending live quota".into(),
             first_empty: "—".into(),
             next_reset: "— pending live quota".into(),
-            burn_last_horizon: format!("{:.1}%/h", burn_pct_per_hour),
-            burn_pct_per_hour,
+            burn_last_horizon: if burn_tok_h > 0.0 {
+                format!("{} tok/h", burn_tok_h.round() as i64)
+            } else {
+                "0 tok/h".into()
+            },
+            burn_pct_per_hour: 0.0,
         });
     }
     providers.sort_by(|a, b| a.provider.cmp(&b.provider));
@@ -656,6 +588,197 @@ pub fn local_fallback_snapshot(
         credentials_loaded: out_accounts.len() as u64,
         providers,
         accounts: out_accounts,
-        note: "Proxy management unreachable — showing local account list + traffic burn estimates.".into(),
+        note: "Proxy management unreachable — account list only; remaining % withheld until live quota signals exist. Burn shown as tok/h from traffic.".into(),
+    }
+}
+
+
+/// Assumed tokens remaining from summed account percentages (production path).
+pub fn remaining_tokens_from_pct_sum(remaining_pct_sum: f64) -> f64 {
+    (remaining_pct_sum / 100.0) * 80_000.0
+}
+
+const ASSUMED_TOK_PER_ACCT: f64 = 80_000.0;
+
+/// Pure per-provider rollup used by `build_snapshot` (unit-testable).
+pub fn provider_quota_from_accounts(
+    provider: &str,
+    list: &[&QuotaAccount],
+    burn_tok_h: f64,
+) -> ProviderQuota {
+    let account_count = list.len() as u64;
+    let known: Vec<f64> = list
+        .iter()
+        .filter(|a| a.loaded)
+        .filter_map(|a| a.remaining_pct)
+        .collect();
+    let known_count = known.len() as u64;
+    // Only sum observed watermarks — never invent "full" for missing signals.
+    let remaining_pct = known.iter().sum::<f64>();
+    let capacity_pct = if known_count > 0 {
+        (known_count as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    let remaining_tokens: f64 = remaining_tokens_from_pct_sum(
+        list.iter()
+            .filter(|a| a.loaded)
+            .filter_map(|a| a.remaining_pct)
+            .sum(),
+    );
+    let burn_pct_per_hour = if known_count > 0 {
+        let pool = known_count as f64 * ASSUMED_TOK_PER_ACCT;
+        (burn_tok_h / pool) * 100.0
+    } else {
+        0.0
+    };
+
+    let pool_empty = if known.is_empty() {
+        "— pending live quota".into()
+    } else if remaining_tokens <= 0.0 {
+        "Empty".into()
+    } else if burn_tok_h > 1.0 {
+        format!(
+            "est. {} @ 80k tok/acct",
+            format_horizon(remaining_tokens / burn_tok_h)
+        )
+    } else {
+        "Steady".into()
+    };
+
+    let first_empty = list
+        .iter()
+        .filter(|a| a.loaded)
+        .filter_map(|a| {
+            let rem = a.remaining_pct?;
+            if burn_tok_h <= 1.0 || known_count == 0 {
+                return None;
+            }
+            let share = burn_tok_h / known_count as f64;
+            if share <= 0.0 {
+                return None;
+            }
+            let rem_tok = (rem / 100.0) * ASSUMED_TOK_PER_ACCT;
+            Some((rem_tok / share, a.label.clone()))
+        })
+        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(h, label)| format!("est. {label} · {}", format_horizon(h)))
+        .unwrap_or_else(|| {
+            if known.is_empty() {
+                "— pending live quota".into()
+            } else {
+                "—".into()
+            }
+        });
+
+    let next_reset = list
+        .iter()
+        .filter(|a| a.loaded)
+        .filter_map(|a| {
+            let rem = a.remaining_pct?;
+            let r = a.reset_at.as_ref()?;
+            Some((r, rem))
+        })
+        .min_by(|a, b| a.0.cmp(b.0))
+        .map(|(r, rem)| format_reset_label(r, rem))
+        .unwrap_or_else(|| {
+            if known.is_empty() {
+                "— pending live quota".into()
+            } else {
+                "—".into()
+            }
+        });
+
+    ProviderQuota {
+        provider: provider.to_string(),
+        account_count,
+        known_count,
+        remaining_pct,
+        capacity_pct,
+        pool_empty,
+        first_empty,
+        next_reset,
+        burn_last_horizon: format!("{:.0} tok/h", burn_tok_h),
+        burn_pct_per_hour,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn acct(
+        id: &str,
+        remaining: Option<f64>,
+        loaded: bool,
+        reset: Option<&str>,
+    ) -> QuotaAccount {
+        QuotaAccount {
+            id: id.into(),
+            provider: "claude".into(),
+            label: id.into(),
+            email: None,
+            remaining_pct: remaining,
+            reset_at: reset.map(str::to_string),
+            cooldown_seconds: None,
+            supports_quota: remaining.is_some(),
+            loaded,
+            status: if loaded { "loaded" } else { "unavailable" }.into(),
+        }
+    }
+
+    #[test]
+    fn pool_empty_uses_token_sum_not_pct_sum() {
+        // Two accounts at 50% with 80k tok/acct ⇒ 80k remaining.
+        // Burn 80k tok/h ⇒ 1 hour, not 2 (the old pct/burn_% bug).
+        let a = acct("a", Some(50.0), true, None);
+        let b = acct("b", Some(50.0), true, None);
+        let q = provider_quota_from_accounts("claude", &[&a, &b], 80_000.0);
+        assert_eq!(q.known_count, 2);
+        assert!((q.remaining_pct - 100.0).abs() < 1e-9);
+        assert!(
+            q.pool_empty.contains("~1.0h") || q.pool_empty.contains("~1h"),
+            "got {}",
+            q.pool_empty
+        );
+    }
+
+    #[test]
+    fn unknown_accounts_do_not_inflate_capacity_or_reset() {
+        let known = acct("k", Some(40.0), true, Some("2026-01-01T00:00:00Z"));
+        let unknown = acct("u", None, true, Some("2026-01-01T00:00:00Z"));
+        let unloaded = acct("x", Some(90.0), false, Some("2026-01-01T00:00:00Z"));
+        let q = provider_quota_from_accounts("claude", &[&known, &unknown, &unloaded], 0.0);
+        assert_eq!(q.account_count, 3);
+        assert_eq!(q.known_count, 1);
+        assert!((q.capacity_pct - 100.0).abs() < 1e-9);
+        assert!((q.remaining_pct - 40.0).abs() < 1e-9);
+        assert!(q.next_reset.contains("+60%") || q.next_reset.contains("reset"), "{}", q.next_reset);
+        assert_eq!(q.burn_pct_per_hour, 0.0);
+    }
+
+    #[test]
+    fn empty_pool_when_all_unknown() {
+        let a = acct("a", None, true, None);
+        let b = acct("b", None, true, None);
+        let q = provider_quota_from_accounts("codex", &[&a, &b], 12_000.0);
+        assert_eq!(q.known_count, 0);
+        assert_eq!(q.capacity_pct, 0.0);
+        assert!(q.pool_empty.contains("pending"), "{}", q.pool_empty);
+        assert!(q.next_reset.contains("pending"), "{}", q.next_reset);
+        assert_eq!(q.burn_pct_per_hour, 0.0);
+        assert!(q.burn_last_horizon.contains("12000"), "{}", q.burn_last_horizon);
+    }
+
+    #[test]
+    fn local_fallback_marks_unknown() {
+        let snap = local_fallback_snapshot(
+            &[("a".into(), "claude".into(), "a@x".into())],
+            &HashMap::from([("claude".into(), 100.0)]),
+        );
+        assert_eq!(snap.source, "local");
+        assert_eq!(snap.providers[0].known_count, 0);
+        assert!(snap.providers[0].pool_empty.contains("pending"));
     }
 }

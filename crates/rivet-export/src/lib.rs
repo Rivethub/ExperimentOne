@@ -86,3 +86,79 @@ fn append_bytes<W: Write>(builder: &mut Builder<W>, name: &str, bytes: &[u8]) ->
     builder.append_data(&mut header, name, bytes)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use rivet_core::{ProviderKind, UsageTotals};
+    use std::sync::Mutex;
+
+    struct MemStore {
+        events: Mutex<Vec<TrafficEvent>>,
+    }
+
+    #[async_trait]
+    impl TrafficStore for MemStore {
+        async fn insert_event(&self, event: &TrafficEvent) -> Result<()> {
+            self.events.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+        async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()> {
+            self.events.lock().unwrap().extend_from_slice(events);
+            Ok(())
+        }
+        async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>> {
+            let ev = self.events.lock().unwrap();
+            Ok(ev.iter().rev().take(limit as usize).cloned().collect())
+        }
+        async fn search_keyword(&self, _q: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
+            self.recent(limit).await
+        }
+        async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+            let set: std::collections::HashSet<_> = ids.iter().cloned().collect();
+            Ok(self
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| set.contains(&e.id.to_string()))
+                .cloned()
+                .collect())
+        }
+        async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
+            Ok(self.events.lock().unwrap().clone())
+        }
+        async fn usage_totals(&self) -> Result<UsageTotals> {
+            Ok(UsageTotals::default())
+        }
+    }
+
+    #[tokio::test]
+    async fn rivetbag_roundtrip_preserves_redacted_content() {
+        let mut ev = TrafficEvent::new(ProviderKind::Claude);
+        ev.content = Some("hello Authorization: Bearer sk-secret1234567890".into());
+        rivet_core::redact_event(&mut ev);
+        let store: Arc<dyn TrafficStore> = Arc::new(MemStore {
+            events: Mutex::new(vec![ev]),
+        });
+        let dir = std::env::temp_dir().join(format!(
+            "rivet-export-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.rivetbag");
+        let manifest = export_bag(store, &path).await.unwrap();
+        assert_eq!(manifest.event_count, 1);
+        let (m2, events) = import_bag(&path).unwrap();
+        assert_eq!(m2.event_count, 1);
+        assert_eq!(events.len(), 1);
+        let content = events[0].content.as_deref().unwrap_or("");
+        assert!(content.contains("[REDACTED]"));
+        assert!(!content.contains("sk-secret"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

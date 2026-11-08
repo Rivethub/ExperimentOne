@@ -9,10 +9,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
+    middleware::{self, Next},
+    response::Response,
     routing::{delete, get, post},
     Json, Router,
 };
+use axum::http::Request;
 use chrono::{Duration, Utc};
 use rivet_core::{
     claude_mcp_json, claude_settings_json, codex_config_toml, localhost_port_free,
@@ -22,7 +25,7 @@ use rivet_core::{
 use rivet_store::{MetaStore, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 
 /// Process / sidecar control implemented by `rivet-runtime`.
 pub trait ControlApi: Send + Sync {
@@ -49,6 +52,8 @@ pub struct ApiState {
     pub traffic_backend: &'static str,
     /// Background vectorize + wiki workers.
     pub workers: Option<Arc<rivet_worker::WorkerPool>>,
+    /// Signal rivetd to exit after sidecars stop (`POST /v1/shutdown`).
+    pub shutdown: tokio::sync::watch::Sender<bool>,
 }
 
 #[derive(Serialize)]
@@ -171,34 +176,217 @@ struct ErrBody {
     error: String,
 }
 
+/// Config returned to the UI — never includes live secrets.
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicConfig {
+    pub proxy_port: u16,
+    pub api_port: u16,
+    pub mcp_port: u16,
+    pub clickhouse_http_port: u16,
+    pub clickhouse_native_port: u16,
+    pub access_key_hint: String,
+    pub management_configured: bool,
+    pub capabilities: Capabilities,
+    pub embedding_model: Option<String>,
+    pub wiki_model: Option<String>,
+    pub wiki_project_id: String,
+}
+
+fn public_config(cfg: &RivetConfig) -> PublicConfig {
+    let key = &cfg.proxy_access_key;
+    let hint = if key.len() > 12 {
+        format!("{}…{}", &key[..8], &key[key.len() - 4..])
+    } else {
+        "***".into()
+    };
+    PublicConfig {
+        proxy_port: cfg.proxy_port,
+        api_port: cfg.api_port,
+        mcp_port: cfg.mcp_port,
+        clickhouse_http_port: cfg.clickhouse_http_port,
+        clickhouse_native_port: cfg.clickhouse_native_port,
+        access_key_hint: hint,
+        management_configured: !cfg.management_secret.trim().is_empty(),
+        capabilities: cfg.capabilities.clone(),
+        embedding_model: cfg.embedding_model.clone(),
+        wiki_model: cfg.wiki_model.clone(),
+        wiki_project_id: cfg.wiki_project_id.clone(),
+    }
+}
+
+fn sanitize_wiki_project_id(raw: &str) -> Result<String, String> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Err("wiki_project_id empty".into());
+    }
+    if s.len() > 64
+        || s.contains("..")
+        || s.contains('/')
+        || s.contains('\\')
+        || !s
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return Err(
+            "wiki_project_id must be a short path-safe id (letters, digits, .-_)"
+                .into(),
+        );
+    }
+    Ok(s.to_string())
+}
+
+fn localhost_cors() -> CorsLayer {
+    use axum::http::{HeaderName, Method};
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin, _| {
+            origin
+                .to_str()
+                .map(rivet_core::origin_allowed)
+                .unwrap_or(false)
+        }))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            HeaderName::from_static("x-rivet-key"),
+        ])
+        .allow_credentials(false)
+        .max_age(std::time::Duration::from_secs(600))
+        .expose_headers([HeaderName::from_static("x-rivet-key")])
+}
+
+fn host_is_loopback(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(rivet_core::host_is_loopback)
+        .unwrap_or(false)
+}
+
+fn extract_api_key(headers: &HeaderMap) -> Option<String> {
+    if let Some(v) = headers.get("x-rivet-key").and_then(|v| v.to_str().ok()) {
+        return Some(v.trim().to_string());
+    }
+    if let Some(v) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        let v = v.trim();
+        if let Some(rest) = v.strip_prefix("Bearer ").or_else(|| v.strip_prefix("bearer ")) {
+            return Some(rest.trim().to_string());
+        }
+    }
+    None
+}
+
+async fn require_api_key(
+    State(state): State<ApiState>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrBody>)> {
+    if !host_is_loopback(req.headers()) {
+        return Err(err_response(
+            "control API only accepts Host: 127.0.0.1 / localhost".into(),
+        ));
+    }
+    let expected = state.config.read().await.proxy_access_key.clone();
+    let provided = extract_api_key(req.headers()).unwrap_or_default();
+    if provided.is_empty() || provided != expected {
+        return Err((
+            StatusCode::UNAUTHORIZED,
+            Json(ErrBody {
+                error: "missing or invalid X-Rivet-Key (GET /v1/session on localhost)".into(),
+            }),
+        ));
+    }
+    Ok(next.run(req).await)
+}
+
+async fn require_loopback_host(
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrBody>)> {
+    if !host_is_loopback(req.headers()) {
+        return Err(err_response(
+            "control API only accepts Host: 127.0.0.1 / localhost".into(),
+        ));
+    }
+    Ok(next.run(req).await)
+}
+
+#[derive(Serialize)]
+struct LocalSession {
+    api_key: String,
+    note: &'static str,
+}
+
+async fn local_session(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<Json<LocalSession>, (StatusCode, Json<ErrBody>)> {
+    if !host_is_loopback(&headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrBody {
+                error: "session bootstrap is localhost-only".into(),
+            }),
+        ));
+    }
+    let key = state.config.read().await.proxy_access_key.clone();
+    Ok(Json(LocalSession {
+        api_key: key,
+        note: "Use X-Rivet-Key on mutating control routes. Never export this value.",
+    }))
+}
+
 pub fn router(state: ApiState) -> Router {
-    Router::new()
+    // Bootstrap-only: status + session. Everything else needs X-Rivet-Key.
+    let public = Router::new()
         .route("/v1/status", get(status))
+        .route("/v1/session", get(local_session))
+        .route_layer(middleware::from_fn(require_loopback_host));
+
+    let protected = Router::new()
         .route("/v1/config", get(get_config).put(put_config))
         .route("/v1/traffic/recent", get(recent))
         .route("/v1/traffic/search", get(search_traffic))
-        .route("/v1/demo/seed", post(demo_seed))
+        .route("/v1/providers", get(list_providers))
+        .route("/v1/accounts", get(accounts))
+        .route("/v1/accounts/login/status", get(login_status))
+        .route("/v1/quota", get(quota_snapshot))
+        .route("/v1/wiki", get(wiki_info))
+        .route("/v1/wiki/page", get(wiki_page))
         .route("/v1/harness/claude.env", get(claude_env))
         .route("/v1/harness/codex.toml", get(codex_toml))
         .route("/v1/harness/mcp.json", get(mcp_json))
+        .route("/v1/logs/{kind}", get(tail_logs))
+        .route("/v1/demo/seed", post(demo_seed))
         .route("/v1/harness/write", post(harness_write))
         .route("/v1/proxy/start", post(proxy_start))
         .route("/v1/proxy/stop", post(proxy_stop))
-        .route("/v1/providers", get(list_providers))
-        .route("/v1/accounts", get(accounts))
+        .route("/v1/shutdown", post(shutdown_all))
         .route("/v1/accounts/{id}", delete(account_delete))
         .route("/v1/accounts/login", post(login_start))
-        .route("/v1/accounts/login/status", get(login_status))
         .route("/v1/accounts/login/cancel", post(login_cancel))
         .route("/v1/accounts/import/vertex", post(import_vertex))
-        .route("/v1/quota", get(quota_snapshot))
         .route("/v1/quota/refresh", post(quota_refresh))
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
-        .route("/v1/wiki", get(wiki_info))
         .route("/v1/workers/tick", post(workers_tick))
-        .route("/v1/logs/{kind}", get(tail_logs))
-        .layer(CorsLayer::permissive())
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_api_key,
+        ));
+
+    public
+        .merge(protected)
+        .layer(localhost_cors())
         .with_state(state)
 }
 
@@ -260,14 +448,15 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     })
 }
 
-async fn get_config(State(state): State<ApiState>) -> Json<RivetConfig> {
-    Json(state.config.read().await.clone())
+async fn get_config(State(state): State<ApiState>) -> Json<PublicConfig> {
+    let cfg = state.config.read().await;
+    Json(public_config(&cfg))
 }
 
 async fn put_config(
     State(state): State<ApiState>,
     Json(body): Json<ConfigUpdate>,
-) -> Result<Json<RivetConfig>, (StatusCode, Json<ErrBody>)> {
+) -> Result<Json<PublicConfig>, (StatusCode, Json<ErrBody>)> {
     let mut cfg = state.config.write().await;
     if let Some(m) = body.embedding_model {
         cfg.embedding_model = if m.trim().is_empty() {
@@ -281,7 +470,8 @@ async fn put_config(
     }
     if let Some(p) = body.wiki_project_id {
         if !p.trim().is_empty() {
-            cfg.wiki_project_id = p;
+            cfg.wiki_project_id =
+                sanitize_wiki_project_id(&p).map_err(err_response)?;
         }
     }
     // Models arm capabilities; explicit capability flags win afterward.
@@ -299,7 +489,7 @@ async fn put_config(
     }
     cfg.save(&state.paths)
         .map_err(|e| err_response(e.to_string()))?;
-    Ok(Json(cfg.clone()))
+    Ok(Json(public_config(&cfg)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -512,6 +702,19 @@ async fn proxy_stop(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     state.control.proxy_stop().map_err(err_response)?;
     Ok(Json(serde_json::json!({ "ok": true, "proxy_running": false })))
+}
+
+async fn shutdown_all(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let proxy_ok = state.control.proxy_stop();
+    let _ = state.shutdown.send(true);
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "proxy_stopped": proxy_ok.is_ok(),
+        "proxy_error": proxy_ok.err(),
+        "note": "runtime shutdown signaled; sidecars stop on process exit"
+    })))
 }
 
 async fn accounts(
@@ -740,10 +943,117 @@ async fn import_bag(
 }
 
 #[derive(Serialize)]
+struct WikiPageCard {
+    id: String,
+    project_id: String,
+    title: String,
+    path: String,
+    relative_path: String,
+    folder: String,
+    updated_at: String,
+    preview: String,
+}
+
+#[derive(Serialize)]
 struct WikiInfo {
     path: String,
     project_id: String,
-    pages: Vec<WikiPageMeta>,
+    pages: Vec<WikiPageCard>,
+}
+
+#[derive(Serialize)]
+struct WikiPageBody {
+    id: String,
+    project_id: String,
+    title: String,
+    path: String,
+    relative_path: String,
+    updated_at: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WikiPageQuery {
+    /// Page id (`default/README`) or stored path (`wiki/default/README.md`).
+    id: Option<String>,
+    path: Option<String>,
+}
+
+fn wiki_relative_path(project: &str, stored: &str) -> String {
+    let prefix = format!("wiki/{project}/");
+    stored
+        .strip_prefix(&prefix)
+        .or_else(|| stored.strip_prefix(&format!("wiki/{project}")))
+        .unwrap_or(stored)
+        .trim_start_matches('/')
+        .to_string()
+}
+
+fn wiki_folder(relative: &str) -> String {
+    match relative.rsplit_once('/') {
+        Some((dir, _)) if !dir.is_empty() => dir.to_string(),
+        _ => String::new(),
+    }
+}
+
+fn resolve_wiki_abs(
+    paths: &RivetPaths,
+    stored_path: &str,
+) -> Result<PathBuf, (StatusCode, Json<ErrBody>)> {
+    let root = paths.as_root().as_std_path();
+    let abs = root.join(stored_path);
+    let wiki = paths
+        .wiki_dir()
+        .as_std_path()
+        .canonicalize()
+        .map_err(|e| err_response(format!("wiki dir: {e}")))?;
+    let canon = abs.canonicalize().map_err(|_| {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrBody {
+                error: "wiki page not found".into(),
+            }),
+        )
+    })?;
+    if !canon.starts_with(&wiki) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrBody {
+                error: "wiki path escapes wiki dir".into(),
+            }),
+        ));
+    }
+    Ok(canon)
+}
+
+fn read_wiki_preview(paths: &RivetPaths, stored_path: &str) -> String {
+    let Ok(abs) = resolve_wiki_abs(paths, stored_path) else {
+        return String::new();
+    };
+    let Ok(raw) = std::fs::read_to_string(&abs) else {
+        return String::new();
+    };
+    const MAX: usize = 1600;
+    if raw.chars().count() <= MAX {
+        return raw;
+    }
+    raw.chars().take(MAX).collect::<String>() + "\n…"
+}
+
+fn page_to_card(paths: &RivetPaths, project: &str, page: WikiPageMeta) -> WikiPageCard {
+    let relative_path = wiki_relative_path(project, &page.path);
+    let folder = wiki_folder(&relative_path);
+    let preview = read_wiki_preview(paths, &page.path);
+    WikiPageCard {
+        id: page.id,
+        project_id: page.project_id,
+        title: page.title,
+        path: page.path,
+        relative_path,
+        folder,
+        updated_at: page.updated_at,
+        preview,
+    }
 }
 
 async fn wiki_info(
@@ -755,11 +1065,52 @@ async fn wiki_info(
     let pages = state
         .meta
         .list_wiki_pages(&project)
-        .map_err(|e| err_response(e.to_string()))?;
+        .map_err(|e| err_response(e.to_string()))?
+        .into_iter()
+        .map(|p| page_to_card(&state.paths, &project, p))
+        .collect();
     Ok(Json(WikiInfo {
         path,
         project_id: project,
         pages,
+    }))
+}
+
+async fn wiki_page(
+    State(state): State<ApiState>,
+    Query(q): Query<WikiPageQuery>,
+) -> Result<Json<WikiPageBody>, (StatusCode, Json<ErrBody>)> {
+    let cfg = state.config.read().await;
+    let project = cfg.wiki_project_id.clone();
+    let pages = state
+        .meta
+        .list_wiki_pages(&project)
+        .map_err(|e| err_response(e.to_string()))?;
+    let page = pages
+        .into_iter()
+        .find(|p| {
+            q.id.as_deref().is_some_and(|id| id == p.id)
+                || q.path.as_deref().is_some_and(|path| path == p.path)
+        })
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrBody {
+                    error: "wiki page not found".into(),
+                }),
+            )
+        })?;
+    let abs = resolve_wiki_abs(&state.paths, &page.path)?;
+    let content = std::fs::read_to_string(&abs).map_err(|e| err_response(e.to_string()))?;
+    let relative_path = wiki_relative_path(&project, &page.path);
+    Ok(Json(WikiPageBody {
+        id: page.id,
+        project_id: page.project_id,
+        title: page.title,
+        path: page.path,
+        relative_path,
+        updated_at: page.updated_at,
+        content,
     }))
 }
 

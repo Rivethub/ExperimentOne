@@ -76,13 +76,13 @@ impl WorkerPool {
         Ok(())
     }
 
-    async fn embed_new_events(&self, cfg: &RivetConfig) -> Result<()> {
-        let recent = self.store.recent(400).await?;
+    async fn embed_new_events(&self, _cfg: &RivetConfig) -> Result<()> {
+        // Lexical-only (same space as MCP queries). Walk full export backlog so
+        // imports older than the recent window are not stranded forever.
+        let all = self.store.export_all().await?;
         let mut n = 0u32;
-        let mut remote_ok = cfg.embedding_model.is_some();
-        let mut remote_fail_logged = false;
 
-        for event in recent {
+        for event in all {
             let id = event.id.to_string();
             if self.meta.embedding_for(&id)?.is_some() {
                 continue;
@@ -92,46 +92,24 @@ impl WorkerPool {
                 continue;
             }
 
-            let dims = if remote_ok {
-                match self.proxy_embed(cfg, text).await {
-                    Ok(v) if !v.is_empty() => v,
-                    Ok(_) => {
-                        remote_ok = false;
-                        lexical_embed(text)
-                    }
-                    Err(err) => {
-                        if !remote_fail_logged {
-                            warn!(?err, "proxy embeddings unavailable — using lexical");
-                            remote_fail_logged = true;
-                        }
-                        remote_ok = false;
-                        lexical_embed(text)
-                    }
-                }
-            } else {
-                lexical_embed(text)
-            };
+            let dims = lexical_embed(text);
 
             self.meta.upsert_embedding(&id, &dims)?;
             n += 1;
-            if n >= 80 {
-                break; // keep each tick bounded
+            if n >= 120 {
+                break; // keep each tick bounded; next tick continues the backlog
             }
         }
 
         if n > 0 {
-            let mode = if cfg.embedding_model.is_some() && remote_ok {
-                "proxy"
-            } else {
-                "lexical"
-            };
-            info!(n, mode, "vector worker embedded events");
+            info!(n, mode = "lexical", "vector worker embedded events");
         }
         self.meta
             .set_job_cursor("vectorize", &Utc::now().to_rfc3339())?;
         Ok(())
     }
 
+    #[allow(dead_code)]
     async fn proxy_embed(&self, cfg: &RivetConfig, text: &str) -> Result<Vec<f32>> {
         let model = cfg
             .embedding_model
@@ -142,6 +120,7 @@ impl WorkerPool {
             .http
             .post(&url)
             .bearer_auth(&cfg.proxy_access_key)
+            .header("X-Rivet-Internal", "vectorize-worker")
             .json(&json!({
                 "model": model,
                 "input": text.chars().take(8_000).collect::<String>(),
@@ -172,54 +151,8 @@ impl WorkerPool {
 
         let totals = self.store.usage_totals().await?;
         let recent = self.store.recent(200).await?;
-
-        // --- README overview ---
-        let mut readme = String::new();
-        readme.push_str("# Rivet project wiki\n\n");
-        readme.push_str(&format!(
-            "_Auto-updated {} by the wiki worker_\n\n",
-            Utc::now().format("%Y-%m-%d %H:%M UTC")
-        ));
-        readme.push_str("## Traffic snapshot\n\n");
-        readme.push_str(&format!(
-            "- Events: **{}**\n- Tokens in: **{}**\n- Tokens out: **{}**\n- Embeddings: **{}**\n\n",
-            totals.events,
-            totals.tokens_in,
-            totals.tokens_out,
-            self.meta.embedding_count().unwrap_or(0)
-        ));
-        readme.push_str("## Pages\n\n");
-        readme.push_str("- [Models](models.md)\n");
-        readme.push_str("- [Sessions](sessions.md)\n");
-        readme.push_str("- [Topics](topics/index.md)\n");
-        {
-            let mut provider_links = Vec::new();
-            let mut seen = std::collections::BTreeSet::new();
-            for e in &recent {
-                let key = rivet_core::normalize_provider_id(&provider_key(e));
-                if key == "other" || !seen.insert(key.clone()) {
-                    continue;
-                }
-                provider_links.push(format!(
-                    "[{}](providers/{}.md)",
-                    key,
-                    slugify(&key)
-                ));
-            }
-            if provider_links.is_empty() {
-                readme.push_str("- Providers: _none yet_\n");
-            } else {
-                readme.push_str(&format!("- {}\n", provider_links.join(" · ")));
-            }
-        }
-        if cfg.wiki_model.is_some() {
-            readme.push_str("- [LLM overview](overview-llm.md)\n");
-        }
-        readme.push_str("\n## Recent captures\n\n");
-        for event in recent.iter().take(20) {
-            readme.push_str(&format!("- {}\n", format_event_line(event)));
-        }
-        self.write_wiki_page(project, "README", "Project overview", "README.md", &readme)?;
+        // (title, relative_path) for every page except README — README is written last.
+        let mut toc: Vec<(String, String)> = Vec::new();
 
         // --- Models ---
         let mut by_model: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
@@ -235,6 +168,7 @@ impl WorkerPool {
             models.push_str(&format!("| `{model}` | {n} | {tin} | {tout} |\n"));
         }
         self.write_wiki_page(project, "models", "Models", "models.md", &models)?;
+        toc.push(("Models".into(), "models.md".into()));
 
         // --- Sessions ---
         let mut by_session: BTreeMap<String, Vec<&TrafficEvent>> = BTreeMap::new();
@@ -262,12 +196,14 @@ impl WorkerPool {
             sessions.push('\n');
         }
         self.write_wiki_page(project, "sessions", "Sessions", "sessions.md", &sessions)?;
+        toc.push(("Sessions".into(), "sessions.md".into()));
 
         // --- Topics (keyword buckets) ---
         let topics = cluster_topics(&recent);
         let mut topics_index = String::from("# Topics\n\nDerived from captured traffic keywords.\n\n");
         for (topic, events) in &topics {
             let slug = slugify(topic);
+            let rel = format!("topics/{slug}.md");
             topics_index.push_str(&format!(
                 "- [{topic}]({slug}.md) — {} events\n",
                 events.len()
@@ -280,9 +216,10 @@ impl WorkerPool {
                 project,
                 &format!("topics/{slug}"),
                 topic,
-                &format!("topics/{slug}.md"),
+                &rel,
                 &page,
             )?;
+            toc.push((topic.clone(), rel));
         }
         if topics.is_empty() {
             topics_index.push_str("\n_No topics yet — capture more traffic._\n");
@@ -294,6 +231,7 @@ impl WorkerPool {
             "topics/index.md",
             &topics_index,
         )?;
+        toc.push(("Topics".into(), "topics/index.md".into()));
 
         // --- Providers (any prox-supported id seen in traffic) ---
         let mut by_provider: BTreeMap<String, Vec<&TrafficEvent>> = BTreeMap::new();
@@ -303,6 +241,8 @@ impl WorkerPool {
         }
         for (name, events) in &by_provider {
             let slug = slugify(name);
+            let rel = format!("providers/{slug}.md");
+            let title = format!("{name} traffic");
             let mut body = format!("# {name}\n\n_{} recent events_\n\n", events.len());
             for e in events.iter().take(40) {
                 body.push_str(&format!("- {}\n", format_event_line(e)));
@@ -310,44 +250,97 @@ impl WorkerPool {
             self.write_wiki_page(
                 project,
                 &format!("providers/{slug}"),
-                &format!("{name} traffic"),
-                &format!("providers/{slug}.md"),
+                &title,
+                &rel,
                 &body,
             )?;
+            toc.push((title, rel));
         }
 
-        // --- Optional LLM overview via local proxy ---
+        // --- Optional LLM overview via local proxy (at most hourly, only on new traffic) ---
         if let Some(model) = cfg.wiki_model.as_deref() {
-            match self.generate_llm_overview(cfg, model, &recent, &totals).await {
-                Ok(markdown) => {
-                    self.write_wiki_page(
-                        project,
-                        "overview-llm",
-                        "LLM overview",
-                        "overview-llm.md",
-                        &markdown,
-                    )?;
-                    info!(model, "wiki worker wrote LLM overview");
+            let fingerprint = format!("{}:{}", totals.events, totals.tokens_in + totals.tokens_out);
+            let last_fp = self.meta.job_cursor("wiki_llm_fp").ok().flatten();
+            let last_at = self
+                .meta
+                .job_cursor("wiki_llm_at")
+                .ok()
+                .flatten()
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+                .map(|d| d.with_timezone(&Utc));
+            let stale_hour = last_at
+                .map(|t| Utc::now() - t > chrono::Duration::hours(1))
+                .unwrap_or(true);
+            let traffic_changed = last_fp.as_deref() != Some(fingerprint.as_str());
+            if traffic_changed && stale_hour && totals.events > 0 {
+                match self.generate_llm_overview(cfg, model, &recent, &totals).await {
+                    Ok(markdown) => {
+                        self.write_wiki_page(
+                            project,
+                            "overview-llm",
+                            "LLM overview",
+                            "overview-llm.md",
+                            &markdown,
+                        )?;
+                        toc.push(("LLM overview".into(), "overview-llm.md".into()));
+                        let _ = self.meta.set_job_cursor("wiki_llm_fp", &fingerprint);
+                        let _ = self
+                            .meta
+                            .set_job_cursor("wiki_llm_at", &Utc::now().to_rfc3339());
+                        info!(model, "wiki worker wrote LLM overview");
+                    }
+                    Err(err) => {
+                        warn!(?err, "wiki LLM overview skipped (proxy/model unavailable)");
+                    }
                 }
-                Err(err) => {
-                    warn!(?err, "wiki LLM overview skipped (proxy/model unavailable)");
-                    let fallback = format!(
-                        "# LLM overview\n\n_Could not reach the proxy model `{model}`._\n\n```\n{err:#}\n```\n\nEnable the proxy, sign in a provider account that serves this model, then wait for the next worker tick.\n"
-                    );
-                    self.write_wiki_page(
-                        project,
-                        "overview-llm",
-                        "LLM overview",
-                        "overview-llm.md",
-                        &fallback,
-                    )?;
-                }
+            } else if self
+                .paths
+                .wiki_dir()
+                .join(project)
+                .join("overview-llm.md")
+                .as_std_path()
+                .is_file()
+            {
+                toc.push(("LLM overview".into(), "overview-llm.md".into()));
             }
         }
 
+        // Stable TOC order: path sort so every file is listed once.
+        toc.sort_by(|a, b| a.1.cmp(&b.1));
+        toc.dedup_by(|a, b| a.1 == b.1);
+
+        // --- README overview (last) with full table of contents ---
+        let mut readme = String::new();
+        readme.push_str("# Rivet project wiki\n\n");
+        readme.push_str(&format!(
+            "_Auto-updated {} by the wiki worker_\n\n",
+            Utc::now().format("%Y-%m-%d %H:%M UTC")
+        ));
+        readme.push_str("## Traffic snapshot\n\n");
+        readme.push_str(&format!(
+            "- Events: **{}**\n- Tokens in: **{}**\n- Tokens out: **{}**\n- Embeddings: **{}**\n\n",
+            totals.events,
+            totals.tokens_in,
+            totals.tokens_out,
+            self.meta.embedding_count().unwrap_or(0)
+        ));
+        readme.push_str("## Table of contents\n\n");
+        if toc.is_empty() {
+            readme.push_str("_No pages yet — capture traffic to populate this wiki._\n");
+        } else {
+            for (title, rel) in &toc {
+                readme.push_str(&format!("- [{title}]({rel})\n"));
+            }
+        }
+        readme.push_str("\n## Recent captures\n\n");
+        for event in recent.iter().take(20) {
+            readme.push_str(&format!("- {}\n", format_event_line(event)));
+        }
+        self.write_wiki_page(project, "README", "Project overview", "README.md", &readme)?;
+
         self.meta
             .set_job_cursor("wiki", &Utc::now().to_rfc3339())?;
-        debug!(project, "wiki worker upserted pages");
+        debug!(project, pages = toc.len() + 1, "wiki worker upserted pages");
         Ok(())
     }
 
@@ -378,6 +371,7 @@ impl WorkerPool {
             .http
             .post(&url)
             .bearer_auth(&cfg.proxy_access_key)
+            .header("X-Rivet-Internal", "wiki-worker")
             .json(&json!({
                 "model": model,
                 "temperature": 0.2,

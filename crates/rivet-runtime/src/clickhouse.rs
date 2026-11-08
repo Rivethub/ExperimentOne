@@ -7,7 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
-use rivet_core::{RivetConfig, RivetPaths};
+use rivet_core::{exe_name, sidecar_file_name, which_bin, RivetConfig, RivetPaths};
 use tracing::{info, warn};
 
 pub struct ClickHouseSupervisor {
@@ -38,15 +38,17 @@ impl ClickHouseSupervisor {
             }
         }
 
-        let triple = target_triple();
-        let named = format!("clickhouse-{triple}");
+        let named = sidecar_file_name("clickhouse");
+        let plain = exe_name("clickhouse");
 
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 for candidate in [
                     dir.join(&named),
+                    dir.join(&plain),
                     dir.join("clickhouse"),
                     dir.join("binaries").join(&named),
+                    dir.join("binaries").join(&plain),
                 ] {
                     if candidate.is_file() {
                         return Some(candidate);
@@ -60,14 +62,18 @@ impl ClickHouseSupervisor {
             manifest
                 .join("../../apps/desktop/src-tauri/binaries")
                 .join(&named),
+            manifest
+                .join("../../apps/desktop/src-tauri/binaries")
+                .join(&plain),
             PathBuf::from("/tmp/rivet-clickhouse"),
+            PathBuf::from("/tmp/rivet-clickhouse.exe"),
         ] {
             if candidate.is_file() {
                 return Some(candidate);
             }
         }
 
-        which("clickhouse")
+        which_bin("clickhouse")
     }
 
     pub fn is_available() -> bool {
@@ -85,11 +91,13 @@ impl ClickHouseSupervisor {
                 Ok(Some(status)) => {
                     warn!(?status, "clickhouse sidecar exited");
                     *slot = None;
+                    crate::pids::clear_clickhouse_pid(&self.paths);
                     false
                 }
                 Ok(None) => true,
                 Err(_) => {
                     *slot = None;
+                    crate::pids::clear_clickhouse_pid(&self.paths);
                     false
                 }
             }
@@ -130,6 +138,7 @@ impl ClickHouseSupervisor {
             .spawn()
             .with_context(|| format!("spawn clickhouse {}", bin.display()))?;
         info!(path = %bin.display(), pid = child.id(), "clickhouse sidecar started");
+        crate::pids::write_clickhouse_pid(&self.paths, child.id());
         *slot = Some(child);
         drop(slot);
 
@@ -155,9 +164,28 @@ impl ClickHouseSupervisor {
         let mut slot = self.child.lock().expect("ch child lock");
         if let Some(mut child) = slot.take() {
             let pid = child.id();
+            #[cfg(unix)]
+            {
+                let _ = Command::new("kill")
+                    .args(["-TERM", &format!("-{pid}")])
+                    .status();
+                thread::sleep(Duration::from_millis(200));
+                let _ = Command::new("kill")
+                    .args(["-KILL", &format!("-{pid}")])
+                    .status();
+            }
+            #[cfg(windows)]
+            {
+                let _ = Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
             let _ = child.kill();
             let _ = child.wait();
             info!(pid, "clickhouse sidecar stopped");
+            crate::pids::clear_clickhouse_pid_if_ours(&self.paths, pid);
         }
         Ok(())
     }
@@ -236,49 +264,6 @@ pub fn write_clickhouse_config(paths: &RivetPaths, config: &RivetConfig) -> Resu
     );
     std::fs::write(paths.clickhouse_config_file().as_std_path(), xml)?;
     Ok(())
-}
-
-fn which(bin: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        for dir in std::env::split_paths(&paths) {
-            let p = dir.join(bin);
-            if p.is_file() {
-                return Some(p);
-            }
-        }
-        None
-    })
-}
-
-fn target_triple() -> &'static str {
-    if let Some(t) = option_env!("TARGET") {
-        return t;
-    }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        "aarch64-apple-darwin"
-    }
-    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-    {
-        "x86_64-apple-darwin"
-    }
-    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    {
-        "x86_64-unknown-linux-gnu"
-    }
-    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-    {
-        "aarch64-unknown-linux-gnu"
-    }
-    #[cfg(not(any(
-        all(target_os = "macos", target_arch = "aarch64"),
-        all(target_os = "macos", target_arch = "x86_64"),
-        all(target_os = "linux", target_arch = "x86_64"),
-        all(target_os = "linux", target_arch = "aarch64"),
-    )))]
-    {
-        "unknown"
-    }
 }
 
 fn port_open(port: u16) -> bool {

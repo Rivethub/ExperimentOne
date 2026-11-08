@@ -27,8 +27,24 @@ fn rules() -> &'static [Rule] {
                 true,
             ),
             (r"\b(sk-proj-[A-Za-z0-9\-_]{10,})\b", false),
+            (r"\b(sk-ant-[A-Za-z0-9\-_]{10,})\b", false),
             (r"\b(sk-[A-Za-z0-9]{10,})\b", false),
+            (r"\b(xai-[A-Za-z0-9]{20,})\b", false),
+            (r"\b(gsk_[A-Za-z0-9]{20,})\b", false),
+            (r"\b(AIza[A-Za-z0-9_\-]{20,})\b", false),
+            (r"\b(ghp_[A-Za-z0-9]{20,})\b", false),
+            (r"\b(gho_[A-Za-z0-9]{20,})\b", false),
+            (r"\b(github_pat_[A-Za-z0-9_]{20,})\b", false),
+            (r"\b(AKIA[A-Z0-9]{16})\b", false),
             (r"\b(rivet_[a-f0-9]{20,})\b", false),
+            (
+                r#"(?i)("(?:access_token|refresh_token|id_token|client_secret)"\s*:\s*")[^"]+"#,
+                true,
+            ),
+            (
+                r"(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+                false,
+            ),
             (r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b", false),
         ]
         .into_iter()
@@ -72,5 +88,13 @@ mod tests {
         assert!(s.contains("[REDACTED]"));
         assert!(!s.contains("sk-abc"));
         assert!(!s.contains("rivet_0fc42"));
+    }
+
+    #[test]
+    fn redacts_structured_oauth_fields() {
+        let s = redact_text(r#"{"refresh_token":"secret-refresh-value","access_token":"tok"}"#);
+        assert!(s.contains("[REDACTED]"));
+        assert!(!s.contains("secret-refresh"));
+        assert!(!s.contains("\"tok\""));
     }
 }

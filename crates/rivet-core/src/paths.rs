@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use camino::{Utf8Path, Utf8PathBuf};
 
-/// On-disk layout under Application Support (macOS) / XDG (others).
+/// On-disk layout: Application Support (macOS) / XDG data (Linux) / `%APPDATA%` (Windows).
 #[derive(Debug, Clone)]
 pub struct RivetPaths {
     pub root: Utf8PathBuf,
@@ -9,6 +9,11 @@ pub struct RivetPaths {
 
 impl RivetPaths {
     pub fn discover() -> Result<Self> {
+        if let Ok(explicit) = std::env::var("RIVET_DATA_DIR") {
+            let root = Utf8PathBuf::from_path_buf(std::path::PathBuf::from(explicit))
+                .map_err(|_| anyhow::anyhow!("RIVET_DATA_DIR is not utf-8"))?;
+            return Ok(Self { root });
+        }
         let base = dirs::data_dir().context("no data dir")?;
         let root = Utf8PathBuf::from_path_buf(base.join("Rivet"))
             .map_err(|_| anyhow::anyhow!("data dir is not utf-8"))?;
@@ -31,6 +36,7 @@ impl RivetPaths {
             self.wiki_dir().as_std_path(),
             self.harness_claude_dir().as_std_path(),
             self.harness_codex_dir().as_std_path(),
+            self.pid_dir().as_std_path(),
         ] {
             std::fs::create_dir_all(p)?;
         }
@@ -109,6 +115,22 @@ impl RivetPaths {
 
     pub fn ingest_sock(&self) -> Utf8PathBuf {
         self.root.join("ingest.sock")
+    }
+
+    pub fn pid_dir(&self) -> Utf8PathBuf {
+        self.root.join("pids")
+    }
+
+    pub fn proxy_pid_file(&self) -> Utf8PathBuf {
+        self.pid_dir().join("rivet-proxy.pid")
+    }
+
+    pub fn clickhouse_pid_file(&self) -> Utf8PathBuf {
+        self.pid_dir().join("clickhouse.pid")
+    }
+
+    pub fn rivetd_pid_file(&self) -> Utf8PathBuf {
+        self.pid_dir().join("rivetd.pid")
     }
 
     pub fn as_root(&self) -> &Utf8Path {

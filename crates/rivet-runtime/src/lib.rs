@@ -1,6 +1,7 @@
 //! Boots the local Rivet control plane and supervises proxy + ClickHouse sidecars.
 
 mod clickhouse;
+mod pids;
 mod proxy;
 
 use std::net::SocketAddr;
@@ -24,12 +25,30 @@ pub struct Runtime {
     pub stores: LocalStores,
     pub proxy: Arc<ProxySupervisor>,
     pub clickhouse: Arc<ClickHouseSupervisor>,
+    /// Held for process lifetime so a second rivetd cannot claim the instance.
+    _instance_lock: rivet_core::pids::InstanceLock,
 }
 
 impl Runtime {
     pub fn bootstrap() -> Result<Self> {
         let paths = rivet_core::RivetPaths::discover()?;
         paths.ensure()?;
+        // Lock before mutating config / writing pidfiles so a twin cannot race.
+        let instance_lock = pids::try_acquire_rivetd_lock(&paths)?;
+        pids::write_rivetd_pid(&paths);
+        match Self::bootstrap_after_pid(paths.clone(), instance_lock) {
+            Ok(rt) => Ok(rt),
+            Err(err) => {
+                pids::clear_rivetd_pid(&paths);
+                Err(err)
+            }
+        }
+    }
+
+    fn bootstrap_after_pid(
+        paths: rivet_core::RivetPaths,
+        instance_lock: rivet_core::pids::InstanceLock,
+    ) -> Result<Self> {
         ensure_wiki_seed(&paths)?;
         let mut config = rivet_core::RivetConfig::load_or_init(&paths)?;
         if let Some(new_port) = config.ensure_available_proxy_port(&paths)? {
@@ -47,10 +66,18 @@ impl Runtime {
             stores,
             proxy,
             clickhouse,
+            _instance_lock: instance_lock,
         })
     }
 
     pub async fn run(self) -> Result<()> {
+        let paths = self.paths.clone();
+        let result = self.run_inner().await;
+        pids::clear_rivetd_pid(&paths);
+        result
+    }
+
+    async fn run_inner(self) -> Result<()> {
         match self.proxy.start() {
             Ok(()) => info!("proxy sidecar ready"),
             Err(err) => {
@@ -98,6 +125,7 @@ impl Runtime {
             self.paths.clone(),
             config.clone(),
         ));
+        let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let api_state = ApiState {
             config: config.clone(),
             store: store.clone(),
@@ -106,9 +134,11 @@ impl Runtime {
             meta: meta.clone(),
             traffic_backend,
             workers: Some(worker.clone()),
+            shutdown: shutdown_tx,
         };
         let ingest_state = IngestState {
             store: store.clone(),
+            ingest_key: self.config.proxy_access_key.clone(),
         };
 
         let mcp_state = McpState {
@@ -139,11 +169,53 @@ impl Runtime {
         info!(%api_addr, "rivet control+ingest listening");
         info!(%mcp_addr, "rivet mcp listening");
 
+        let proxy = self.proxy.clone();
+        let clickhouse = self.clickhouse.clone();
+        let mut api_shutdown_rx = shutdown_rx;
+        let shutdown = async move {
+            tokio::select! {
+                _ = wait_for_shutdown_signal() => {}
+                _ = async {
+                    loop {
+                        if *api_shutdown_rx.borrow() {
+                            break;
+                        }
+                        if api_shutdown_rx.changed().await.is_err() {
+                            break;
+                        }
+                    }
+                } => {}
+            }
+        };
+
+        let serve_result = tokio::select! {
+            res = axum::serve(api_listener, merged) => res.context("api serve"),
+            res = rivet_mcp::serve(mcp_addr, mcp_state) => res.context("mcp serve"),
+            _ = shutdown => {
+                info!("shutdown signaled — stopping sidecars");
+                Ok(())
+            }
+        };
+        let _ = proxy.stop();
+        let _ = clickhouse.stop();
+        serve_result
+    }
+}
+
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut sigterm = signal(SignalKind::terminate()).expect("SIGTERM handler");
+        let mut sigint = signal(SignalKind::interrupt()).expect("SIGINT handler");
         tokio::select! {
-            res = axum::serve(api_listener, merged) => res.context("api serve")?,
-            res = rivet_mcp::serve(mcp_addr, mcp_state) => res.context("mcp serve")?,
+            _ = sigterm.recv() => {}
+            _ = sigint.recv() => {}
         }
-        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
     }
 }
 
