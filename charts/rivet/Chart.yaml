@@ -1,6 +1,6 @@
 apiVersion: v2
 name: rivet
-description: Rivet enterprise stack — control plane, proxy, ClickHouse, workers, MCP
+description: Rivet enterprise stack — control plane, proxy, ClickHouse, NATS, workers, MCP
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
@@ -9,6 +9,7 @@ keywords:
   - proxy
   - traffic
   - clickhouse
+  - nats
 maintainers:
   - name: Rivet
 dependencies:
@@ -18,3 +19,9 @@ dependencies:
     version: 0.3.13
     repository: https://helm.altinity.com
     condition: clickhouse.enabled
+  # Official NATS chart (JetStream StatefulSet). Prefer this over the legacy
+  # nats-operator, which has no JetStream support. Extend via `nats:` values.
+  - name: nats
+    version: 2.15.2
+    repository: https://nats-io.github.io/k8s/helm/charts/
+    condition: nats.enabled

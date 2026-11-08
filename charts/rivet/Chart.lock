@@ -2,5 +2,8 @@ dependencies:
 - name: clickhouse
   repository: https://helm.altinity.com
   version: 0.3.13
-digest: sha256:291ca50ae12f9020a8680c04b75bc9e25c8e7cd25e0c46bbb2ce18367f56d086
-generated: "2026-11-08T07:21:17.289004-08:00"
+- name: nats
+  repository: https://nats-io.github.io/k8s/helm/charts/
+  version: 2.15.2
+digest: sha256:961606d44dc663c4b0ab119ed0ae995b46610a2df65a3a58ab618f5a5bd5b248
+generated: "2026-11-08T15:39:16.83063-08:00"
