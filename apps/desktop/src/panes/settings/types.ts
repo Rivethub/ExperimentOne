@@ -42,6 +42,7 @@ export type SettingsHarnessProps = {
   onLoadCodex: () => void;
   onLoadMcp: () => void;
   onCopyText: (text: string) => void;
+  onIngestLocal: () => void;
 };
 
 export type SettingsPaneProps = {

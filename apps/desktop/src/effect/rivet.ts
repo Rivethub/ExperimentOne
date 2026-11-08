@@ -8,6 +8,7 @@ import type {
   ConversationSearchResponse,
   ConversationSummary,
   HarnessWrite,
+  LocalIngestReport,
   LoginStatus,
   QuotaHistory,
   QuotaSnapshot,
@@ -105,6 +106,16 @@ export const tickWorkers = apiJson<{ embeddings?: number; wiki_pages?: number }>
 export const exportBag = apiJson<BagResult & { error?: string }>("POST", "/v1/export");
 export const importBag = (path: string): ApiFx<BagResult & { error?: string }> =>
   apiJson<BagResult & { error?: string }>("POST", "/v1/import", { path });
+export const ingestLocal = (
+  body: {
+    sources?: string[];
+    claude_root?: string;
+    codex_root?: string;
+    dry_run?: boolean;
+    limit?: number;
+  } = {},
+): ApiFx<LocalIngestReport & { error?: string }> =>
+  apiJson<LocalIngestReport & { error?: string }>("POST", "/v1/ingest/local", body);
 
 export const getProxyLog = (lines = 80): ApiFx<SoftHttpResult> =>
   apiResult("GET", `/v1/logs/proxy?lines=${lines}`);

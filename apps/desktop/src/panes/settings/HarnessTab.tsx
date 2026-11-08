@@ -18,12 +18,40 @@ export function HarnessTab({
       title="Harness (advanced)"
       lede={
         <>
-          One-click setup lives on each Claude / Codex account. This tab is for copying snippets or
-          writing an isolated Rivet config dir (default installs stay untouched; set{" "}
-          <code>CLAUDE_CONFIG_DIR</code> / <code>CODEX_HOME</code>).
+          One-click setup lives on each Claude / Codex account. This tab is for copying snippets,
+          writing an isolated Rivet config dir, and climbing the capture ladder (proxy → full bodies
+          → local transcript import).
         </>
       }
     >
+      <div className={styles.settingsFields} style={{ marginBottom: 16 }}>
+        <strong>Capture ladder</strong>
+        <p className={styles.muted} style={{ marginTop: 4, marginBottom: 8 }}>
+          Higher rungs add fidelity. Live proxy traffic is always preferred over imports where they
+          overlap. Capture stores cwd/bodies as signals and sets `project_id` only on hard evidence
+          (explicit field/header or harness {"projects/<id>/"} key) — workers fill the rest.
+        </p>
+        <Kv>
+          <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />
+          <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
+          <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
+          <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
+          <KvRow label="L4 Import" value="Claude / Codex / Cursor transcripts already on disk" />
+          <KvRow label="Project" value="Hard evidence only; cwd is a signal for workers" />
+        </Kv>
+        <Actions style={{ marginTop: 8 }}>
+          <Button
+            variant="primary"
+            disabled={harness.busy}
+            onClick={() => {
+              harness.onIngestLocal();
+            }}
+          >
+            Import local sessions
+          </Button>
+        </Actions>
+      </div>
+
       <Actions>
         <Button
           variant="primary"

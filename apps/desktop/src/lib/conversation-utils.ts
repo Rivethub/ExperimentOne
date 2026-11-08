@@ -81,11 +81,13 @@ export function conversationsFromEvents(
       provider: acc.last.provider,
       model: acc.last.model,
       project_id: acc.last.project_id,
+      cwd: acc.last.cwd,
       started_at: acc.first.ts,
       updated_at: acc.last.ts,
       message_count: acc.message_count,
       tokens_in: acc.tokens_in,
       tokens_out: acc.tokens_out,
+      capture_quality: acc.last.capture_quality ?? null,
     };
   });
   out.sort((a, b) => +new Date(b.updated_at) - +new Date(a.updated_at));

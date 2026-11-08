@@ -48,6 +48,20 @@ export type BagResult = {
   schema_version?: number;
 };
 
+export type LocalIngestReport = {
+  dry_run: boolean;
+  files_scanned: number;
+  events_parsed: number;
+  events_inserted: number;
+  events_skipped_existing: number;
+  sources: Array<{
+    source: string;
+    root: string;
+    files_scanned: number;
+    events_parsed: number;
+  }>;
+};
+
 export type Account = {
   id: string;
   provider: string;
@@ -121,7 +135,14 @@ export type TrafficEvent = {
   account_label?: string | null;
   latency_ms?: number | null;
   session_id?: string | null;
+  /** Hard-evidence project id (explicit field/header or harness projects/<id> key). */
   project_id?: string | null;
+  /** Captured working-directory signal — not promoted to project_id alone. */
+  cwd?: string | null;
+  /** Relative path under Rivet blobs/ when full body was spilled. */
+  body_ref?: string | null;
+  /** `wire` | `soft` | `imported` */
+  capture_quality?: "wire" | "soft" | "imported" | null;
 };
 
 export type ConversationSummary = {
@@ -131,11 +152,13 @@ export type ConversationSummary = {
   provider: string;
   model?: string | null;
   project_id?: string | null;
+  cwd?: string | null;
   started_at: string;
   updated_at: string;
   message_count: number;
   tokens_in: number;
   tokens_out: number;
+  capture_quality?: "wire" | "soft" | "imported" | null;
 };
 
 export type ConversationSearchResponse = {

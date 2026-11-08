@@ -28,6 +28,7 @@ export type AppTopbarDataActions = {
   canRevealExport: boolean;
   onExport: () => void;
   onImport: () => void;
+  onIngestLocal: () => void;
   onRevealExport: () => void;
 };
 
@@ -137,6 +138,18 @@ export function AppTopbar({
                   }}
                 >
                   Import .rivetbag
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.topMenuItem}
+                  disabled={busy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    data.onIngestLocal();
+                  }}
+                >
+                  Import local sessions
                 </button>
                 <button
                   type="button"

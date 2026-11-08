@@ -177,6 +177,19 @@ pub struct ImportRequest {
     pub path: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LocalIngestRequest {
+    /// `claude`, `codex`, `cursor`, or omit / empty for all.
+    #[serde(default)]
+    pub sources: Vec<String>,
+    pub claude_root: Option<String>,
+    pub codex_root: Option<String>,
+    pub cursor_root: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+    pub limit: Option<usize>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ExportResponse {
     pub path: String,
@@ -393,6 +406,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/quota/refresh", post(quota_refresh))
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
+        .route("/v1/ingest/local", post(ingest_local))
         .route("/v1/workers/tick", post(workers_tick))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_api_key));
 
@@ -576,12 +590,14 @@ async fn conversation_events(
     if id.trim().is_empty() {
         return Ok(Json(Vec::new()));
     }
-    state
+    let mut events = state
         .store
         .conversation_events(&id, limit)
         .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Expand spilled full bodies so the transcript UI is not limited to the preview.
+    rivet_core::hydrate_events(&state.paths, &mut events);
+    Ok(Json(events))
 }
 
 async fn search_conversations(
@@ -803,6 +819,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "codex-work".into()
         });
         ev.session_id = Some(format!("demo-session-{}", i / 4));
+        ev.capture_quality = Some(rivet_core::CaptureQuality::Wire);
         out.push(ev);
     }
     out
@@ -1112,9 +1129,13 @@ async fn export_bag(
     state.paths.ensure().map_err(|e| err_response(e.to_string()))?;
     let name = format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"));
     let path = state.paths.exports_dir().join(&name);
-    let manifest = rivet_export::export_bag(state.store.clone(), path.as_std_path())
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    let manifest = rivet_export::export_bag_with_paths(
+        state.store.clone(),
+        path.as_std_path(),
+        Some(&state.paths),
+    )
+    .await
+    .map_err(|e| err_response(e.to_string()))?;
     Ok(Json(ExportResponse {
         path: path.to_string(),
         event_count: manifest.event_count,
@@ -1145,6 +1166,35 @@ async fn import_bag(
         event_count: manifest.event_count,
         schema_version: manifest.schema_version,
     }))
+}
+
+async fn ingest_local(
+    State(state): State<ApiState>,
+    Json(body): Json<LocalIngestRequest>,
+) -> Result<Json<rivet_export::LocalIngestReport>, (StatusCode, Json<ErrBody>)> {
+    let mut sources = Vec::new();
+    for raw in &body.sources {
+        match rivet_export::LocalSource::parse(raw) {
+            Some(s) => sources.push(s),
+            None => {
+                return Err(err_response(format!(
+                    "unknown source {raw:?} (expected claude, codex, or cursor)"
+                )));
+            },
+        }
+    }
+    let opts = rivet_export::LocalIngestOptions {
+        sources,
+        claude_root: body.claude_root.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        codex_root: body.codex_root.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        cursor_root: body.cursor_root.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        dry_run: body.dry_run,
+        limit: body.limit,
+    };
+    rivet_export::ingest_local(state.store.clone(), opts)
+        .await
+        .map(Json)
+        .map_err(|e| err_response(e.to_string()))
 }
 
 #[derive(Serialize)]

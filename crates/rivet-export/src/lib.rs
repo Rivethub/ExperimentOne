@@ -1,5 +1,13 @@
 //! `.rivetbag` = tar + gzip of traffic JSON (+ optional wiki/embeddings later).
+//! Also imports local Claude Code / Codex / Cursor transcripts already on disk.
 //! Never includes OAuth, API keys, or proxy access secrets.
+
+mod harness_ingest;
+
+pub use harness_ingest::{
+    default_claude_projects_root, default_codex_sessions_root, default_cursor_projects_root,
+    ingest_local, LocalIngestOptions, LocalIngestReport, LocalSource, LocalSourceReport,
+};
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -16,7 +24,19 @@ use rivet_store::TrafficStore;
 use tar::{Archive, Builder};
 
 pub async fn export_bag(store: Arc<dyn TrafficStore>, out_path: &Path) -> Result<ExportManifest> {
-    let events = store.export_all().await?;
+    export_bag_with_paths(store, out_path, None).await
+}
+
+/// Export traffic; when `paths` is set, hydrate `body_ref` blobs into `content` first.
+pub async fn export_bag_with_paths(
+    store: Arc<dyn TrafficStore>,
+    out_path: &Path,
+    paths: Option<&rivet_core::RivetPaths>,
+) -> Result<ExportManifest> {
+    let mut events = store.export_all().await?;
+    if let Some(paths) = paths {
+        rivet_core::hydrate_events(paths, &mut events);
+    }
     let manifest = ExportManifest {
         schema_version: ExportManifest::SCHEMA_VERSION,
         created_at: Utc::now(),

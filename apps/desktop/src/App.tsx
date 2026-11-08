@@ -240,6 +240,7 @@ export default function App() {
                   canRevealExport: !!ops.bagPath,
                   onExport: () => void ops.exportBag(),
                   onImport: () => void ops.importBag(),
+                  onIngestLocal: () => void ops.ingestLocal(),
                   onRevealExport: () => void ops.revealExport(),
                 }
               : undefined
@@ -366,6 +367,7 @@ export default function App() {
               onLoadCodex: () => void accountsHook.loadCodex(),
               onLoadMcp: () => void accountsHook.loadMcp(),
               onCopyText: (t) => void ops.copyText(t),
+              onIngestLocal: () => void ops.ingestLocal(),
             }}
           />
         </div>

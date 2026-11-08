@@ -3,6 +3,7 @@
 //! "Traffic" / exportable tokens = prompts, completions, usage, session metadata.
 //! Credentials and OAuth blobs are never part of export packages.
 
+mod blobs;
 mod config;
 pub mod control_ipc;
 mod embed;
@@ -16,6 +17,7 @@ mod proxy_config;
 mod redact;
 mod traffic;
 
+pub use blobs::{hydrate_event_content, hydrate_events, read_body_ref, resolve_body_ref};
 pub use config::{localhost_port_free, Capabilities, RivetConfig};
 pub use control_ipc::{control_endpoint, control_request, control_up, ControlIpcResponse};
 pub use embed::{cosine, lexical_embed, LEXICAL_EMBED_DIMS, LEXICAL_SPACE};
@@ -38,6 +40,6 @@ pub use proxy_config::{
 };
 pub use redact::{redact_event, redact_text};
 pub use traffic::{
-    conversations_from_events, ConversationSummary, ExportManifest, ProviderKind, TrafficEvent,
-    TrafficRole, UsageTotals,
+    conversations_from_events, CaptureQuality, ConversationSummary, ExportManifest, ProviderKind,
+    TrafficEvent, TrafficRole, UsageTotals,
 };
