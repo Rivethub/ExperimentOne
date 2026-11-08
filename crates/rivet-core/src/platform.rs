@@ -155,7 +155,10 @@ mod tests {
         let name = sidecar_file_name("rivetd");
         assert!(name.contains(target_triple()), "{name}");
         #[cfg(windows)]
-        assert!(name.ends_with(".exe"), "{name}");
+        assert!(
+            Path::new(&name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")),
+            "{name}"
+        );
         #[cfg(not(windows))]
         assert!(
             !Path::new(&name).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("exe")),
