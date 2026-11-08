@@ -259,11 +259,7 @@ impl ClickHouseTrafficStore {
     ) -> Result<Vec<EmbeddingSearchHit>> {
         let limit = limit.clamp(1, 5000);
         if space == LEXICAL_SPACE && query_dims.len() != LEXICAL_EMBED_DIMS {
-            bail!(
-                "lexical query dims {} != expected {}",
-                query_dims.len(),
-                LEXICAL_EMBED_DIMS
-            );
+            bail!("lexical query dims {} != expected {}", query_dims.len(), LEXICAL_EMBED_DIMS);
         }
         let space_lit = Self::escape_literal(space);
         let q = format_f32_array(query_dims);

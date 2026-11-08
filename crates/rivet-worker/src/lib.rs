@@ -143,7 +143,12 @@ impl WorkerPool {
 
         let n = self.ch.upsert_embeddings_batch(LEXICAL_SPACE, &batch).await?;
         if n > 0 {
-            info!(n, mode = "lexical", backend = "clickhouse-hnsw", "vector worker embedded events");
+            info!(
+                n,
+                mode = "lexical",
+                backend = "clickhouse-hnsw",
+                "vector worker embedded events"
+            );
         }
         self.meta.set_job_cursor("vectorize", &Utc::now().to_rfc3339())?;
         Ok(())

@@ -154,8 +154,7 @@ impl Runtime {
         let ingest_state =
             IngestState { store: store.clone(), ingest_key: self.config.proxy_access_key.clone() };
 
-        let mcp_state =
-            McpState { store: store.clone(), ch: ch.clone(), config: config.clone() };
+        let mcp_state = McpState { store: store.clone(), ch: ch.clone(), config: config.clone() };
 
         let _worker_handles = worker.spawn();
 
