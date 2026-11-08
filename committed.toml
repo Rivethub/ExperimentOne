@@ -28,6 +28,7 @@ allowed_scopes = [
   "cli",
   "ci",
   "core",
+  "deps",
   "desktop",
   "docs",
   "export",
