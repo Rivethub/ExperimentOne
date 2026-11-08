@@ -42,6 +42,7 @@ impl Runtime {
         let paths = rivet_core::RivetPaths::discover()?;
         paths.ensure()?;
         // Lock before mutating config / writing pidfiles so a twin cannot race.
+        // MetaStore is process-local only — do not share the data dir across rivetd processes.
         let instance_lock = pids::try_acquire_rivetd_lock(&paths)?;
         pids::write_rivetd_pid(&paths);
         match Self::bootstrap_after_pid(paths.clone(), instance_lock) {
@@ -152,15 +153,6 @@ impl Runtime {
         }
 
         let meta = self.stores.meta.clone();
-        match meta.take_legacy_embeddings() {
-            Ok(legacy) if !legacy.is_empty() => {
-                if let Err(err) = ch.import_legacy_embeddings(&legacy).await {
-                    tracing::warn!(?err, "legacy embeddings.json migration failed");
-                }
-            },
-            Ok(_) => {},
-            Err(err) => tracing::warn!(?err, "failed reading legacy embeddings.json"),
-        }
 
         let config = Arc::new(RwLock::new(self.config.clone()));
         let live = LiveBus::new(256);
@@ -192,6 +184,13 @@ impl Runtime {
             live: live.clone(),
             shutdown: shutdown_tx,
         };
+
+        let worker_role = rivet_store::WorkerRole::from_env();
+        info!(
+            role = worker_role.as_str(),
+            "spawning role-isolated NATS job workers (RIVET_WORKER_ROLE=all|embed|compact|wiki|none)"
+        );
+        let _worker_handles = worker.spawn();
         let ingest_state = IngestState {
             store: store.clone(),
             ingest_key: self.config.proxy_access_key.clone(),
@@ -207,13 +206,6 @@ impl Runtime {
             meta: meta.clone(),
             paths: self.paths.clone(),
         };
-
-        let worker_role = rivet_store::WorkerRole::from_env();
-        info!(
-            role = worker_role.as_str(),
-            "spawning role-isolated NATS job workers (set RIVET_WORKER_ROLE=embed|compact|wiki for Helm splits)"
-        );
-        let _worker_handles = worker.spawn();
 
         // Keep the proxy up if the user/boot asked for it.
         let proxy_watch = self.proxy.clone();

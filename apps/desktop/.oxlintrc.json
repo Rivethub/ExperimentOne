@@ -113,7 +113,7 @@
       }
     },
     {
-      "files": ["src/effect/ipc.ts", "src/lib/api.ts"],
+      "files": ["src/effect/ipc.ts"],
       "rules": {
         "de-clank/no-unvalidated-json-parse": "off",
         "typescript/no-unsafe-type-assertion": "off",
@@ -200,12 +200,7 @@
       "warn",
       {
         "allowBoundaryFunctions": true,
-        "allowedFilePatterns": [
-          "/src/effect/ipc\\.ts$",
-          "/src/lib/api\\.ts$",
-          "/src/mock/",
-          "/src/lib/tauri-utils\\.ts$"
-        ]
+        "allowedFilePatterns": ["/src/effect/ipc\\.ts$", "/src/mock/", "/src/lib/tauri-utils\\.ts$"]
       }
     ],
     "de-clank/no-unknown-returns": "warn",

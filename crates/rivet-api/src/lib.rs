@@ -29,10 +29,10 @@ use chrono::{Duration, Utc};
 use rivet_core::{
     age_days_since, assemble_startup_memory_with_workspace, claude_mcp_json, claude_settings_json,
     codex_config_toml, conversations_from_events, harness_user_ready, hydrate_event_content,
-    lexical_embed, load_workspace_memory, localhost_port_free, migrate_claude_connector_auth,
-    normalize_event_turns, project_id_from_cwd, provider_catalog, recency_boost,
-    resolve_project_root, Capabilities, ConversationSummary, LiveBus, ProviderKind, RivetConfig,
-    RivetPaths, TrafficEvent, TrafficRole, UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
+    lexical_embed, load_workspace_memory, localhost_port_free, normalize_event_turns,
+    project_id_from_cwd, provider_catalog, recency_boost, resolve_project_root, Capabilities,
+    ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole,
+    UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
 };
 use rivet_store::{
     fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseTrafficStore,
@@ -527,7 +527,6 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         embedding_model,
         wiki_model,
         wiki_project_id,
-        cfg_for_migrate,
     ) = {
         let cfg = state.config.read().await;
         let key = &cfg.proxy_access_key;
@@ -545,7 +544,6 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             cfg.embedding_model.clone(),
             cfg.wiki_model.clone(),
             cfg.wiki_project_id.clone(),
-            cfg.clone(),
         )
     };
     let account_count = state.control.list_accounts().map_or(0, |a| a.len() as u64);
@@ -555,10 +553,6 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             "Proxy port {proxy_port} is already in use by another process — stop it or change proxy_port in config.json"
         ));
     }
-    // Strip leftover ANTHROPIC_AUTH_TOKEN from earlier Rivet installs so Claude
-    // Code keeps claude.ai connectors enabled.
-    let isolated_claude = state.paths.harness_claude_dir().join("settings.json");
-    let _ = migrate_claude_connector_auth(&cfg_for_migrate, Some(isolated_claude.as_std_path()));
     let harness_ready = harness_user_ready()
         || state.paths.harness_claude_dir().join("settings.json").exists()
         || state.paths.harness_codex_dir().join("config.toml").exists();

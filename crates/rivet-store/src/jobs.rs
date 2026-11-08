@@ -15,6 +15,8 @@ pub enum WorkerRole {
     Wiki,
     /// Desktop default: run every role in-process as isolated loops.
     All,
+    /// API-only process: no NATS job consumers (Helm control plane when workers are split out).
+    None,
 }
 
 impl WorkerRole {
@@ -24,6 +26,7 @@ impl WorkerRole {
             Self::Compact => "compact",
             Self::Wiki => "wiki",
             Self::All => "all",
+            Self::None => "none",
         }
     }
 
@@ -32,6 +35,7 @@ impl WorkerRole {
             "embed" => Self::Embed,
             "compact" => Self::Compact,
             "wiki" => Self::Wiki,
+            "none" | "off" | "api" => Self::None,
             _ => Self::All,
         }
     }
@@ -72,6 +76,7 @@ impl WorkerRole {
                 TASK_CONSOLIDATE_WIKI,
                 TASK_RECOMPILE_WIKI,
             ],
+            Self::None => &[],
         }
     }
 }
@@ -268,6 +273,9 @@ mod tests {
         assert!(WorkerRole::Compact.tasks().contains(&TASK_COMPACT_SESSION));
         assert!(WorkerRole::Wiki.tasks().contains(&TASK_UPSERT_TOPICS));
         assert_eq!(WorkerRole::All.tasks().len(), 12);
+        assert_eq!(WorkerRole::None.tasks().len(), 0);
+        assert_eq!(WorkerRole::parse("none"), WorkerRole::None);
+        assert_eq!(WorkerRole::parse("api"), WorkerRole::None);
     }
 
     #[test]

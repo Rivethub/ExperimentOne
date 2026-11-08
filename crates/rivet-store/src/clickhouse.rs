@@ -388,23 +388,6 @@ impl ClickHouseTrafficStore {
         Ok(hits)
     }
 
-    /// One-shot import of legacy `meta/embeddings.json` rows into `ClickHouse`.
-    pub async fn import_legacy_embeddings(&self, rows: &[(String, Vec<f32>)]) -> Result<u64> {
-        if rows.is_empty() {
-            return Ok(0);
-        }
-        let existing = self.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
-        if existing > 0 {
-            info!(existing, "skip legacy embeddings import — ClickHouse already has vectors");
-            return Ok(0);
-        }
-        let n = self.upsert_embeddings_batch(LEXICAL_SPACE, rows).await?;
-        if n > 0 {
-            info!(n, "migrated legacy embeddings.json into ClickHouse");
-        }
-        Ok(n)
-    }
-
     async fn fetch_events(&self, sql: &str) -> Result<Vec<TrafficEvent>> {
         let rows = self.client.query(sql).fetch_all::<TrafficEventRow>().await?;
         Ok(rows.into_iter().map(TrafficEventRow::into_event).collect())

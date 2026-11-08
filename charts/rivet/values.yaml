@@ -59,10 +59,10 @@ clickhouse:
     service:
       type: ClusterIP
 
+# Role-split Deployments are not ready (meta is process-local; LLM jobs need
+# a reachable proxy). Keep false — rivetd runs RIVET_WORKER_ROLE=all.
 workers:
-  enabled: true
-  replicaCount: 2
-  # Same image as rivetd; entrypoint overridden to worker mode later.
+  enabled: false
   image:
     repository: rivet/rivetd
     tag: "0.1.0"
@@ -87,7 +87,7 @@ teams:
     issuer: ""
     clientId: ""
 
-# Bus for enterprise fan-out (NATS or Redpanda) — unused locally
+# NATS JetStream job plane (required). Point at a cluster URL before install.
 bus:
-  enabled: false
-  natsUrl: ""
+  enabled: true
+  natsUrl: "nats://nats:4222"

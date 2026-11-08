@@ -7,11 +7,13 @@ Local desktop installers and Helm share the same crates (`rivet-runtime`,
 | --- | --- | --- |
 | Deploy | Tauri (DMG / deb+AppImage / NSIS) + sidecars | `charts/rivet` |
 | Traffic store | ClickHouse (bundled or URL) | Altinity ClickHouse operator via `charts/rivet` (`clickhouse` subchart) |
-| Workers | In-process Tokio | Worker Deployment (later: NATS/Redpanda consumers) |
+| Job plane | Bundled `nats-server` JetStream | External NATS (`bus.natsUrl`, required) |
+| Workers | In-process Tokio (`RIVET_WORKER_ROLE=all`) | Same — in-process on rivetd. Role-split Deployments blocked until meta locking + proxy URL exist |
 | Auth UI | Local only | OIDC (`teams.oidc` in values) — scaffold |
 | Tenancy | Single user | Org / team namespaces (`capabilities.teams`) |
 
 ```bash
+# Set bus.natsUrl to a reachable JetStream URL first (values.yaml default is a placeholder).
 helm dependency update ./charts/rivet
 helm install rivet ./charts/rivet
 ```

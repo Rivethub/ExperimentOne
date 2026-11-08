@@ -492,51 +492,6 @@ pub fn merge_claude_settings(
     Ok(format!("{}\n", serde_json::to_string_pretty(&root)?))
 }
 
-/// If a Claude `settings.json` points at Rivet but still sets
-/// `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY`, strip those keys in place so
-/// connectors stay enabled without re-running harness install.
-pub fn migrate_claude_settings_file(path: &Path, config: &RivetConfig) -> Result<bool> {
-    if !path.exists() {
-        return Ok(false);
-    }
-    let existing = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-    let Ok(mut root) = serde_json::from_str::<Value>(&existing) else {
-        return Ok(false);
-    };
-    let Some(obj) = root.as_object_mut() else {
-        return Ok(false);
-    };
-    let Some(env) = obj.get_mut("env").and_then(|v| v.as_object_mut()) else {
-        return Ok(false);
-    };
-    let base = env.get("ANTHROPIC_BASE_URL").and_then(|v| v.as_str()).unwrap_or("");
-    if base != config.proxy_base_url() {
-        return Ok(false);
-    }
-    let had_auth =
-        env.contains_key("ANTHROPIC_AUTH_TOKEN") || env.contains_key("ANTHROPIC_API_KEY");
-    if !had_auth {
-        return Ok(false);
-    }
-    env.remove("ANTHROPIC_AUTH_TOKEN");
-    env.remove("ANTHROPIC_API_KEY");
-    let merged = format!("{}\n", serde_json::to_string_pretty(&root)?);
-    fs::write(path, merged).with_context(|| format!("write {}", path.display()))?;
-    Ok(true)
-}
-
-/// Migrate the user's default Claude settings (and optional isolated Rivet copy).
-pub fn migrate_claude_connector_auth(
-    config: &RivetConfig,
-    isolated_claude_settings: Option<&Path>,
-) -> Result<bool> {
-    let mut changed = migrate_claude_settings_file(&claude_user_settings_path()?, config)?;
-    if let Some(path) = isolated_claude_settings {
-        changed |= migrate_claude_settings_file(path, config)?;
-    }
-    Ok(changed)
-}
-
 /// Overlay Rivet provider + MCP into an existing Codex `config.toml`.
 pub fn merge_codex_config(
     existing: &str,
