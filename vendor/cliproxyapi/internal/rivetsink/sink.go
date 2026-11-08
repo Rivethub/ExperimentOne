@@ -1936,7 +1936,7 @@ var (
 	reBearer    = regexp.MustCompile(`(?i)(Authorization["']?\s*[:=]\s*["']?Bearer\s+)[A-Za-z0-9._\-+=/]+`)
 	reAPIKeyHdr = regexp.MustCompile(`(?i)((?:x-api-key|api[_-]?key|anthropic-api-key)["']?\s*[:=]\s*["']?)[A-Za-z0-9._\-+=/]+`)
 	reSkToken   = regexp.MustCompile(`\b(sk-[A-Za-z0-9]{10,})\b`)
-	reSkAnt    = regexp.MustCompile(`\b(sk-ant-[A-Za-z0-9\-_]{10,})\b`)
+	reSkAnt     = regexp.MustCompile(`\b(sk-ant-[A-Za-z0-9\-_]{10,})\b`)
 	reRivetKey  = regexp.MustCompile(`\b(rivet_[a-f0-9]{20,})\b`)
 	reOpenAIKey = regexp.MustCompile(`\b(sk-proj-[A-Za-z0-9\-_]{10,})\b`)
 	reXaiKey    = regexp.MustCompile(`\b(xai-[A-Za-z0-9]{20,})\b`)

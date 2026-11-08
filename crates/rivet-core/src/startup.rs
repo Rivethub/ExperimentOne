@@ -58,19 +58,17 @@ pub fn load_workspace_memory(cwd: &Path) -> Vec<WorkspaceMemorySection> {
             continue;
         }
         let candidates = [cwd.join(rel), cwd.join(rel.to_ascii_lowercase())];
-        let Some(body) = candidates.iter().find_map(|path| {
-            std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
-        }) else {
+        let Some(body) = candidates
+            .iter()
+            .find_map(|path| std::fs::read_to_string(path).ok().map(|s| s.trim().to_string()))
+        else {
             continue;
         };
         if body.is_empty() {
             continue;
         }
         seen_titles.insert((*title).to_string());
-        out.push(WorkspaceMemorySection {
-            title: (*title).to_string(),
-            body,
-        });
+        out.push(WorkspaceMemorySection { title: (*title).to_string(), body });
     }
     out
 }
@@ -196,10 +194,7 @@ mod tests {
 
     #[test]
     fn loads_soul_memory_files() {
-        let dir = std::env::temp_dir().join(format!(
-            "rivet-startup-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("rivet-startup-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("SOUL.md"), "Prefer proxy-only capture.\n").unwrap();

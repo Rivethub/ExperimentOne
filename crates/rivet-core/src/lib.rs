@@ -35,12 +35,6 @@ pub use fusion::{
     fusion_score, gated_fused, hybrid_pool, literal_scan, passes_fusion_gate, rank_fused,
     reciprocal_rank_fusion, Fused, FusionItem, HitSource, HYBRID_RRF_K,
 };
-pub use scoring::{age_days_since, composite_score, recency_boost, temporal_decay};
-pub use startup::{
-    assemble_startup_memory, assemble_startup_memory_with_workspace, estimate_tokens,
-    load_workspace_memory, trim_to_tokens, WorkspaceMemorySection, STARTUP_BUDGET_TOKENS,
-    WORKSPACE_MEMORY_FILES,
-};
 pub use harness::{
     harness_target_for_provider, harness_user_ready, install_harness, install_harness_plugins,
     migrate_claude_connector_auth, HarnessInstallMode, HarnessInstallResult,
@@ -65,7 +59,13 @@ pub use proxy_config::{
     write_proxy_config,
 };
 pub use redact::{redact_event, redact_text};
+pub use scoring::{age_days_since, composite_score, recency_boost, temporal_decay};
 pub use session_id::{canonicalize_session_id, native_session_id};
+pub use startup::{
+    assemble_startup_memory, assemble_startup_memory_with_workspace, estimate_tokens,
+    load_workspace_memory, trim_to_tokens, WorkspaceMemorySection, STARTUP_BUDGET_TOKENS,
+    WORKSPACE_MEMORY_FILES,
+};
 pub use traffic::{
     conversations_from_events, CaptureQuality, ConversationSummary, ExportManifest, ProviderKind,
     TrafficEvent, TrafficRole, UsageTotals,

@@ -146,7 +146,12 @@ pub struct WorkerJob {
 }
 
 impl WorkerJob {
-    pub fn new_pending(task: &str, job_key: &str, payload: impl Into<String>, priority: i16) -> Self {
+    pub fn new_pending(
+        task: &str,
+        job_key: &str,
+        payload: impl Into<String>,
+        priority: i16,
+    ) -> Self {
         let now = Utc::now();
         Self {
             job_key: job_key.to_string(),

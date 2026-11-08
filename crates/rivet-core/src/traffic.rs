@@ -303,9 +303,9 @@ impl TrafficEvent {
         if self.parent_session_id.as_deref().is_some_and(|s| !s.trim().is_empty()) {
             return true;
         }
-        self.request_class
-            .as_deref()
-            .is_some_and(|c| matches!(c.trim().to_ascii_lowercase().as_str(), "subagent" | "workflow"))
+        self.request_class.as_deref().is_some_and(|c| {
+            matches!(c.trim().to_ascii_lowercase().as_str(), "subagent" | "workflow")
+        })
     }
 }
 
@@ -491,20 +491,14 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 }
             })
         });
-        let agent = ev
-            .agent_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string);
+        let agent =
+            ev.agent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
         let sub = u64::from(ev.is_subagent());
         let tools = ev.tool_names.as_deref().unwrap_or("").split(',').filter_map(|s| {
             let t = s.trim();
             (!t.is_empty()).then(|| t.to_string())
         });
-        let thinking_hit = u64::from(
-            ev.has_thinking.unwrap_or(false) || ev.thinking_tokens > 0,
-        );
+        let thinking_hit = u64::from(ev.has_thinking.unwrap_or(false) || ev.thinking_tokens > 0);
         let error_hit = u64::from(
             ev.error_type.as_deref().is_some_and(|s| !s.trim().is_empty())
                 || ev.status_code.is_some_and(|c| c >= 400),
@@ -522,7 +516,8 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
             for tool in tools {
                 acc.tool_names.insert(tool);
             }
-            if let Some(branch) = ev.git_branch.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            if let Some(branch) = ev.git_branch.as_deref().map(str::trim).filter(|s| !s.is_empty())
+            {
                 acc.git_branch = Some(branch.to_string());
             }
             if let Some(fmt) = ev.api_format.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
@@ -539,8 +534,7 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
             }
             // Prefer earliest user message as the title source.
             let better_title = matches!(ev.role, TrafficRole::User)
-                && (ev.ts <= acc.title_src.ts
-                    || !matches!(acc.title_src.role, TrafficRole::User));
+                && (ev.ts <= acc.title_src.ts || !matches!(acc.title_src.role, TrafficRole::User));
             if better_title {
                 acc.title_src = ev;
             }

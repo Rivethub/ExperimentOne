@@ -12,8 +12,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use rivet_core::LiveBus;
 use rivet_api::ApiState;
+use rivet_core::LiveBus;
 use rivet_ingest::IngestState;
 use rivet_mcp::McpState;
 use rivet_store::{ClickHouseTrafficStore, LocalStores, NatsJobStore};
@@ -69,15 +69,7 @@ impl Runtime {
         let proxy = Arc::new(ProxySupervisor::new(paths.clone(), config.clone())?);
         let clickhouse = Arc::new(ClickHouseSupervisor::new(paths.clone(), config.clone())?);
         let nats = Arc::new(NatsSupervisor::new(paths.clone(), config.clone())?);
-        Ok(Self {
-            paths,
-            config,
-            stores,
-            proxy,
-            clickhouse,
-            nats,
-            _instance_lock: instance_lock,
-        })
+        Ok(Self { paths, config, stores, proxy, clickhouse, nats, _instance_lock: instance_lock })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -108,9 +100,7 @@ impl Runtime {
             },
             Ok(false) => {
                 if nats_url.is_none() {
-                    anyhow::bail!(
-                        "NATS required: sidecar binary missing and RIVET_NATS_URL unset"
-                    );
+                    anyhow::bail!("NATS required: sidecar binary missing and RIVET_NATS_URL unset");
                 }
                 info!("bundled nats skipped — using RIVET_NATS_URL");
             },

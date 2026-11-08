@@ -67,7 +67,6 @@ CREATE TABLE IF NOT EXISTS embeddings (
 ORDER BY (space, event_id)
 ",
     },
-
     Migration {
         version: 5,
         name: "traffic_events_hub_fields",

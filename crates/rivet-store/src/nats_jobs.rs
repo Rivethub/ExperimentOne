@@ -61,9 +61,8 @@ fn box_err(err: impl std::fmt::Display) -> anyhow::Error {
 
 impl NatsJobStore {
     pub async fn connect(url: &str) -> Result<Self> {
-        let client = async_nats::connect(url)
-            .await
-            .with_context(|| format!("connect NATS at {url}"))?;
+        let client =
+            async_nats::connect(url).await.with_context(|| format!("connect NATS at {url}"))?;
         let js = jetstream::new(client);
         Ok(Self { js })
     }
@@ -114,14 +113,9 @@ impl NatsJobStore {
 
     async fn ensure_role_consumer(&self, role: WorkerRole) -> Result<String> {
         let name = format!("rivet-{}", role.as_str());
-        let filters: Vec<String> =
-            role.tasks().iter().map(|t| Self::subject_for_task(t)).collect();
-        let stream = self
-            .js
-            .get_stream(STREAM_JOBS)
-            .await
-            .map_err(box_err)
-            .context("get RIVET_JOBS")?;
+        let filters: Vec<String> = role.tasks().iter().map(|t| Self::subject_for_task(t)).collect();
+        let stream =
+            self.js.get_stream(STREAM_JOBS).await.map_err(box_err).context("get RIVET_JOBS")?;
         let cfg = if filters.len() == 1 {
             pull::Config {
                 durable_name: Some(name.clone()),
@@ -173,10 +167,8 @@ impl NatsJobStore {
         let subject = Self::subject_for_task(&job.task);
         let body = serde_json::to_vec(job).context("serialize WorkerJob")?;
         let mut headers = HeaderMap::new();
-        headers.insert(
-            async_nats::header::NATS_MESSAGE_ID,
-            HeaderValue::from(job.job_key.as_str()),
-        );
+        headers
+            .insert(async_nats::header::NATS_MESSAGE_ID, HeaderValue::from(job.job_key.as_str()));
         self.js
             .publish_with_headers(subject, headers, Bytes::from(body))
             .await
@@ -286,11 +278,7 @@ impl NatsJobStore {
             job.status = JobStatus::Dead;
             let body = serde_json::to_vec(&job)?;
             let _ = self.js.publish(SUBJECT_DEAD, Bytes::from(body)).await;
-            message
-                .ack()
-                .await
-                .map_err(box_err)
-                .context("ack after dead publish")?;
+            message.ack().await.map_err(box_err).context("ack after dead publish")?;
             return Ok(());
         }
         let delay_secs = u64::from(job.attempts).saturating_mul(30).clamp(30, 600);
@@ -330,13 +318,7 @@ impl NatsJobStore {
             Ok(mut dead) => dead.info().await.map_or(0, |i| i.state.messages),
             Err(_) => 0,
         };
-        Ok(QueueStats {
-            pending,
-            running,
-            done: 0,
-            failed: 0,
-            dead,
-        })
+        Ok(QueueStats { pending, running, done: 0, failed: 0, dead })
     }
 
     pub async fn list_jobs_by_status(
@@ -383,8 +365,8 @@ impl NatsJobStore {
 }
 
 fn decode_job(message: &Message) -> Result<WorkerJob> {
-    let job: WorkerJob = serde_json::from_slice(&message.payload)
-        .map_err(|e| anyhow!("decode WorkerJob: {e}"))?;
+    let job: WorkerJob =
+        serde_json::from_slice(&message.payload).map_err(|e| anyhow!("decode WorkerJob: {e}"))?;
     Ok(job)
 }
 
@@ -434,10 +416,7 @@ mod tests {
             .expect("claim");
         assert_eq!(claimed.len(), 1);
         assert_eq!(claimed[0].job.job_key, "embed-event:smoke-nats-1");
-        store
-            .complete_job(claimed.into_iter().next().unwrap(), true, None)
-            .await
-            .expect("ack");
+        store.complete_job(claimed.into_iter().next().unwrap(), true, None).await.expect("ack");
     }
 }
 

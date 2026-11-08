@@ -133,8 +133,7 @@ fn prepare_ingest_event(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
 
 /// Persist soft→wire alias when the proxy reports a soft fingerprint alongside a hard id.
 fn record_soft_wire_alias(meta: &MetaStore, event: &TrafficEvent) {
-    let Some(soft) =
-        event.soft_alias.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
+    let Some(soft) = event.soft_alias.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
     else {
         return;
     };
@@ -190,8 +189,7 @@ fn jobs_for_events(events: &[TrafficEvent]) -> Vec<WorkerJob> {
                 PRIORITY_CLASSIFY,
             ));
         }
-        let Some(session_id) =
-            event.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        let Some(session_id) = event.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
         else {
             continue;
         };

@@ -159,10 +159,8 @@ pub fn page_inventory(page: &WikiPage) -> String {
     if !page.summary.is_empty() {
         let _ = writeln!(out, "summary: {}", page.summary);
     }
-    let headings: Vec<_> = split_sections(&page.article)
-        .into_iter()
-        .filter_map(|(h, _)| h)
-        .collect();
+    let headings: Vec<_> =
+        split_sections(&page.article).into_iter().filter_map(|(h, _)| h).collect();
     if !headings.is_empty() {
         let _ = writeln!(out, "sections: {}", headings.join(", "));
     }
@@ -262,10 +260,8 @@ pub fn rebase(base: &str, ours: &str, current: &str) -> String {
     }
     let ours_blocks = fence_aware_blocks(ours);
     let ours_norm: BTreeSet<String> = ours_blocks.iter().map(|b| normalize_words(b)).collect();
-    let base_norm: BTreeSet<String> = fence_aware_blocks(base)
-        .into_iter()
-        .map(|b| normalize_words(&b))
-        .collect();
+    let base_norm: BTreeSet<String> =
+        fence_aware_blocks(base).into_iter().map(|b| normalize_words(&b)).collect();
     let mut merged: Vec<String> = fence_aware_blocks(current)
         .into_iter()
         .filter(|block| {
@@ -333,10 +329,7 @@ fn drop_repeats(text: &str) -> String {
 }
 
 fn normalize_words(text: &str) -> String {
-    text.split_whitespace()
-        .map(str::to_ascii_lowercase)
-        .collect::<Vec<_>>()
-        .join(" ")
+    text.split_whitespace().map(str::to_ascii_lowercase).collect::<Vec<_>>().join(" ")
 }
 
 fn is_repeat(norm: &str, seen: &[String]) -> bool {
@@ -391,10 +384,7 @@ pub fn normalize_summary(summary: &str) -> String {
 /// Parse an on-disk knowledge page into a structured [`WikiPage`].
 #[must_use]
 pub fn parse_wiki_page(slug: &str, raw: &str) -> WikiPage {
-    let mut page = WikiPage {
-        slug: slug.to_string(),
-        ..WikiPage::default()
-    };
+    let mut page = WikiPage { slug: slug.to_string(), ..WikiPage::default() };
     let body = raw.replace(KNOWLEDGE_MARKER, "").trim().to_string();
     let mut lines = body.lines().peekable();
     if let Some(first) = lines.peek().copied() {
@@ -408,11 +398,7 @@ pub fn parse_wiki_page(slug: &str, raw: &str) -> WikiPage {
         Some(idx) => (rest[..idx].to_string(), rest[idx..].to_string()),
         None => (rest, String::new()),
     };
-    page.history = history
-        .lines()
-        .filter(|l| l.starts_with("- "))
-        .map(str::to_string)
-        .collect();
+    page.history = history.lines().filter(|l| l.starts_with("- ")).map(str::to_string).collect();
 
     let (main, citations_src) = split_named_section(&before_hist, "## Citations");
     let (main, sources_src) = split_named_section(&main, "## Sources");
@@ -464,10 +450,7 @@ fn split_named_section(text: &str, heading: &str) -> (String, String) {
         |idx| {
             let after = &text[idx + marker.len()..];
             let end = after.find("\n## ").unwrap_or(after.len());
-            (
-                format!("{}{}", &text[..idx], &after[end..]),
-                after[..end].to_string(),
-            )
+            (format!("{}{}", &text[..idx], &after[end..]), after[..end].to_string())
         },
     )
 }
@@ -499,12 +482,7 @@ fn parse_citation_lines(text: &str) -> Vec<PageCitation> {
                     note = Some(part.to_string());
                 }
             }
-            Some(PageCitation {
-                id,
-                kind,
-                date,
-                note,
-            })
+            Some(PageCitation { id, kind, date, note })
         })
         .collect()
 }
@@ -521,20 +499,13 @@ fn parse_source_lines(text: &str) -> Vec<PageSource> {
                 (item, item)
             };
             let id = id.trim_matches('`');
-            (!id.is_empty()).then(|| PageSource {
-                id: id.to_string(),
-                label: label.to_string(),
-            })
+            (!id.is_empty()).then(|| PageSource { id: id.to_string(), label: label.to_string() })
         })
         .collect()
 }
 
 fn split_csv(raw: &str) -> Vec<String> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
-        .collect()
+    raw.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
 }
 
 /// Serialize a structured page for disk (knowledge-managed).
@@ -629,16 +600,15 @@ pub fn apply_patch(prev: Option<WikiPage>, patch: &PagePatch) -> WikiPage {
 
     if let Some(article) = patch.article.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         let demoted = demote_headings(article);
-        if patch.allow_shrink || demoted.len() >= page.article.len() / 2 || page.article.is_empty() {
+        if patch.allow_shrink || demoted.len() >= page.article.len() / 2 || page.article.is_empty()
+        {
             let prev_article = page.article.clone();
             page.article = if prev_article.is_empty() {
                 demoted
             } else {
                 merge_article_rewrite(&prev_article, &demoted)
             };
-            if !prev_article.is_empty()
-                && !dropped(&prev_article, &page.article).is_empty()
-            {
+            if !prev_article.is_empty() && !dropped(&prev_article, &page.article).is_empty() {
                 page.history.push(format!(
                     "- {} — {REVISION_SUPERSEDED_ARTICLE}",
                     Utc::now().format("%Y-%m-%d")
@@ -652,11 +622,7 @@ pub fn apply_patch(prev: Option<WikiPage>, patch: &PagePatch) -> WikiPage {
     }
 
     if let Some(entry) = patch.history_entry.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        page.history.push(format!(
-            "- {} — {}",
-            Utc::now().format("%Y-%m-%d"),
-            history_line(entry)
-        ));
+        page.history.push(format!("- {} — {}", Utc::now().format("%Y-%m-%d"), history_line(entry)));
     }
     page
 }
@@ -713,9 +679,7 @@ fn apply_section_patch(article: &mut String, patch: &ArticlePatch) {
     let section = format!("{marker}\n\n{body}");
     if let Some(idx) = article.find(&marker) {
         let after = &article[idx + marker.len()..];
-        let end = after
-            .find("\n### ")
-            .map_or(article.len(), |i| idx + marker.len() + i);
+        let end = after.find("\n### ").map_or(article.len(), |i| idx + marker.len() + i);
         match patch.mode {
             PatchMode::Replace => {
                 let mut next = String::new();
@@ -767,19 +731,13 @@ pub fn bound_page(page: &mut WikiPage) -> Vec<Archived> {
 
     if page.entities.len() > ENTITIES_CAP {
         let spill = page.entities.split_off(ENTITIES_CAP);
-        archived.push(Archived {
-            heading: "Entities".into(),
-            body: spill.join(", "),
-        });
+        archived.push(Archived { heading: "Entities".into(), body: spill.join(", ") });
     }
 
     let (sum_kept, sum_over) = fit(&normalize_summary(&page.summary), SUMMARY_LIMIT);
     page.summary = sum_kept;
     if !sum_over.is_empty() {
-        archived.push(Archived {
-            heading: REVISION_SUMMARY_OVERFLOW.into(),
-            body: sum_over,
-        });
+        archived.push(Archived { heading: REVISION_SUMMARY_OVERFLOW.into(), body: sum_over });
     }
 
     let sections = split_sections(&page.article);
@@ -813,10 +771,7 @@ pub fn bound_page(page: &mut WikiPage) -> Vec<Archived> {
     let (art_kept, art_over) = fit(&page.article, ARTICLE_BUDGET);
     page.article = art_kept;
     if !art_over.is_empty() {
-        archived.push(Archived {
-            heading: "Article".into(),
-            body: art_over,
-        });
+        archived.push(Archived { heading: "Article".into(), body: art_over });
     }
 
     if page.citations.len() > CITATIONS_CAP {
@@ -828,10 +783,7 @@ pub fn bound_page(page: &mut WikiPage) -> Vec<Archived> {
 
     if page.history.len() > HISTORY_CAP {
         let spill = page.history.drain(..page.history.len() - HISTORY_CAP).collect::<Vec<_>>();
-        archived.push(Archived {
-            heading: "History".into(),
-            body: spill.join("\n"),
-        });
+        archived.push(Archived { heading: "History".into(), body: spill.join("\n") });
         page.history.push(format!(
             "- {} — Moved {} history lines to archive.",
             Utc::now().format("%Y-%m-%d"),
@@ -922,10 +874,7 @@ pub fn apply_topic_patch(wiki_root: &Path, project: &str, patch: &PagePatch) -> 
     if patch.article.is_some() && !prev_article.is_empty() {
         let lost = dropped(&prev_article, &page.article);
         if !lost.is_empty() {
-            archived.push(Archived {
-                heading: REVISION_SUPERSEDED_ARTICLE.into(),
-                body: lost,
-            });
+            archived.push(Archived { heading: REVISION_SUPERSEDED_ARTICLE.into(), body: lost });
         }
     }
     archived.extend(bound_page(&mut page));
@@ -948,20 +897,17 @@ pub fn apply_topic_patch(wiki_root: &Path, project: &str, patch: &PagePatch) -> 
 /// Relative entity path: `entities/{type-slug}/{slug}.md` or `entities/{slug}.md`.
 #[must_use]
 pub fn entity_rel_path(slug: &str, entity_type: Option<&str>) -> String {
-    entity_type
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map_or_else(
-            || format!("entities/{slug}.md"),
-            |kind| {
-                let type_slug = normalize_slug(&kind.replace(['›', '/'], "-"));
-                if type_slug.is_empty() {
-                    format!("entities/{slug}.md")
-                } else {
-                    format!("entities/{type_slug}/{slug}.md")
-                }
-            },
-        )
+    entity_type.map(str::trim).filter(|s| !s.is_empty()).map_or_else(
+        || format!("entities/{slug}.md"),
+        |kind| {
+            let type_slug = normalize_slug(&kind.replace(['›', '/'], "-"));
+            if type_slug.is_empty() {
+                format!("entities/{slug}.md")
+            } else {
+                format!("entities/{type_slug}/{slug}.md")
+            }
+        },
+    )
 }
 
 /// Apply an entity page under `entities/` (optionally typed subfolder).
@@ -1035,12 +981,8 @@ pub fn fold_page(
     merge_citations(&mut parent.citations, &child.citations);
     merge_sources(&mut parent.sources, &child.sources);
     if !child.article.trim().is_empty() {
-        let _ = write!(
-            parent.article,
-            "\n\n### Merged · {}\n\n{}",
-            child.title,
-            child.article.trim()
-        );
+        let _ =
+            write!(parent.article, "\n\n### Merged · {}\n\n{}", child.title, child.article.trim());
     }
     parent.history.push(format!(
         "- {} — Folded `{child_slug}` into this page.",
@@ -1096,11 +1038,8 @@ pub fn topic_identity(slug: &str, title: &str) -> (String, usize) {
             words.pop();
         }
     }
-    let mut kept: Vec<String> = words
-        .into_iter()
-        .filter(|w| !is_noise_word(w))
-        .map(singular)
-        .collect();
+    let mut kept: Vec<String> =
+        words.into_iter().filter(|w| !is_noise_word(w)).map(singular).collect();
     if kept.is_empty() {
         return (slug, 0);
     }
@@ -1209,10 +1148,8 @@ pub fn consolidation_plan(
     }
 
     // Stem variants among remaining.
-    let remaining: Vec<&WikiTopicStats> = topics
-        .iter()
-        .filter(|t| !folded.contains(&t.slug))
-        .collect();
+    let remaining: Vec<&WikiTopicStats> =
+        topics.iter().filter(|t| !folded.contains(&t.slug)).collect();
     for topic in &remaining {
         let variants: Vec<String> = remaining
             .iter()
@@ -1226,21 +1163,15 @@ pub fn consolidation_plan(
         members.push(topic.slug.clone());
         members.sort_by_key(|s| (s.len(), s.clone()));
         let parent = members[0].clone();
-        let children: Vec<String> = members.into_iter().skip(1).filter(|s| !folded.contains(s)).collect();
+        let children: Vec<String> =
+            members.into_iter().skip(1).filter(|s| !folded.contains(s)).collect();
         if children.is_empty() {
             continue;
         }
         for c in &children {
             folded.insert(c.clone());
         }
-        planned.push((
-            children.len() + 1,
-            WikiFold {
-                cluster: parent.clone(),
-                parent,
-                children,
-            },
-        ));
+        planned.push((children.len() + 1, WikiFold { cluster: parent.clone(), parent, children }));
     }
 
     planned.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cluster.cmp(&b.1.cluster)));
@@ -1341,13 +1272,8 @@ fn value_to_patch(v: &serde_json::Value) -> Option<PagePatch> {
                 .collect()
         })
         .unwrap_or_default();
-    let has_body = v
-        .get("summary")
-        .and_then(|t| t.as_str())
-        .is_some_and(|s| !s.trim().is_empty())
-        || v.get("article")
-            .and_then(|t| t.as_str())
-            .is_some_and(|s| !s.trim().is_empty())
+    let has_body = v.get("summary").and_then(|t| t.as_str()).is_some_and(|s| !s.trim().is_empty())
+        || v.get("article").and_then(|t| t.as_str()).is_some_and(|s| !s.trim().is_empty())
         || !article_patches.is_empty();
     if !has_body {
         return None;
@@ -1359,10 +1285,7 @@ fn value_to_patch(v: &serde_json::Value) -> Option<PagePatch> {
         summary: v.get("summary").and_then(|t| t.as_str()).map(str::to_string),
         article: v.get("article").and_then(|t| t.as_str()).map(str::to_string),
         article_patches,
-        history_entry: v
-            .get("history_entry")
-            .and_then(|t| t.as_str())
-            .map(str::to_string),
+        history_entry: v.get("history_entry").and_then(|t| t.as_str()).map(str::to_string),
         aliases: string_list(v, "aliases"),
         tags: string_list(v, "tags"),
         entities: string_list(v, "entities"),
@@ -1380,10 +1303,7 @@ fn value_to_patch(v: &serde_json::Value) -> Option<PagePatch> {
             .or_else(|| v.get("entity_type"))
             .and_then(|t| t.as_str())
             .map(str::to_string),
-        allow_shrink: v
-            .get("allow_shrink")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
+        allow_shrink: v.get("allow_shrink").and_then(serde_json::Value::as_bool).unwrap_or(false),
     })
 }
 
@@ -1432,11 +1352,7 @@ fn source_list(v: &serde_json::Value, key: &str) -> Vec<PageSource> {
                     }
                     Some(PageSource {
                         id: id.clone(),
-                        label: s
-                            .get("label")
-                            .and_then(|l| l.as_str())
-                            .unwrap_or(&id)
-                            .to_string(),
+                        label: s.get("label").and_then(|l| l.as_str()).unwrap_or(&id).to_string(),
                     })
                 })
                 .take(SOURCES_CAP)
@@ -1448,12 +1364,7 @@ fn source_list(v: &serde_json::Value, key: &str) -> Vec<PageSource> {
 fn string_list(v: &serde_json::Value, key: &str) -> Vec<String> {
     v.get(key)
         .and_then(|a| a.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|x| x.as_str().map(str::to_string))
-                .take(32)
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).take(32).collect())
         .unwrap_or_default()
 }
 
@@ -1499,10 +1410,7 @@ mod tests {
     #[test]
     fn entity_rel_path_typed() {
         assert_eq!(entity_rel_path("alice", None), "entities/alice.md");
-        assert_eq!(
-            entity_rel_path("alice", Some("person")),
-            "entities/person/alice.md"
-        );
+        assert_eq!(entity_rel_path("alice", Some("person")), "entities/person/alice.md");
     }
 
     #[test]
@@ -1586,10 +1494,7 @@ mod tests {
                 date: Some("2026-01-01".into()),
                 note: Some("root".into()),
             }],
-            sources: vec![PageSource {
-                id: "sum-1".into(),
-                label: "Root summary".into(),
-            }],
+            sources: vec![PageSource { id: "sum-1".into(), label: "Root summary".into() }],
             ..WikiPage::default()
         };
         let rendered = render_wiki_page(&page);
@@ -1637,7 +1542,8 @@ mod tests {
     fn rejects_patch_without_title_or_body() {
         let raw = r#"[{"action":"update","slug":"x"}]"#;
         assert!(parse_wiki_patches(raw).is_empty());
-        let raw = r#"[{"action":"update","slug":"auth","title":"Auth","summary":"Currently, ok."}]"#;
+        let raw =
+            r#"[{"action":"update","slug":"auth","title":"Auth","summary":"Currently, ok."}]"#;
         assert_eq!(parse_wiki_patches(raw).len(), 1);
     }
 

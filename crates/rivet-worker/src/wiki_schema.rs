@@ -155,11 +155,8 @@ mod tests {
     #[test]
     fn recompile_schema_requires_summary_article() {
         let schema = recompile_schema();
-        let required = schema
-            .get("required")
-            .and_then(|r| r.as_array())
-            .cloned()
-            .unwrap_or_default();
+        let required =
+            schema.get("required").and_then(|r| r.as_array()).cloned().unwrap_or_default();
         assert!(required.iter().any(|v| v.as_str() == Some("summary")));
         assert!(required.iter().any(|v| v.as_str() == Some("article")));
     }
@@ -169,9 +166,6 @@ mod tests {
         let schema = extract_schema();
         let fmt = response_format("wiki_extract", &schema);
         assert_eq!(fmt.get("type").and_then(|t| t.as_str()), Some("json_schema"));
-        assert_eq!(
-            fmt.pointer("/json_schema/name").and_then(|t| t.as_str()),
-            Some("wiki_extract")
-        );
+        assert_eq!(fmt.pointer("/json_schema/name").and_then(|t| t.as_str()), Some("wiki_extract"));
     }
 }

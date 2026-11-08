@@ -63,8 +63,7 @@ export function conversationsFromEvents(
       .filter(Boolean);
     const branch = ev.git_branch?.trim() || null;
     const thinkingHit = ev.has_thinking || (ev.thinking_tokens ?? 0) > 0 ? 1 : 0;
-    const errorHit =
-      (ev.error_type?.trim() ? 1 : 0) || ((ev.status_code ?? 0) >= 400 ? 1 : 0);
+    const errorHit = (ev.error_type?.trim() ? 1 : 0) || ((ev.status_code ?? 0) >= 400 ? 1 : 0);
     const apiFormat = ev.api_format?.trim() || null;
     if (!acc) {
       const agent_ids = new Set<string>();

@@ -154,10 +154,7 @@ export function TopicsPane({
   }, [topics, query]);
   const tree = useMemo(() => flattenTopicTree(filtered), [filtered]);
   const selected =
-    filtered.find((t) => t.slug === selectedSlug) ??
-    tree[0]?.topic ??
-    filtered[0] ??
-    null;
+    filtered.find((t) => t.slug === selectedSlug) ?? tree[0]?.topic ?? filtered[0] ?? null;
 
   useEffect(() => {
     let stale = false;
@@ -312,9 +309,7 @@ export function TopicsPane({
                                   setArchiveBody(body);
                                 })
                                 .catch((e: unknown) => {
-                                  setKnowledgeError(
-                                    e instanceof Error ? e.message : String(e),
-                                  );
+                                  setKnowledgeError(e instanceof Error ? e.message : String(e));
                                 });
                             }}
                           >

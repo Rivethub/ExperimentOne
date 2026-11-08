@@ -38,8 +38,8 @@ export function HarnessTab({
         <p className="mt-1 mb-2 text-[13px] text-muted-foreground">
           Live capture is proxy-only. Plugins are optional fidelity for that path. Offline import
           backfills history and never replaces the proxy. Capture stores cwd/bodies as signals and
-          sets `project_id` only on hard evidence (explicit field/header, harness{" "}
-          {"projects/<id>/"} key, or the Rivet harness plugin).
+          sets `project_id` only on hard evidence (explicit field/header, harness {"projects/<id>/"}{" "}
+          key, or the Rivet harness plugin).
         </p>
         <Kv>
           <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />

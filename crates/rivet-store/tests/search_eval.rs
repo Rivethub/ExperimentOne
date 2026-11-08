@@ -48,7 +48,8 @@ fn search_eval_matches_baseline() {
                 let q_l = query.q.to_ascii_lowercase();
                 let d_l = doc.to_ascii_lowercase();
                 let token_hit = q_l.split_whitespace().any(|t| {
-                    let bare = t.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '#' && c != '/');
+                    let bare = t
+                        .trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '#' && c != '/');
                     !bare.is_empty() && d_l.contains(bare)
                 });
                 assert!(
@@ -64,30 +65,18 @@ fn search_eval_matches_baseline() {
         let mode = query.mode.as_deref().unwrap_or("hybrid");
         let fused = match mode {
             "lexical" => {
-                assert!(
-                    prefer_lexical_query(&query.q),
-                    "query {} should prefer lexical",
-                    query.id
-                );
+                assert!(prefer_lexical_query(&query.q), "query {} should prefer lexical", query.id);
                 kw.clone()
             },
-            "boosted" => fuse_event_id_arms_boosted(
-                &kw,
-                &vec,
-                &corpus.summary_ids,
-                &corpus.boosts,
-                5,
-            ),
+            "boosted" => {
+                fuse_event_id_arms_boosted(&kw, &vec, &corpus.summary_ids, &corpus.boosts, 5)
+            },
             _ if prefer_lexical_query(&query.q) && !kw.is_empty() => kw.clone(),
             _ => fuse_event_id_arms(&kw, &vec, &corpus.summary_ids, 5),
         };
 
-        let expect: HashSet<_> = baseline
-            .get(&query.id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let expect: HashSet<_> =
+            baseline.get(&query.id).cloned().unwrap_or_default().into_iter().collect();
         let got: HashSet<_> = fused.into_iter().take(3).collect();
         assert!(
             expect.iter().any(|id| got.contains(id)),

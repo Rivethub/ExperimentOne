@@ -246,7 +246,8 @@ impl WorkerPool {
             },
             TASK_COMPACT_SESSION => {
                 let session_id = payload_str(&job.payload, "session_id")?;
-                let reason = payload_str_opt(&job.payload, "reason").unwrap_or_else(|| "idle".into());
+                let reason =
+                    payload_str_opt(&job.payload, "reason").unwrap_or_else(|| "idle".into());
                 self.compact_one_session(&cfg, &session_id, &reason).await
             },
             TASK_ENQUEUE_IDLE => self.enqueue_idle_compacts().await,
@@ -338,9 +339,8 @@ impl WorkerPool {
         let chunks = chunk_text(text, 2_000);
         let needed = chunks.len().min(3);
         let have_base = existing.contains(event_id);
-        let have_chunks = (1..needed)
-            .filter(|i| existing.contains(&format!("{event_id}#c{i}")))
-            .count();
+        let have_chunks =
+            (1..needed).filter(|i| existing.contains(&format!("{event_id}#c{i}"))).count();
         if have_base && have_chunks + 1 >= needed {
             return Ok(());
         }
@@ -349,11 +349,7 @@ impl WorkerPool {
             if chunk.trim().is_empty() {
                 continue;
             }
-            let key = if i == 0 {
-                event_id.to_string()
-            } else {
-                format!("{event_id}#c{i}")
-            };
+            let key = if i == 0 { event_id.to_string() } else { format!("{event_id}#c{i}") };
             batch.push((key, lexical_embed(&chunk)));
         }
         if batch.is_empty() {
@@ -395,9 +391,9 @@ impl WorkerPool {
             return Ok(());
         }
         let events = self.store.conversation_events(session_id, 50).await?;
-        let Some(event) = events.iter().rev().find(|e| {
-            e.cwd.as_deref().is_some_and(|c| !c.trim().is_empty())
-        }) else {
+        let Some(event) =
+            events.iter().rev().find(|e| e.cwd.as_deref().is_some_and(|c| !c.trim().is_empty()))
+        else {
             return Ok(());
         };
         let cwd = event.cwd.as_deref().unwrap_or("").trim();
@@ -447,10 +443,8 @@ impl WorkerPool {
             let has_root = root
                 .as_ref()
                 .is_some_and(|s| matches!(s.kind, SummaryKind::Root | SummaryKind::Flat));
-            let pipeline_stale = self
-                .meta
-                .session_needs_pipeline_refresh(&session_id)
-                .unwrap_or(false);
+            let pipeline_stale =
+                self.meta.session_needs_pipeline_refresh(&session_id).unwrap_or(false);
             let root_age = root.as_ref().and_then(|s| {
                 chrono::DateTime::parse_from_rfc3339(&s.updated_at)
                     .ok()
@@ -477,7 +471,9 @@ impl WorkerPool {
                 continue;
             };
             let mut job = WorkerJob::compact_session_reason(&session_id, reason);
-            if now - last_ts < chrono::Duration::hours(6) && reason != "stale" && reason != "pipeline"
+            if now - last_ts < chrono::Duration::hours(6)
+                && reason != "stale"
+                && reason != "pipeline"
             {
                 job.priority = PRIORITY_LIVE_COMPACT;
             } else {
@@ -510,11 +506,8 @@ impl WorkerPool {
         } else {
             self.meta.covered_event_ids(session_id)?
         };
-        let uncovered: Vec<TrafficEvent> = events
-            .iter()
-            .filter(|e| !covered.contains(&e.id.to_string()))
-            .cloned()
-            .collect();
+        let uncovered: Vec<TrafficEvent> =
+            events.iter().filter(|e| !covered.contains(&e.id.to_string())).cloned().collect();
         let has_root = self
             .meta
             .get_summary_for_session(session_id)?
@@ -593,15 +586,7 @@ impl WorkerPool {
                 model.as_deref(),
             )
             .await?;
-        self.write_root_summary(
-            cfg,
-            session_id,
-            &events,
-            &branch_ids,
-            project_id,
-            model,
-        )
-        .await?;
+        self.write_root_summary(cfg, session_id, &events, &branch_ids, project_id, model).await?;
         self.meta.set_job_cursor("compact", &Utc::now().to_rfc3339())?;
         let _ = self.refresh_topic_memory_from_root(session_id);
         self.enqueue_after_compact(cfg, session_id, events.len()).await?;
@@ -735,21 +720,18 @@ impl WorkerPool {
         model: Option<&str>,
     ) -> Result<Vec<String>> {
         let mut branch_ids = Vec::new();
-        let chunks: Vec<&[String]> = if leaf_ids.len() >= 5 {
-            leaf_ids.chunks(8).collect()
-        } else {
-            vec![leaf_ids]
-        };
+        let chunks: Vec<&[String]> =
+            if leaf_ids.len() >= 5 { leaf_ids.chunks(8).collect() } else { vec![leaf_ids] };
         for (branch_idx, chunk) in chunks.iter().enumerate() {
             let id = format!("summary:{}:branch:{branch_idx}", slugify(session_id));
-            let leaves: Vec<SummaryMeta> = chunk
-                .iter()
-                .filter_map(|lid| self.meta.get_summary(lid).ok().flatten())
-                .collect();
+            let leaves: Vec<SummaryMeta> =
+                chunk.iter().filter_map(|lid| self.meta.get_summary(lid).ok().flatten()).collect();
             let digest = leaves
                 .iter()
                 .enumerate()
-                .map(|(i, s)| format!("[Leaf #{:02} | {} msgs]\n{}", i + 1, s.message_count, s.body))
+                .map(|(i, s)| {
+                    format!("[Leaf #{:02} | {} msgs]\n{}", i + 1, s.message_count, s.body)
+                })
                 .collect::<Vec<_>>()
                 .join("\n\n---\n\n");
             let raw_body = if let Some(m) = model {
@@ -806,10 +788,8 @@ impl WorkerPool {
         project_id: Option<String>,
         model: Option<String>,
     ) -> Result<()> {
-        let branches: Vec<SummaryMeta> = branch_ids
-            .iter()
-            .filter_map(|id| self.meta.get_summary(id).ok().flatten())
-            .collect();
+        let branches: Vec<SummaryMeta> =
+            branch_ids.iter().filter_map(|id| self.meta.get_summary(id).ok().flatten()).collect();
         let digest = branches
             .iter()
             .enumerate()
@@ -857,10 +837,8 @@ impl WorkerPool {
         } else {
             format!("Session {short}")
         };
-        let mut lineage_events: Vec<String> = branches
-            .iter()
-            .flat_map(|s| s.event_ids.clone())
-            .collect();
+        let mut lineage_events: Vec<String> =
+            branches.iter().flat_map(|s| s.event_ids.clone()).collect();
         if lineage_events.is_empty() {
             lineage_events = events.iter().map(|e| e.id.to_string()).collect();
         }
@@ -979,7 +957,8 @@ impl WorkerPool {
         let topics = self.meta.list_topics().unwrap_or_default();
         // Never move sessions already on a You-curated topic.
         for topic in &topics {
-            if topic.placement_by == PlacementBy::You && topic.session_ids.iter().any(|s| s == session_id)
+            if topic.placement_by == PlacementBy::You
+                && topic.session_ids.iter().any(|s| s == session_id)
             {
                 return Ok(());
             }
@@ -1183,13 +1162,9 @@ impl WorkerPool {
             routes.push(session_route);
         }
 
-        let gathered = self
-            .gather_extract_siblings(worker_id, lead_job_key, &routes)
-            .await?;
-        let sibling_bodies: Vec<String> = gathered
-            .iter()
-            .filter_map(|g| g.summary.as_ref().map(|s| s.body.clone()))
-            .collect();
+        let gathered = self.gather_extract_siblings(worker_id, lead_job_key, &routes).await?;
+        let sibling_bodies: Vec<String> =
+            gathered.iter().filter_map(|g| g.summary.as_ref().map(|s| s.body.clone())).collect();
         let coalesced = wiki_page::coalesce_summary_bodies(
             &lead.body,
             sibling_bodies.iter().map(String::as_str),
@@ -1220,10 +1195,7 @@ impl WorkerPool {
                 "wiki-extract",
                 prompts::WIKI_EXTRACT_SYSTEM_PROMPT,
                 &prompt,
-                SchemaConstraint {
-                    name: "wiki_extract",
-                    schema: wiki_schema::extract_schema(),
-                },
+                SchemaConstraint { name: "wiki_extract", schema: wiki_schema::extract_schema() },
             )
             .await
         {
@@ -1235,8 +1207,7 @@ impl WorkerPool {
         };
         let mut patches = wiki_page::parse_wiki_patches(&raw);
         stamp_extract_citations(&mut patches, &lead, &gathered);
-        self.apply_extracted_wiki_patches(wiki_root.as_std_path(), project, &lead, &patches)
-            .await;
+        self.apply_extracted_wiki_patches(wiki_root.as_std_path(), project, &lead, &patches).await;
         for g in gathered {
             let key = g.claimed.job.job_key.clone();
             if let Err(err) = self.jobs.complete_job(g.claimed, true, None).await {
@@ -1289,8 +1260,7 @@ impl WorkerPool {
                 let _ = self.jobs.release_job(claimed).await;
                 continue;
             }
-            if used_chars + summary.body.len() > wiki_page::COALESCE_CHARS && !gathered.is_empty()
-            {
+            if used_chars + summary.body.len() > wiki_page::COALESCE_CHARS && !gathered.is_empty() {
                 let _ = self.jobs.release_job(claimed).await;
                 break;
             }
@@ -1299,10 +1269,7 @@ impl WorkerPool {
                 break;
             }
             used_chars = used_chars.saturating_add(summary.body.len());
-            gathered.push(GatheredExtract {
-                claimed,
-                summary: Some(summary),
-            });
+            gathered.push(GatheredExtract { claimed, summary: Some(summary) });
         }
         if !gathered.is_empty() {
             info!(
@@ -1360,9 +1327,8 @@ impl WorkerPool {
                     if !wiki_page::is_knowledge_page(&raw) {
                         continue;
                     }
-                    inventories.push(wiki_page::page_inventory(&wiki_page::parse_wiki_page(
-                        stem, &raw,
-                    )));
+                    inventories
+                        .push(wiki_page::page_inventory(&wiki_page::parse_wiki_page(stem, &raw)));
                     if inventories.len() >= 5 {
                         break;
                     }
@@ -1384,9 +1350,7 @@ impl WorkerPool {
         if let Some(lead) = next {
             let routes = self.wiki_extract_routes(&lead);
             let job_key = format!("extract-wiki:{}", lead.id);
-            let _ = self
-                .extract_one_summary(cfg, &lead.id, &routes, "wiki-tick", &job_key)
-                .await;
+            let _ = self.extract_one_summary(cfg, &lead.id, &routes, "wiki-tick", &job_key).await;
         }
         Ok(())
     }
@@ -1401,9 +1365,8 @@ impl WorkerPool {
         let cfg = self.config.read().await.clone();
         for patch in patches {
             let mut patch = patch.clone();
-            if let Some(merged) = self
-                .maybe_merge_existing_topic(&cfg, wiki_root, project, &patch)
-                .await
+            if let Some(merged) =
+                self.maybe_merge_existing_topic(&cfg, wiki_root, project, &patch).await
             {
                 patch = merged;
             }
@@ -1479,8 +1442,7 @@ impl WorkerPool {
             return None;
         }
         let model = cfg.wiki_model.as_deref()?;
-        let topic_path =
-            wiki_root.join(project).join("topics").join(format!("{}.md", patch.slug));
+        let topic_path = wiki_root.join(project).join("topics").join(format!("{}.md", patch.slug));
         if !topic_path.is_file() {
             return None;
         }
@@ -1540,10 +1502,8 @@ impl WorkerPool {
             if slug.is_empty() {
                 continue;
             }
-            let mention = format!(
-                "- [{}](../topics/{}.md) — {}",
-                patch.title, patch.slug, lead.title
-            );
+            let mention =
+                format!("- [{}](../topics/{}.md) — {}", patch.title, patch.slug, lead.title);
             let entity_patch = wiki_page::PagePatch {
                 action: wiki_page::WikiAction::Update,
                 slug: slug.clone(),
@@ -1648,8 +1608,7 @@ impl WorkerPool {
             if stem.eq_ignore_ascii_case("index") {
                 continue;
             }
-            let bytes =
-                wiki_page::page_archive_bytes(wiki_root.as_std_path(), &project, stem);
+            let bytes = wiki_page::page_archive_bytes(wiki_root.as_std_path(), &project, stem);
             if bytes >= wiki_page::RECOMPILE_BYTES {
                 jobs.push(WorkerJob::new_pending(
                     TASK_RECOMPILE_WIKI,
@@ -1729,12 +1688,7 @@ impl WorkerPool {
         let plan = wiki_page::consolidation_plan(&stats, 2, 50);
         for fold in plan {
             for child in &fold.children {
-                let _ = wiki_page::fold_page(
-                    wiki_root.as_std_path(),
-                    project,
-                    &fold.parent,
-                    child,
-                );
+                let _ = wiki_page::fold_page(wiki_root.as_std_path(), project, &fold.parent, child);
                 let _ = self.meta.delete_wiki_page(&format!("{project}/topics/{child}"));
                 let _ = self.meta.delete_topic(child);
             }
@@ -1781,12 +1735,7 @@ impl WorkerPool {
         page = wiki_page::parse_wiki_page(slug, &raw);
         let archived = wiki_page::bound_page(&mut page);
         if !archived.is_empty() {
-            let _ = wiki_page::settle_archive(
-                wiki_root.as_std_path(),
-                project,
-                slug,
-                &archived,
-            )?;
+            let _ = wiki_page::settle_archive(wiki_root.as_std_path(), project, slug, &archived)?;
             page.history.push(format!(
                 "- {} — Consolidated; archived {} overflow block(s).",
                 Utc::now().format("%Y-%m-%d"),
@@ -1875,8 +1824,8 @@ impl WorkerPool {
             )
             .await
             .unwrap_or_default();
-        let mut patch = parse_recompile_response(slug, &page, &raw).unwrap_or_else(|| {
-            wiki_page::PagePatch {
+        let mut patch =
+            parse_recompile_response(slug, &page, &raw).unwrap_or_else(|| wiki_page::PagePatch {
                 action: wiki_page::WikiAction::Update,
                 slug: slug.to_string(),
                 title: page.title.clone(),
@@ -1892,8 +1841,7 @@ impl WorkerPool {
                 sources: page.sources.clone(),
                 entity_type: None,
                 allow_shrink: true,
-            }
-        });
+            });
         if patch.citations.is_empty() {
             patch.citations.clone_from(&page.citations);
         }
@@ -1919,10 +1867,7 @@ impl WorkerPool {
             if topic.kind != "entity" {
                 continue;
             }
-            by_title
-                .entry(topic.title.to_ascii_lowercase())
-                .or_default()
-                .push(topic);
+            by_title.entry(topic.title.to_ascii_lowercase()).or_default().push(topic);
         }
         for group in by_title.into_values() {
             if group.len() < 2 {
@@ -1964,9 +1909,8 @@ impl WorkerPool {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let raw = self
-            .chat_prompt(cfg, model, "tidy", prompts::TIDY_SYSTEM_PROMPT, &catalog)
-            .await?;
+        let raw =
+            self.chat_prompt(cfg, model, "tidy", prompts::TIDY_SYSTEM_PROMPT, &catalog).await?;
         for line in raw.lines() {
             let line = line.trim();
             if line.is_empty() || !line.starts_with('{') {
@@ -1979,27 +1923,15 @@ impl WorkerPool {
             if action.is_empty() {
                 continue;
             }
-            let from = v
-                .get("from")
-                .or_else(|| v.get("slug"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let to = v
-                .get("to")
-                .or_else(|| v.get("under"))
-                .and_then(Value::as_str)
-                .map(str::to_string);
+            let from =
+                v.get("from").or_else(|| v.get("slug")).and_then(Value::as_str).map(str::to_string);
+            let to =
+                v.get("to").or_else(|| v.get("under")).and_then(Value::as_str).map(str::to_string);
             let title = v.get("title").and_then(Value::as_str).map(str::to_string);
-            let reason = v
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or("tidy proposal")
-                .to_string();
-            let id = format!(
-                "tidy:{}:{}",
-                action,
-                from.as_deref().or(to.as_deref()).unwrap_or("x")
-            );
+            let reason =
+                v.get("reason").and_then(Value::as_str).unwrap_or("tidy proposal").to_string();
+            let id =
+                format!("tidy:{}:{}", action, from.as_deref().or(to.as_deref()).unwrap_or("x"));
             let _ = self.meta.upsert_tidy_proposal(&TidyProposal {
                 id,
                 action: action.into(),
@@ -2043,10 +1975,7 @@ impl WorkerPool {
             serde_json::to_string_pretty(&constraint.schema).unwrap_or_else(|_| "{}".into())
         );
         let format = wiki_schema::response_format(constraint.name, &constraint.schema);
-        match self
-            .chat_completions(cfg, model, internal, &system, user, Some(format))
-            .await
-        {
+        match self.chat_completions(cfg, model, internal, &system, user, Some(format)).await {
             Ok(text) => Ok(text),
             Err(err) => {
                 warn!(
@@ -2054,8 +1983,7 @@ impl WorkerPool {
                     schema = constraint.name,
                     "structured output rejected; retrying without response_format"
                 );
-                self.chat_completions(cfg, model, internal, &system, user, None)
-                    .await
+                self.chat_completions(cfg, model, internal, &system, user, None).await
             },
         }
     }
@@ -2114,8 +2042,7 @@ impl WorkerPool {
         let now = Utc::now().to_rfc3339();
         for (title, events) in clustered {
             let slug = slugify(&title);
-            let event_ids: Vec<String> =
-                events.iter().take(40).map(|e| e.id.to_string()).collect();
+            let event_ids: Vec<String> = events.iter().take(40).map(|e| e.id.to_string()).collect();
             let mut session_ids: Vec<String> = events
                 .iter()
                 .filter_map(|e| e.session_id.clone())
@@ -2252,7 +2179,8 @@ impl WorkerPool {
             );
             let existing_path = wiki_root.join(&rel);
             if existing_path.as_std_path().is_file() {
-                let existing = std::fs::read_to_string(existing_path.as_std_path()).unwrap_or_default();
+                let existing =
+                    std::fs::read_to_string(existing_path.as_std_path()).unwrap_or_default();
                 if wiki_page::is_knowledge_page(&existing) {
                     // Knowledge extract owns this page — do not clobber with citation dump.
                     toc.push((title.clone(), rel));
@@ -2295,7 +2223,8 @@ impl WorkerPool {
         let summaries = self.meta.list_summaries().unwrap_or_default();
         if !summaries.is_empty() {
             std::fs::create_dir_all(wiki_root.join("summaries").as_std_path())?;
-            let mut index = String::from("# Summaries\n\nCompaction summaries for recent sessions.\n\n");
+            let mut index =
+                String::from("# Summaries\n\nCompaction summaries for recent sessions.\n\n");
             for summary in summaries.iter().take(40) {
                 let slug = slugify(&summary.session_id);
                 let rel = format!("summaries/{slug}.md");
@@ -2313,7 +2242,13 @@ impl WorkerPool {
                 )?;
                 toc.push((summary.title.clone(), rel));
             }
-            self.write_wiki_page(project, "summaries/index", "Summaries", "summaries/index.md", &index)?;
+            self.write_wiki_page(
+                project,
+                "summaries/index",
+                "Summaries",
+                "summaries/index.md",
+                &index,
+            )?;
             toc.push(("Summaries".into(), "summaries/index.md".into()));
         }
 
@@ -2434,10 +2369,8 @@ impl WorkerPool {
         for e in recent.iter().take(40) {
             let _ = writeln!(digest, "{}", format_event_line(e));
         }
-        let prompt = format!(
-            "{}\n\nTraffic digest:\n{digest}",
-            prompts::WIKI_EXTRACT_SYSTEM_PROMPT
-        );
+        let prompt =
+            format!("{}\n\nTraffic digest:\n{digest}", prompts::WIKI_EXTRACT_SYSTEM_PROMPT);
         let content = self
             .chat_prompt(cfg, model, "wiki-worker", prompts::WIKI_MERGE_SYSTEM_PROMPT, &prompt)
             .await?;
@@ -2563,26 +2496,14 @@ fn parse_recompile_response(
             history_entry: parsed
                 .history_entry
                 .or_else(|| Some("Recompiled oversized page.".into())),
-            aliases: if parsed.aliases.is_empty() {
-                page.aliases.clone()
-            } else {
-                parsed.aliases
-            },
-            tags: if parsed.tags.is_empty() {
-                page.tags.clone()
-            } else {
-                parsed.tags
-            },
+            aliases: if parsed.aliases.is_empty() { page.aliases.clone() } else { parsed.aliases },
+            tags: if parsed.tags.is_empty() { page.tags.clone() } else { parsed.tags },
             entities: if parsed.entities.is_empty() {
                 page.entities.clone()
             } else {
                 parsed.entities
             },
-            related: if parsed.related.is_empty() {
-                page.related.clone()
-            } else {
-                parsed.related
-            },
+            related: if parsed.related.is_empty() { page.related.clone() } else { parsed.related },
             citations: page.citations.clone(),
             sources: page.sources.clone(),
             entity_type: None,
@@ -2593,12 +2514,7 @@ fn parse_recompile_response(
     let string_list = |key: &str| -> Vec<String> {
         v.get(key)
             .and_then(|a| a.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.as_str().map(str::to_string))
-                    .take(32)
-                    .collect()
-            })
+            .map(|arr| arr.iter().filter_map(|x| x.as_str().map(str::to_string)).take(32).collect())
             .unwrap_or_default()
     };
     let aliases = string_list("aliases");
@@ -2608,11 +2524,7 @@ fn parse_recompile_response(
     Some(wiki_page::PagePatch {
         action: wiki_page::WikiAction::Update,
         slug: slug.to_string(),
-        title: v
-            .get("title")
-            .and_then(|t| t.as_str())
-            .unwrap_or(&page.title)
-            .to_string(),
+        title: v.get("title").and_then(|t| t.as_str()).unwrap_or(&page.title).to_string(),
         summary: v.get("summary").and_then(|t| t.as_str()).map(str::to_string),
         article: v.get("article").and_then(|t| t.as_str()).map(str::to_string),
         article_patches: Vec::new(),
@@ -2621,22 +2533,10 @@ fn parse_recompile_response(
             .and_then(|t| t.as_str())
             .map(str::to_string)
             .or_else(|| Some("Recompiled oversized page.".into())),
-        aliases: if aliases.is_empty() {
-            page.aliases.clone()
-        } else {
-            aliases
-        },
+        aliases: if aliases.is_empty() { page.aliases.clone() } else { aliases },
         tags: if tags.is_empty() { page.tags.clone() } else { tags },
-        entities: if entities.is_empty() {
-            page.entities.clone()
-        } else {
-            entities
-        },
-        related: if related.is_empty() {
-            page.related.clone()
-        } else {
-            related
-        },
+        entities: if entities.is_empty() { page.entities.clone() } else { entities },
+        related: if related.is_empty() { page.related.clone() } else { related },
         citations: page.citations.clone(),
         sources: page.sources.clone(),
         entity_type: None,
@@ -2713,9 +2613,7 @@ fn parse_entity_label(raw: &str) -> (Option<String>, String) {
         let name = name.trim();
         if !kind.is_empty()
             && !name.is_empty()
-            && kind
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+            && kind.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
             && kind.len() <= 32
         {
             return (Some(kind.to_string()), name.to_string());
@@ -2828,12 +2726,8 @@ fn batch_digest(events: &[TrafficEvent]) -> String {
     let mut work = Vec::new();
     let mut tools = Vec::new();
     for (i, e) in events.iter().enumerate() {
-        let line = format!(
-            "[#{:02} {}]\n{}",
-            i + 1,
-            e.ts.format("%Y-%m-%dT%H:%M"),
-            format_event_line(e)
-        );
+        let line =
+            format!("[#{:02} {}]\n{}", i + 1, e.ts.format("%Y-%m-%dT%H:%M"), format_event_line(e));
         if matches!(e.role, TrafficRole::Tool) {
             tools.push(line);
         } else {
@@ -2849,11 +2743,8 @@ fn work_first_strip(body: &str) -> String {
     if trimmed.is_empty() {
         return String::new();
     }
-    let mut paras: Vec<&str> = trimmed
-        .split("\n\n")
-        .map(str::trim)
-        .filter(|p| !p.is_empty())
-        .collect();
+    let mut paras: Vec<&str> =
+        trimmed.split("\n\n").map(str::trim).filter(|p| !p.is_empty()).collect();
     while let Some(first) = paras.first() {
         let lower = first.to_ascii_lowercase();
         let meta_open = lower.starts_with("this batch")

@@ -53,11 +53,7 @@ pub fn reciprocal_rank_fusion<'a, T: FusionItem>(arms: &[&'a [T]], k: f64) -> Ve
 
 #[must_use]
 pub fn fusion_score<T: FusionItem>(rrf: f64, item: &T) -> f64 {
-    let bonus = if item.fusion_source() == HitSource::Summary {
-        SUMMARY_FUSION_BONUS
-    } else {
-        1.0
-    };
+    let bonus = if item.fusion_source() == HitSource::Summary { SUMMARY_FUSION_BONUS } else { 1.0 };
     rrf * (1.0 + item.fusion_boost()) * bonus
 }
 

@@ -372,11 +372,11 @@ func TestExtractGitTaskToolsAndUpstream(t *testing.T) {
 func TestExtractAgentContextClaudeCode(t *testing.T) {
 	t.Parallel()
 	hdr := map[string][]string{
-		"X-Claude-Code-Session-Id":     {"sess-1"},
-		"X-Claude-Code-Agent-Id":       {"agent-abc"},
+		"X-Claude-Code-Session-Id":      {"sess-1"},
+		"X-Claude-Code-Agent-Id":        {"agent-abc"},
 		"X-Claude-Code-Parent-Agent-Id": {"agent-parent"},
-		"X-Claude-Code-Request-Class":  {"subagent"},
-		"X-Claude-Code-Agent-Type":     {"Explore"},
+		"X-Claude-Code-Request-Class":   {"subagent"},
+		"X-Claude-Code-Agent-Type":      {"Explore"},
 	}
 	m := parseMeta("claude", hdr, []byte(`{"model":"claude-sonnet-4-5","messages":[]}`), nil)
 	if m.SessionID != "sess-1" {

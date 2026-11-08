@@ -151,9 +151,7 @@ export const TrafficEventSchema = Schema.Struct({
   project_id: Schema.optional(Schema.NullOr(Schema.String)),
   cwd: Schema.optional(Schema.NullOr(Schema.String)),
   body_ref: Schema.optional(Schema.NullOr(Schema.String)),
-  capture_quality: Schema.optional(
-    Schema.NullOr(Schema.Literals(["wire", "soft", "imported"])),
-  ),
+  capture_quality: Schema.optional(Schema.NullOr(Schema.Literals(["wire", "soft", "imported"]))),
   agent_id: Schema.optional(Schema.NullOr(Schema.String)),
   parent_agent_id: Schema.optional(Schema.NullOr(Schema.String)),
   parent_session_id: Schema.optional(Schema.NullOr(Schema.String)),
@@ -192,9 +190,7 @@ export const ConversationSummarySchema = Schema.Struct({
   message_count: Schema.Finite,
   tokens_in: Schema.Finite,
   tokens_out: Schema.Finite,
-  capture_quality: Schema.optional(
-    Schema.NullOr(Schema.Literals(["wire", "soft", "imported"])),
-  ),
+  capture_quality: Schema.optional(Schema.NullOr(Schema.Literals(["wire", "soft", "imported"]))),
   agent_ids: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   subagent_events: Schema.optional(Schema.Finite),
   cache_read_tokens: Schema.optional(Schema.Finite),

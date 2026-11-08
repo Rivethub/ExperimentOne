@@ -81,8 +81,7 @@ pub const MAX_TOPIC_DEPTH: usize = 4;
 /// Depth of `slug` in the parent chain (root topics are depth 1). Cycles → 1.
 #[must_use]
 pub fn topic_depth(topics: &[TopicMeta], slug: &str) -> usize {
-    let by_slug: BTreeMap<&str, &TopicMeta> =
-        topics.iter().map(|t| (t.slug.as_str(), t)).collect();
+    let by_slug: BTreeMap<&str, &TopicMeta> = topics.iter().map(|t| (t.slug.as_str(), t)).collect();
     let mut depth = 1usize;
     let mut cursor = slug;
     let mut seen = std::collections::HashSet::new();
@@ -684,7 +683,10 @@ impl MetaStore {
     }
 
     /// Event ids already covered by leaf (or flat) summaries for a session.
-    pub fn covered_event_ids(&self, session_id: &str) -> Result<std::collections::BTreeSet<String>> {
+    pub fn covered_event_ids(
+        &self,
+        session_id: &str,
+    ) -> Result<std::collections::BTreeSet<String>> {
         let mut out = std::collections::BTreeSet::new();
         for summary in self.list_summaries_for_session(session_id)? {
             if matches!(summary.kind, SummaryKind::Leaf | SummaryKind::Flat) {
@@ -748,11 +750,9 @@ impl MetaStore {
         if event_ids.is_empty() || max_extra == 0 {
             return Ok(Vec::new());
         }
-        let seed: std::collections::BTreeSet<&str> =
-            event_ids.iter().map(String::as_str).collect();
+        let seed: std::collections::BTreeSet<&str> = event_ids.iter().map(String::as_str).collect();
         let mut extra = Vec::new();
-        let mut visited: std::collections::BTreeSet<String> =
-            event_ids.iter().cloned().collect();
+        let mut visited: std::collections::BTreeSet<String> = event_ids.iter().cloned().collect();
         let summaries = self.list_summaries()?;
         for summary in &summaries {
             let covers = summary.event_ids.iter().any(|id| seed.contains(id.as_str()));
@@ -827,7 +827,8 @@ impl MetaStore {
         };
         match proposal.action.as_str() {
             "rename" => {
-                if let (Some(slug), Some(title)) = (proposal.from_slug.as_deref(), proposal.title.as_deref())
+                if let (Some(slug), Some(title)) =
+                    (proposal.from_slug.as_deref(), proposal.title.as_deref())
                 {
                     let mut topics = self.list_topics()?;
                     if let Some(topic) = topics.iter_mut().find(|t| t.slug == slug) {
@@ -1065,10 +1066,8 @@ impl MetaStore {
         if let Some(parent) = self.paths.enrichments.parent() {
             fs::create_dir_all(parent)?;
         }
-        let mut f = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.paths.enrichments)?;
+        let mut f =
+            fs::OpenOptions::new().create(true).append(true).open(&self.paths.enrichments)?;
         writeln!(f, "{}", serde_json::to_string(event)?)?;
         f.sync_all()?;
         Ok(())

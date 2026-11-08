@@ -27,13 +27,12 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rivet_core::{
-    age_days_since, assemble_startup_memory_with_workspace, claude_mcp_json,
-    load_workspace_memory, WorkspaceMemorySection,
-    claude_settings_json, codex_config_toml, conversations_from_events, harness_user_ready,
-    hydrate_event_content, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
+    age_days_since, assemble_startup_memory_with_workspace, claude_mcp_json, claude_settings_json,
+    codex_config_toml, conversations_from_events, harness_user_ready, hydrate_event_content,
+    lexical_embed, load_workspace_memory, localhost_port_free, migrate_claude_connector_auth,
     normalize_event_turns, project_id_from_cwd, provider_catalog, recency_boost,
     resolve_project_root, Capabilities, ConversationSummary, LiveBus, ProviderKind, RivetConfig,
-    RivetPaths, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
+    RivetPaths, TrafficEvent, TrafficRole, UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
 };
 use rivet_store::{
     fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseTrafficStore,
@@ -442,10 +441,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/topics/item", get(topic_get))
         .route("/v1/topics/tidy", get(tidy_list).post(tidy_decide))
         .route("/v1/topics/tags", get(tags_list).post(tags_decide))
-        .route(
-            "/v1/memory/startup",
-            get(memory_startup).post(memory_startup_post),
-        )
+        .route("/v1/memory/startup", get(memory_startup).post(memory_startup_post))
         .route("/v1/workers/flagged", get(workers_flagged).post(workers_flagged_retry))
         .route("/v1/summaries", get(summaries_list))
         .route("/v1/traffic/full", get(traffic_get_full))
@@ -478,7 +474,6 @@ pub fn router(state: ApiState) -> Router {
 
     public.merge(protected).layer(localhost_cors()).with_state(state)
 }
-
 
 #[utoipa::path(
     get,
@@ -880,18 +875,11 @@ async fn hybrid_conversation_search(
     limit: u32,
 ) -> Result<(&'static str, Vec<ConversationSummary>), String> {
     let fetch = hybrid_fetch_limit(limit);
-    let keyword = state
-        .store
-        .search_keyword(query, fetch)
-        .await
-        .map_err(|e| e.to_string())?;
+    let keyword = state.store.search_keyword(query, fetch).await.map_err(|e| e.to_string())?;
     let keyword_ids: Vec<String> = keyword.iter().map(|e| e.id.to_string()).collect();
     // Prefer lexical when the query looks like a path / id.
     if prefer_lexical_query(query) && !keyword_ids.is_empty() {
-        return Ok((
-            "hybrid_lexical",
-            conversations_from_events(&keyword, limit.max(1)),
-        ));
+        return Ok(("hybrid_lexical", conversations_from_events(&keyword, limit.max(1))));
     }
     let query_vec = lexical_embed(query);
     let hits = state
@@ -921,11 +909,7 @@ async fn hybrid_conversation_search(
     let access = state
         .meta
         .access_counts_for(
-            &keyword_ids
-                .iter()
-                .chain(vector_ids.iter())
-                .cloned()
-                .collect::<Vec<_>>(),
+            &keyword_ids.iter().chain(vector_ids.iter()).cloned().collect::<Vec<_>>(),
         )
         .unwrap_or_default();
     for ev in &keyword {
@@ -933,8 +917,13 @@ async fn hybrid_conversation_search(
         let n = access.get(&ev.id.to_string()).copied().unwrap_or(0);
         boosts.insert(ev.id.to_string(), recency_boost(age, n, 0.2));
     }
-    let fused_ids =
-        fuse_event_id_arms_boosted(&keyword_ids, &vector_ids, &summary_ids, &boosts, limit.saturating_mul(4));
+    let fused_ids = fuse_event_id_arms_boosted(
+        &keyword_ids,
+        &vector_ids,
+        &summary_ids,
+        &boosts,
+        limit.saturating_mul(4),
+    );
     for id in &fused_ids {
         let _ = state.meta.bump_access(id);
     }
@@ -952,10 +941,8 @@ async fn hybrid_conversation_search(
     // Auto-expand: walk summary DAG lineage for fused hits (siblings + child events).
     let seed_ids: Vec<String> = ordered.iter().map(|e| e.id.to_string()).collect();
     if let Ok(extra) = state.meta.expand_events_via_lineage(&seed_ids, 24) {
-        let missing: Vec<String> = extra
-            .into_iter()
-            .filter(|id| !fused_ids.iter().any(|f| f == id))
-            .collect();
+        let missing: Vec<String> =
+            extra.into_iter().filter(|id| !fused_ids.iter().any(|f| f == id)).collect();
         if !missing.is_empty() {
             if let Ok(more) = state.store.get_by_ids(&missing).await {
                 ordered.extend(more);
@@ -1785,9 +1772,7 @@ async fn wiki_archive_file(
     };
     if file.contains("..")
         || file.contains('/')
-        || !std::path::Path::new(file)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        || !std::path::Path::new(file).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
     {
         return Err(err_response("invalid archive file".into()));
     }
@@ -1799,21 +1784,10 @@ async fn wiki_archive_file(
     if slug.is_empty() || slug.contains("..") || slug.contains('/') {
         return Err(err_response("invalid archive slug".into()));
     }
-    let abs = state
-        .paths
-        .wiki_dir()
-        .join(&project)
-        .join("archive")
-        .join(&slug)
-        .join(file);
+    let abs = state.paths.wiki_dir().join(&project).join("archive").join(&slug).join(file);
     let content =
         std::fs::read_to_string(abs.as_std_path()).map_err(|e| err_response(e.to_string()))?;
-    Ok(Json(WikiArchiveBody {
-        project_id: project,
-        slug,
-        file: file.to_string(),
-        content,
-    }))
+    Ok(Json(WikiArchiveBody { project_id: project, slug, file: file.to_string(), content }))
 }
 
 async fn workers_tick(
@@ -1884,11 +1858,7 @@ async fn topics_list(
 ) -> Result<Json<Vec<TopicMeta>>, (StatusCode, Json<ErrBody>)> {
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let query = q.q.unwrap_or_default();
-    state
-        .meta
-        .search_topics(&query, limit)
-        .map(Json)
-        .map_err(|e| err_response(e.to_string()))
+    state.meta.search_topics(&query, limit).map(Json).map_err(|e| err_response(e.to_string()))
 }
 
 async fn topic_get(
@@ -1901,9 +1871,7 @@ async fn topic_get(
         .get_topic(&slug)
         .map_err(|e| err_response(e.to_string()))?
         .map(Json)
-        .ok_or_else(|| {
-            (StatusCode::NOT_FOUND, Json(ErrBody { error: "topic not found".into() }))
-        })
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(ErrBody { error: "topic not found".into() })))
 }
 
 async fn topic_curate(
@@ -1912,18 +1880,10 @@ async fn topic_curate(
 ) -> Result<Json<TopicMeta>, (StatusCode, Json<ErrBody>)> {
     state
         .meta
-        .mark_topic_curated(
-            &body.slug,
-            body.title,
-            body.summary,
-            body.aliases,
-            body.tags,
-        )
+        .mark_topic_curated(&body.slug, body.title, body.summary, body.aliases, body.tags)
         .map_err(|e| err_response(e.to_string()))?
         .map(Json)
-        .ok_or_else(|| {
-            (StatusCode::NOT_FOUND, Json(ErrBody { error: "topic not found".into() }))
-        })
+        .ok_or_else(|| (StatusCode::NOT_FOUND, Json(ErrBody { error: "topic not found".into() })))
 }
 
 async fn summaries_list(
@@ -1950,10 +1910,8 @@ async fn tidy_list(
     Query(q): Query<TidyQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
     let pending_only = q.pending.unwrap_or(true);
-    let proposals = state
-        .meta
-        .list_tidy_proposals(pending_only)
-        .map_err(|e| err_response(e.to_string()))?;
+    let proposals =
+        state.meta.list_tidy_proposals(pending_only).map_err(|e| err_response(e.to_string()))?;
     Ok(Json(serde_json::json!({ "proposals": proposals })))
 }
 
@@ -1966,15 +1924,9 @@ async fn tidy_decide(
         return Err(err_response("status must be approved or rejected".into()));
     }
     let row = if status == "approved" {
-        state
-            .meta
-            .apply_tidy_proposal(&body.id)
-            .map_err(|e| err_response(e.to_string()))?
+        state.meta.apply_tidy_proposal(&body.id).map_err(|e| err_response(e.to_string()))?
     } else {
-        state
-            .meta
-            .set_tidy_status(&body.id, status)
-            .map_err(|e| err_response(e.to_string()))?
+        state.meta.set_tidy_status(&body.id, status).map_err(|e| err_response(e.to_string()))?
     };
     let Some(row) = row else {
         return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "proposal not found".into() })));
@@ -1992,10 +1944,8 @@ struct TagDecideRequest {
 async fn tags_list(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
-    let suggestions = state
-        .meta
-        .list_tag_suggestions(true)
-        .map_err(|e| err_response(e.to_string()))?;
+    let suggestions =
+        state.meta.list_tag_suggestions(true).map_err(|e| err_response(e.to_string()))?;
     Ok(Json(serde_json::json!({ "suggestions": suggestions })))
 }
 
@@ -2007,10 +1957,8 @@ async fn tags_decide(
     if !matches!(status, "accepted" | "rejected") {
         return Err(err_response("status must be accepted or rejected".into()));
     }
-    let Some(row) = state
-        .meta
-        .set_tag_status(&body.id, status)
-        .map_err(|e| err_response(e.to_string()))?
+    let Some(row) =
+        state.meta.set_tag_status(&body.id, status).map_err(|e| err_response(e.to_string()))?
     else {
         return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "tag not found".into() })));
     };
@@ -2057,9 +2005,7 @@ async fn workers_flagged_retry(
         .list_jobs_by_status(JobStatus::Dead, 200)
         .await
         .map_err(|e| err_response(e.to_string()))?;
-    let Some(mut job) = dead
-        .into_iter()
-        .find(|j| j.task == body.task && j.job_key == body.job_key)
+    let Some(mut job) = dead.into_iter().find(|j| j.task == body.task && j.job_key == body.job_key)
     else {
         return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "job not found".into() })));
     };
@@ -2159,14 +2105,11 @@ async fn build_memory_startup(
         .and_then(|slug| state.meta.get_topic(slug).ok().flatten());
     let topic_title = topic.as_ref().map(|t| t.title.clone());
     let topic_page = topic.as_ref().and_then(|t| {
-        t.startup_context
-            .clone()
-            .or_else(|| t.summary.clone())
-            .or_else(|| {
-                (!t.decisions.is_empty()).then(|| {
-                    t.decisions.iter().map(|d| format!("- {d}")).collect::<Vec<_>>().join("\n")
-                })
+        t.startup_context.clone().or_else(|| t.summary.clone()).or_else(|| {
+            (!t.decisions.is_empty()).then(|| {
+                t.decisions.iter().map(|d| format!("- {d}")).collect::<Vec<_>>().join("\n")
             })
+        })
     });
     let mut workspace = Vec::new();
     if let Some(cwd) = cwd.map(str::trim).filter(|s| !s.is_empty()) {
@@ -2185,10 +2128,8 @@ async fn build_memory_startup(
             if workspace.iter().any(|s| s.title == title) {
                 continue;
             }
-            workspace.push(WorkspaceMemorySection {
-                title: title.to_string(),
-                body: body.to_string(),
-            });
+            workspace
+                .push(WorkspaceMemorySection { title: title.to_string(), body: body.to_string() });
         }
     }
     let recent = state.store.recent(40).await.unwrap_or_default();
@@ -2219,9 +2160,8 @@ async fn build_memory_startup(
             }
         } else if let Ok(events) = state.store.search_keyword(query, limit).await {
             for e in events {
-                hit_lines.push(
-                    e.content.as_deref().unwrap_or("").chars().take(120).collect::<String>(),
-                );
+                hit_lines
+                    .push(e.content.as_deref().unwrap_or("").chars().take(120).collect::<String>());
             }
         }
     }
@@ -2247,11 +2187,8 @@ async fn traffic_get_full(
     if id.is_empty() {
         return Err(err_response("id required".into()));
     }
-    let mut events = state
-        .store
-        .get_by_ids(&[id.to_string()])
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    let mut events =
+        state.store.get_by_ids(&[id.to_string()]).await.map_err(|e| err_response(e.to_string()))?;
     let Some(mut event) = events.pop() else {
         return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "event not found".into() })));
     };

@@ -254,10 +254,8 @@ fn parse_content_blocks(blocks: &[Value]) -> Vec<NormalizedTurn> {
                 }
             },
             "thinking" | "reasoning" => {
-                if let Some(t) = block
-                    .get("thinking")
-                    .or_else(|| block.get("text"))
-                    .and_then(Value::as_str)
+                if let Some(t) =
+                    block.get("thinking").or_else(|| block.get("text")).and_then(Value::as_str)
                 {
                     let t = t.trim();
                     if !t.is_empty() {
@@ -272,11 +270,7 @@ fn parse_content_blocks(blocks: &[Value]) -> Vec<NormalizedTurn> {
                 }
             },
             "tool_use" | "function_call" => {
-                let name = block
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("tool")
-                    .to_string();
+                let name = block.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
                 let args = block.get("input").or_else(|| block.get("arguments")).map(|v| {
                     if v.is_string() {
                         clip(v.as_str().unwrap_or(""), 4_000)

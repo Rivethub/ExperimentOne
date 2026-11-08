@@ -182,10 +182,7 @@ export const retryFlagged = (task: string, job_key: string): ApiFx<{ ok: boolean
   apiJson<{ ok: boolean }>("POST", "/v1/workers/flagged", { task, job_key });
 
 export const getMemoryStats = apiJson<Record<string, unknown>>("GET", "/v1/memory/stats");
-export const getMemoryStartup = (
-  topic?: string,
-  q?: string,
-): ApiFx<{ markdown: string }> => {
+export const getMemoryStartup = (topic?: string, q?: string): ApiFx<{ markdown: string }> => {
   const params = new URLSearchParams();
   if (topic) params.set("topic", topic);
   if (q) params.set("q", q);
@@ -290,10 +287,7 @@ export const loadWikiPageContent = (page: WikiPageCard): ApiBackendFx<string> =>
     return body.content;
   });
 
-export const loadWikiArchiveList = (
-  slug: string,
-  projectId?: string,
-): ApiBackendFx<string[]> =>
+export const loadWikiArchiveList = (slug: string, projectId?: string): ApiBackendFx<string[]> =>
   Effect.gen(function* runLoadWikiArchiveList() {
     yield* ensureRivetd;
     const body = yield* listWikiArchives(slug, projectId);

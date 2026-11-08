@@ -67,11 +67,7 @@ pub fn fuse_event_id_arms_boosted<S: ::std::hash::BuildHasher>(
         (true, true) => return Vec::new(),
     };
     let fused = reciprocal_rank_fusion(&arms, HYBRID_RRF_K);
-    gated_fused(fused)
-        .into_iter()
-        .take(limit.max(1) as usize)
-        .map(|f| f.item.id.clone())
-        .collect()
+    gated_fused(fused).into_iter().take(limit.max(1) as usize).map(|f| f.item.id.clone()).collect()
 }
 
 /// Prefer keyword-only ordering when the query is path-/id-like.

@@ -226,14 +226,8 @@ async fn tool_descriptors(state: &McpState) -> Vec<ToolDescriptor> {
             name: "search_history",
             description: "Keyword search over captured prompts and completions",
         },
-        ToolDescriptor {
-            name: "topic_search",
-            description: "Search durable knowledge topics",
-        },
-        ToolDescriptor {
-            name: "topic_get",
-            description: "Fetch one topic by slug or id",
-        },
+        ToolDescriptor { name: "topic_search", description: "Search durable knowledge topics" },
+        ToolDescriptor { name: "topic_get", description: "Fetch one topic by slug or id" },
         ToolDescriptor {
             name: "get_full",
             description: "Hydrate a traffic event or conversation with full bodies",
@@ -331,8 +325,11 @@ async fn semantic_search(
     })
 }
 
-
-fn do_topic_search(state: &McpState, query: &str, limit: u32) -> Result<serde_json::Value, StatusCode> {
+fn do_topic_search(
+    state: &McpState,
+    query: &str,
+    limit: u32,
+) -> Result<serde_json::Value, StatusCode> {
     let topics = state
         .meta
         .search_topics(query, usize::try_from(limit).unwrap_or(20))
@@ -351,9 +348,17 @@ async fn do_get_full(state: &McpState, id: &str) -> Result<serde_json::Value, St
         return Err(StatusCode::BAD_REQUEST);
     }
     let mut events = if let Some(eid) = id.strip_prefix("event:") {
-        state.store.get_by_ids(&[eid.to_string()]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        state
+            .store
+            .get_by_ids(&[eid.to_string()])
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else if id.len() == 36 {
-        state.store.get_by_ids(&[id.to_string()]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        state
+            .store
+            .get_by_ids(&[id.to_string()])
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     } else {
         state
             .store
@@ -376,7 +381,11 @@ async fn do_get_full(state: &McpState, id: &str) -> Result<serde_json::Value, St
     Ok(json!({ "events": events }))
 }
 
-async fn do_browse_session(state: &McpState, id: &str, limit: u32) -> Result<serde_json::Value, StatusCode> {
+async fn do_browse_session(
+    state: &McpState,
+    id: &str,
+    limit: u32,
+) -> Result<serde_json::Value, StatusCode> {
     let mut events = state
         .store
         .conversation_events(id, limit.clamp(1, 2000))
@@ -431,7 +440,9 @@ async fn browse_session_rest(
     do_browse_session(&state, &req.query, req.limit.clamp(1, 2000)).await.map(Json)
 }
 
-async fn memory_stats_rest(State(state): State<McpState>) -> Result<Json<serde_json::Value>, StatusCode> {
+async fn memory_stats_rest(
+    State(state): State<McpState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     do_memory_stats(&state).await.map(Json)
 }
 
