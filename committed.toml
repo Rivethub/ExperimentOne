@@ -25,6 +25,7 @@ allowed_types = [
 allowed_scopes = [
   "api",
   "charts",
+  "cli",
   "ci",
   "core",
   "desktop",
