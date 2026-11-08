@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { turnFromTrafficEvent } from "./parse";
-import type { TrafficEvent } from "../types";
+import type { TrafficEvent } from "../lib/types";
 
 function ev(partial: Partial<TrafficEvent> & Pick<TrafficEvent, "content" | "role">): TrafficEvent {
   return {

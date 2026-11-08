@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, ReactElement } from "react";
 import { cx } from "../styles/cx";
 import styles from "./Pill.module.css";
 
@@ -17,6 +17,6 @@ const toneClass: Record<PillTone, string | undefined> = {
   codex: styles.codex,
 };
 
-export function Pill({ tone = "default", className, ...rest }: PillProps) {
+export function Pill({ tone = "default", className, ...rest }: PillProps): ReactElement {
   return <span className={cx(styles.pill, toneClass[tone], className)} {...rest} />;
 }

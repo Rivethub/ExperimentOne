@@ -1,5 +1,5 @@
-import { splitTrafficBody } from "../trafficUtils";
-import type { TrafficEvent } from "../types";
+import { splitTrafficBody } from "../lib/traffic-utils";
+import type { TrafficEvent } from "../lib/types";
 import type { TranscriptPart, TranscriptRole, TranscriptTurn } from "./types";
 
 function asRecord(value: unknown): Record<string, unknown> | null {

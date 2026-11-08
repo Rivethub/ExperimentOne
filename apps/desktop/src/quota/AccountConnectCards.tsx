@@ -5,7 +5,8 @@ import {
   providerColor,
   providerKey,
   type CatalogProvider,
-} from "../providerUtils";
+} from "../lib/provider-utils";
+import { isDefined } from "../lib/nullish";
 import type { QuotaAccountUx } from "./types";
 import { Button, Empty } from "../ui";
 import { cx } from "../styles/cx";
@@ -16,6 +17,16 @@ type AccountRow = {
   provider: string;
   label: string;
 };
+
+function quotaDisplayLabel(q: QuotaAccountUx | undefined, fallback: string): string {
+  if (!isDefined(q)) {
+    return fallback;
+  }
+  if (isDefined(q.email) && q.email !== "") {
+    return q.email;
+  }
+  return q.label !== "" ? q.label : fallback;
+}
 
 export function AccountConnectCards({
   accounts,
@@ -35,7 +46,7 @@ export function AccountConnectCards({
   onReconnect: (provider: string) => void;
   onRemove: (id: string) => void;
   onOpenHarness?: () => void;
-}) {
+}): React.ReactElement {
   if (accounts.length === 0) {
     return <Empty>No accounts yet — use Add account to sign in.</Empty>;
   }
@@ -46,7 +57,13 @@ export function AccountConnectCards({
         const q = quotaById.get(a.id);
         const id = providerKey(a.provider);
         const color = providerColor(id, catalog);
-        const showHarness = (id === "claude" || id === "codex") && !!onOpenHarness;
+        const showHarness = (id === "claude" || id === "codex") && isDefined(onOpenHarness);
+        const displayEmail = quotaDisplayLabel(q, a.label);
+        const resetSuffix =
+          isDefined(q?.reset_at) && q.reset_at !== ""
+            ? ` · reset ${formatCountdownTo(q.reset_at)}`
+            : "";
+        const showAltLabel = isDefined(q) && a.label !== (q.email ?? q.label);
         return (
           <article key={a.id} className={styles.connectCard} style={{ borderColor: `${color}44` }}>
             <header className={styles.connectCardHead} style={{ borderColor: `${color}33` }}>
@@ -59,13 +76,13 @@ export function AccountConnectCards({
               </div>
             </header>
             <div className={styles.connectCardBody}>
-              <div className={styles.connectEmail}>{q?.email || q?.label || a.label}</div>
+              <div className={styles.connectEmail}>{displayEmail}</div>
               <div className={styles.connectRemaining}>
                 {fmtPct(q?.remaining_pct ?? null)} remaining
-                {q?.reset_at ? ` · reset ${formatCountdownTo(q.reset_at)}` : ""}
+                {resetSuffix}
               </div>
               <div className={cx(styles.mono, styles.accountLimit)}>
-                {a.label !== (q?.email || q?.label) ? a.label : ""}
+                {showAltLabel ? a.label : ""}
               </div>
             </div>
             <footer className={styles.connectCardActions}>
@@ -74,14 +91,21 @@ export function AccountConnectCards({
                   Harness setup
                 </Button>
               )}
-              <Button disabled={busy || loginActive} onClick={() => onReconnect(id)}>
+              <Button
+                disabled={busy || loginActive}
+                onClick={() => {
+                  onReconnect(id);
+                }}
+              >
                 Reconnect
               </Button>
               <Button
                 variant="danger"
                 disabled={busy}
                 title="Deletes the local credential file (DELETE /v1/accounts)"
-                onClick={() => onRemove(a.id)}
+                onClick={() => {
+                  onRemove(a.id);
+                }}
               >
                 Remove
               </Button>

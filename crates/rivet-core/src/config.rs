@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use crate::paths::RivetPaths;
 
 /// Feature flags driven by what the user has configured.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)] // Serde feature flags map 1:1 to config fields.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Capabilities {
     /// Keyword/SQL history via MCP always on once traffic exists.
     pub mcp: bool,
@@ -24,7 +25,7 @@ pub struct RivetConfig {
     pub clickhouse_native_port: u16,
     /// Access key harnesses send to the proxy (not a provider credential).
     pub proxy_access_key: String,
-    /// Localhost management API key for CLIProxyAPI credential/quota endpoints.
+    /// Localhost management API key for `CLIProxyAPI` credential/quota endpoints.
     #[serde(default)]
     pub management_secret: String,
     pub capabilities: Capabilities,
@@ -42,6 +43,8 @@ pub struct RivetConfig {
 fn default_wiki_project() -> String {
     "default".into()
 }
+
+const PROXY_PORT_FALLBACKS: &[u16] = &[18317, 18741, 28417, 38417, 48417, 5817];
 
 impl Default for RivetConfig {
     fn default() -> Self {
@@ -106,20 +109,10 @@ impl RivetConfig {
 
     /// Turn on optional capabilities when models are configured.
     pub fn sync_capabilities_from_models(&mut self) {
-        if self
-            .embedding_model
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
-        {
+        if self.embedding_model.as_ref().is_some_and(|s| !s.trim().is_empty()) {
             self.capabilities.vector_search = true;
         }
-        if self
-            .wiki_model
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
-        {
+        if self.wiki_model.as_ref().is_some_and(|s| !s.trim().is_empty()) {
             self.capabilities.wiki = true;
         }
         self.capabilities.mcp = true;
@@ -147,8 +140,7 @@ impl RivetConfig {
             return Ok(None);
         }
         let previous = self.proxy_port;
-        const CANDIDATES: &[u16] = &[18317, 18741, 28417, 38417, 48417, 5817];
-        for &candidate in CANDIDATES {
+        for &candidate in PROXY_PORT_FALLBACKS {
             if candidate == previous {
                 continue;
             }

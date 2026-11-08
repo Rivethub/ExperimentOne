@@ -1,5 +1,5 @@
-import { NAV, SETTINGS_TABS } from "../constants";
-import type { Page, SettingsTab } from "../types";
+import { NAV, SETTINGS_TABS } from "../lib/constants";
+import type { Page, SettingsTab } from "../lib/types";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 
@@ -19,7 +19,7 @@ export function AppSidebar({
   trafficEventCount,
   onNavigate,
   onOpenSettings,
-}: AppSidebarProps) {
+}: AppSidebarProps): React.ReactElement {
   return (
     <aside className={styles.sidebar}>
       <div className={styles.brand}>
@@ -60,7 +60,9 @@ export function AppSidebar({
                   key={tab.id}
                   type="button"
                   className={cx(styles.navSubBtn, settingsTab === tab.id ? styles.active : "")}
-                  onClick={() => onOpenSettings(tab.id)}
+                  onClick={() => {
+                    onOpenSettings(tab.id);
+                  }}
                 >
                   {tab.label}
                 </button>

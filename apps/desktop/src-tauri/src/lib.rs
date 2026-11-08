@@ -1,4 +1,5 @@
 use std::fs;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -11,6 +12,7 @@ use tauri::{
     AppHandle, Manager, RunEvent, WindowEvent,
 };
 
+#[derive(Debug)]
 struct RivetdState {
     child: Mutex<Option<Child>>,
 }
@@ -29,11 +31,11 @@ fn api_up() -> bool {
     control_up(&paths)
 }
 
-fn rivet_data_dir() -> Option<std::path::PathBuf> {
+fn rivet_data_dir() -> Option<PathBuf> {
     Some(dirs::data_dir()?.join("Rivet"))
 }
 
-fn rivet_config_path() -> Option<std::path::PathBuf> {
+fn rivet_config_path() -> Option<PathBuf> {
     Some(rivet_data_dir()?.join("config.json"))
 }
 
@@ -110,7 +112,7 @@ fn read_proxy_access_key() -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
     v.get("proxy_access_key")
         .and_then(|x| x.as_str())
-        .map(|s| s.to_string())
+        .map(str::to_string)
 }
 
 fn ask_authenticated_post(path: &str) {
@@ -131,34 +133,34 @@ fn stop_rivetd(app: &AppHandle) {
     ask_authenticated_post("/v1/proxy/stop");
     std::thread::sleep(std::time::Duration::from_millis(500));
 
-    if let Some(state) = app.try_state::<RivetdState>() {
-        if let Some(mut child) = state.child.lock().unwrap().take() {
-            let pid = child.id();
-            #[cfg(unix)]
-            {
-                let _ = Command::new("kill")
-                    .args(["-TERM", &format!("{pid}")])
-                    .status();
-                for _ in 0..20 {
-                    match child.try_wait() {
-                        Ok(Some(_)) => break,
-                        Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
-                        Err(_) => break,
-                    }
+    let child = app
+        .try_state::<RivetdState>()
+        .and_then(|state| state.child.lock().ok().and_then(|mut slot| slot.take()));
+    if let Some(mut child) = child {
+        let pid = child.id();
+        #[cfg(unix)]
+        {
+            let _ = Command::new("kill")
+                .args(["-TERM", &format!("{pid}")])
+                .status();
+            for _ in 0..20 {
+                match child.try_wait() {
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(100)),
+                    Ok(Some(_)) | Err(_) => break,
                 }
-                let _ = child.kill();
-                let _ = child.wait();
             }
-            #[cfg(windows)]
-            {
-                let _ = Command::new("taskkill")
-                    .args(["/PID", &pid.to_string(), "/T", "/F"])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        #[cfg(windows)]
+        {
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            let _ = child.kill();
+            let _ = child.wait();
         }
     }
 
@@ -226,7 +228,7 @@ fn spawn_rivetd(app: &AppHandle) -> Result<(), String> {
     let named = sidecar_file_name("rivetd");
     let plain = exe_name("rivetd");
     let candidates = [
-        std::env::var_os("RIVETD_BIN").map(std::path::PathBuf::from),
+        std::env::var_os("RIVETD_BIN").map(PathBuf::from),
         std::env::current_exe()
             .ok()
             .and_then(|p| p.parent().map(|d| d.join(&named))),
@@ -253,8 +255,8 @@ fn spawn_rivetd(app: &AppHandle) -> Result<(), String> {
         std::env::current_dir()
             .ok()
             .map(|d| d.join("target/release").join(&plain)),
-        Some(std::path::PathBuf::from(&plain)),
-        Some(std::path::PathBuf::from("rivetd")),
+        Some(PathBuf::from(&plain)),
+        Some(PathBuf::from("rivetd")),
     ];
 
     for candidate in candidates.into_iter().flatten() {
@@ -279,7 +281,10 @@ fn spawn_rivetd(app: &AppHandle) -> Result<(), String> {
                     return Ok(());
                 }
                 Err(err) => {
-                    eprintln!("spawn rivetd via {:?} failed: {err}", candidate);
+                    eprintln!(
+                        "spawn rivetd via {} failed: {err}",
+                        candidate.display()
+                    );
                 }
             }
         }
@@ -296,18 +301,18 @@ fn show_main(app: &AppHandle) {
 }
 
 #[tauri::command]
-fn open_wiki_dir(path: String) -> Result<(), String> {
+fn open_wiki_dir(path: &str) -> Result<(), String> {
     reveal_path(path)
 }
 
 #[tauri::command]
-fn reveal_path(path: String) -> Result<(), String> {
-    let p = std::path::PathBuf::from(&path);
+fn reveal_path(path: &str) -> Result<(), String> {
+    let p = PathBuf::from(path);
     if !p.exists() {
         if let Some(parent) = p.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         } else {
-            std::fs::create_dir_all(&p).map_err(|e| e.to_string())?;
+            fs::create_dir_all(&p).map_err(|e| e.to_string())?;
         }
     }
     let target = if p.is_file() {
@@ -465,7 +470,7 @@ pub fn run() {
         .expect("error while building Rivet");
 
     app.run(|app_handle, event| {
-        if let RunEvent::Exit = event {
+        if matches!(event, RunEvent::Exit) {
             stop_rivetd(app_handle);
         }
     });

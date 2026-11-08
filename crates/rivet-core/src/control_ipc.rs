@@ -4,6 +4,7 @@
 //! Windows named pipe — never over TCP/HTTP. The wire format is still HTTP/1.1
 //! framed messages (same handlers as the loopback API).
 
+use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::time::Duration;
 
@@ -59,7 +60,7 @@ pub fn control_request(
     }
     let method = method.trim().to_ascii_uppercase();
     match method.as_str() {
-        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" => {}
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" => {},
         other => bail!("unsupported method {other}"),
     }
 
@@ -67,50 +68,52 @@ pub fn control_request(
         .with_context(|| format!("connect control ipc {}", control_endpoint(paths)))?;
 
     let body_bytes = body.unwrap_or("").as_bytes();
-    let mut req = format!(
+    let mut req = String::new();
+    write!(
+        req,
         "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nX-Rivet-Ipc: 1\r\n"
-    );
+    )
+    .context("format control ipc request")?;
     if !access_key.is_empty() {
-        req.push_str(&format!("X-Rivet-Key: {access_key}\r\n"));
+        writeln!(req, "X-Rivet-Key: {access_key}").context("format control ipc request")?;
     }
     if !body_bytes.is_empty() {
-        req.push_str("Content-Type: application/json\r\n");
-        req.push_str(&format!("Content-Length: {}\r\n", body_bytes.len()));
+        writeln!(req, "Content-Type: application/json").context("format control ipc request")?;
+        writeln!(req, "Content-Length: {}", body_bytes.len())
+            .context("format control ipc request")?;
     } else if matches!(method.as_str(), "POST" | "PUT" | "PATCH") {
-        req.push_str("Content-Length: 0\r\n");
+        writeln!(req, "Content-Length: 0").context("format control ipc request")?;
     }
     req.push_str("\r\n");
 
-    stream
-        .write_all(req.as_bytes())
-        .context("write control ipc headers")?;
+    stream.write_all(req.as_bytes()).context("write control ipc headers")?;
     if !body_bytes.is_empty() {
-        stream
-            .write_all(body_bytes)
-            .context("write control ipc body")?;
+        stream.write_all(body_bytes).context("write control ipc body")?;
     }
     stream.flush().context("flush control ipc")?;
 
     let mut raw = Vec::new();
-    stream
-        .read_to_end(&mut raw)
-        .context("read control ipc response")?;
-    parse_http_response(&raw)
+    stream.read_to_end(&mut raw).context("read control ipc response")?;
+    Ok(parse_http_response(&raw))
 }
 
-fn parse_http_response(raw: &[u8]) -> Result<ControlIpcResponse> {
+fn http_header_body(text: &str) -> (&str, &str) {
+    if let Some(parts) = text.split_once("\r\n\r\n") {
+        return parts;
+    }
+    if let Some(parts) = text.split_once("\n\n") {
+        return parts;
+    }
+    (text, "")
+}
+
+fn parse_http_response(raw: &[u8]) -> ControlIpcResponse {
     let text = String::from_utf8_lossy(raw);
-    let (header_blob, body) = text
-        .split_once("\r\n\r\n")
-        .or_else(|| text.split_once("\n\n"))
-        .unwrap_or((text.as_ref(), ""));
+    let (header_blob, body) = http_header_body(&text);
     let mut lines = header_blob.lines();
     let status_line = lines.next().unwrap_or("");
-    let status = status_line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse::<u16>().ok())
-        .unwrap_or(0);
+    let status =
+        status_line.split_whitespace().nth(1).and_then(|s| s.parse::<u16>().ok()).unwrap_or(0);
     let mut content_type = String::new();
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
@@ -119,11 +122,7 @@ fn parse_http_response(raw: &[u8]) -> Result<ControlIpcResponse> {
             }
         }
     }
-    Ok(ControlIpcResponse {
-        status,
-        body: body.to_string(),
-        content_type,
-    })
+    ControlIpcResponse { status, body: body.to_string(), content_type }
 }
 
 #[cfg(unix)]
@@ -145,13 +144,13 @@ fn connect_stream(paths: &RivetPaths, timeout: Duration) -> std::io::Result<Cont
                 let _ = stream.set_read_timeout(Some(timeout));
                 let _ = stream.set_write_timeout(Some(timeout));
                 return Ok(stream);
-            }
+            },
             Err(err) => {
                 if start.elapsed() >= timeout {
                     return Err(err);
                 }
                 std::thread::sleep(Duration::from_millis(25));
-            }
+            },
         }
     }
 }
@@ -165,19 +164,14 @@ fn connect_stream(paths: &RivetPaths, timeout: Duration) -> std::io::Result<Cont
     let endpoint = control_endpoint(paths);
     let start = std::time::Instant::now();
     loop {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .access_mode(ACCESS)
-            .open(&endpoint)
-        {
+        match OpenOptions::new().read(true).write(true).access_mode(ACCESS).open(&endpoint) {
             Ok(file) => return Ok(file),
             Err(err) => {
                 if start.elapsed() >= timeout {
                     return Err(err);
                 }
                 std::thread::sleep(Duration::from_millis(25));
-            }
+            },
         }
     }
 }

@@ -4,6 +4,7 @@ package rivetsink
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -351,7 +352,7 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 	}
 	go func() {
 		for attempt := 0; attempt < 3; attempt++ {
-			req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, bytes.NewReader(payload))
 			if err != nil {
 				return
 			}

@@ -1,5 +1,7 @@
 import { Effect } from "effect";
-import type { CatalogProvider } from "../providerUtils";
+import type { WikiInfo, WikiPageCard } from "../components/WikiBoard";
+import type { JsonObject } from "../lib/json-types";
+import type { CatalogProvider } from "../lib/provider-utils";
 import type {
   Account,
   BagResult,
@@ -12,17 +14,28 @@ import type {
   SearchMode,
   Status,
   TrafficEvent,
-} from "../types";
-import type { WikiInfo, WikiPageCard } from "../components/WikiBoard";
-import { apiJson, apiResult, apiText, ensureRivetd, invokeCommand } from "./ipc";
+} from "../lib/types";
+import type { ApiError, BackendUnavailable, IpcError } from "./errors";
+import {
+  apiJson,
+  apiResult,
+  apiText,
+  ensureRivetd,
+  invokeCommand,
+  type SoftHttpResult,
+} from "./ipc";
+import { softEffect } from "./soft";
 
-export const requireBackend = ensureRivetd;
+export { ensureRivetd as requireBackend } from "./ipc";
+
+type ApiFx<T> = Effect.Effect<T, ApiError | IpcError>;
+type ApiBackendFx<T> = Effect.Effect<T, ApiError | IpcError | BackendUnavailable>;
 
 export const getStatus = apiJson<Status>("GET", "/v1/status");
 export const getAccounts = apiJson<Account[]>("GET", "/v1/accounts");
 export const getProviders = apiJson<{ providers: CatalogProvider[] }>("GET", "/v1/providers");
 export const getQuota = apiJson<QuotaSnapshot>("GET", "/v1/quota");
-export const getQuotaHistory = (hours: number) =>
+export const getQuotaHistory = (hours: number): ApiFx<QuotaHistory> =>
   apiJson<QuotaHistory>("GET", `/v1/quota/history?hours=${hours}`);
 export const refreshQuota = apiJson<{
   ok?: boolean;
@@ -30,9 +43,9 @@ export const refreshQuota = apiJson<{
   error?: string;
 }>("POST", "/v1/quota/refresh");
 
-export const getTrafficRecent = (limit = 200) =>
+export const getTrafficRecent = (limit = 200): ApiFx<TrafficEvent[]> =>
   apiJson<TrafficEvent[]>("GET", `/v1/traffic/recent?limit=${limit}`);
-export const searchTraffic = (q: string, limit = 100) =>
+export const searchTraffic = (q: string, limit = 100): ApiFx<TrafficEvent[]> =>
   apiJson<TrafficEvent[]>(
     "GET",
     `/v1/traffic/search?limit=${limit}&q=${encodeURIComponent(q.trim())}`,
@@ -52,58 +65,72 @@ export const searchConversations = (q: string, mode: SearchMode = "keyword", lim
   );
 
 export const getWiki = apiJson<WikiInfo>("GET", "/v1/wiki");
-export const getWikiPage = (id: string) =>
+export const getWikiPage = (id: string): ApiFx<{ content: string }> =>
   apiJson<{ content: string }>("GET", `/v1/wiki/page?${new URLSearchParams({ id })}`);
 
-export const proxyAction = (path: "start" | "stop" | "restart") =>
-  apiJson<unknown>("POST", `/v1/proxy/${path}`);
+export const proxyAction = (path: "start" | "stop" | "restart"): ApiFx<unknown> =>
+  apiJson("POST", `/v1/proxy/${path}`);
 
-export const startLogin = (provider: string, method?: "browser" | "device") =>
+export const startLogin = (
+  provider: string,
+  method?: "browser" | "device",
+): ApiFx<{ message?: string; error?: string }> =>
   apiJson<{ message?: string; error?: string }>("POST", "/v1/accounts/login", {
     provider,
     method,
   });
 
 export const getLoginStatus = apiJson<LoginStatus>("GET", "/v1/accounts/login/status");
-export const cancelLogin = apiJson<unknown>("POST", "/v1/accounts/login/cancel");
-export const importVertex = (path: string) =>
+export const cancelLogin = apiJson("POST", "/v1/accounts/login/cancel");
+export const importVertex = (path: string): ApiFx<{ message?: string; error?: string }> =>
   apiJson<{ message?: string; error?: string }>("POST", "/v1/accounts/import/vertex", { path });
-export const removeAccount = (id: string) =>
-  apiJson<unknown>("DELETE", `/v1/accounts/${encodeURIComponent(id)}`);
+export const removeAccount = (id: string): ApiFx<unknown> =>
+  apiJson("DELETE", `/v1/accounts/${encodeURIComponent(id)}`);
 
-export const writeHarness = (target: "claude" | "codex", mode: "user" | "isolated") =>
-  apiJson<HarnessWrite>("POST", "/v1/harness/write", { target, mode });
+export const writeHarness = (
+  target: "claude" | "codex",
+  mode: "user" | "isolated",
+): ApiFx<HarnessWrite> => apiJson<HarnessWrite>("POST", "/v1/harness/write", { target, mode });
 export const getClaudeEnv = apiText("GET", "/v1/harness/claude.env");
 export const getCodexToml = apiText("GET", "/v1/harness/codex.toml");
 export const getMcpJson = apiText("GET", "/v1/harness/mcp.json");
 
-export const putConfig = (body: unknown) => apiJson<unknown>("PUT", "/v1/config", body);
+export const putConfig = (body: JsonObject): ApiFx<JsonObject> =>
+  apiJson<JsonObject>("PUT", "/v1/config", body);
 export const tickWorkers = apiJson<{ embeddings?: number; wiki_pages?: number }>(
   "POST",
   "/v1/workers/tick",
 );
 
 export const exportBag = apiJson<BagResult & { error?: string }>("POST", "/v1/export");
-export const importBag = (path: string) =>
+export const importBag = (path: string): ApiFx<BagResult & { error?: string }> =>
   apiJson<BagResult & { error?: string }>("POST", "/v1/import", { path });
 
-export const getProxyLog = (lines = 80) => apiResult("GET", `/v1/logs/proxy?lines=${lines}`);
-export const getClickhouseLog = (lines = 80) =>
+export const getProxyLog = (lines = 80): ApiFx<SoftHttpResult> =>
+  apiResult("GET", `/v1/logs/proxy?lines=${lines}`);
+export const getClickhouseLog = (lines = 80): ApiFx<SoftHttpResult> =>
   apiResult("GET", `/v1/logs/clickhouse?lines=${lines}`);
 
-export const openWikiDir = (path: string) =>
-  invokeCommand<boolean>("open_wiki_dir", { path }).pipe(
-    Effect.orElseSucceed(() => null as boolean | null),
-  );
+export const openWikiDir = (path: string): Effect.Effect<boolean | null> =>
+  softEffect(invokeCommand<boolean>("open_wiki_dir", { path }));
 
-export const revealPath = (path: string) =>
-  invokeCommand<boolean>("reveal_path", { path }).pipe(
-    Effect.orElseSucceed(() => null as boolean | null),
-  );
+export const revealPath = (path: string): Effect.Effect<boolean | null> =>
+  softEffect(invokeCommand<boolean>("reveal_path", { path }));
+
+export type RefreshSnapshot = {
+  status: Status;
+  accounts: Account[];
+  recent: TrafficEvent[];
+  providers: { providers: CatalogProvider[] };
+  quotaBundle: [QuotaSnapshot, QuotaHistory] | null;
+};
 
 /** Parallel bootstrap payload used by the quota home refresh. */
-export const refreshSnapshot = (opts: { includeQuota: boolean; historyHours: number }) =>
-  Effect.gen(function* () {
+export const refreshSnapshot = (opts: {
+  includeQuota: boolean;
+  historyHours: number;
+}): ApiBackendFx<RefreshSnapshot> =>
+  Effect.gen(function* runRefreshSnapshot() {
     yield* ensureRivetd;
     const [status, accounts, recent, providers, quotaBundle] = yield* Effect.all(
       [
@@ -120,8 +147,8 @@ export const refreshSnapshot = (opts: { includeQuota: boolean; historyHours: num
     return { status, accounts, recent, providers, quotaBundle };
   });
 
-export const loadWikiPageContent = (page: WikiPageCard) =>
-  Effect.gen(function* () {
+export const loadWikiPageContent = (page: WikiPageCard): ApiBackendFx<string> =>
+  Effect.gen(function* runLoadWikiPageContent() {
     yield* ensureRivetd;
     const body = yield* getWikiPage(page.id);
     return body.content;

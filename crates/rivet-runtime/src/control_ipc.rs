@@ -39,9 +39,7 @@ async fn serve_unix(paths: RivetPaths, app: Router) -> Result<()> {
     let perms = std::fs::Permissions::from_mode(0o600);
     let _ = tokio::fs::set_permissions(sock.as_std_path(), perms).await;
     info!(endpoint = %sock, "rivet control ipc listening (unix socket)");
-    axum::serve(listener, app)
-        .await
-        .context("control ipc serve")?;
+    axum::serve(listener, app).await.context("control ipc serve")?;
     Ok(())
 }
 
@@ -63,16 +61,14 @@ async fn serve_windows(paths: RivetPaths, app: Router) -> Result<()> {
     loop {
         server.connect().await.context("control pipe connect")?;
         let connected = server;
-        server = ServerOptions::new()
-            .create(&pipe_name)
-            .context("create next control pipe instance")?;
+        server =
+            ServerOptions::new().create(&pipe_name).context("create next control pipe instance")?;
 
         let svc = TowerToHyperService::new(app.clone());
         tokio::spawn(async move {
             let io = TokioIo::new(connected);
-            if let Err(err) = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, svc)
-                .await
+            if let Err(err) =
+                hyper::server::conn::http1::Builder::new().serve_connection(io, svc).await
             {
                 tracing::warn!(?err, "control ipc connection error");
             }

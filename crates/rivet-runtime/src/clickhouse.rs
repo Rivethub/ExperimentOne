@@ -1,4 +1,4 @@
-//! Supervises a bundled single-node ClickHouse sidecar.
+//! Supervises a bundled single-node `ClickHouse` sidecar.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -10,6 +10,7 @@ use anyhow::{bail, Context, Result};
 use rivet_core::{exe_name, sidecar_file_name, which_bin, RivetConfig, RivetPaths};
 use tracing::{info, warn};
 
+#[derive(Debug)]
 pub struct ClickHouseSupervisor {
     paths: RivetPaths,
     config: RivetConfig,
@@ -19,11 +20,7 @@ pub struct ClickHouseSupervisor {
 impl ClickHouseSupervisor {
     pub fn new(paths: RivetPaths, config: RivetConfig) -> Result<Self> {
         write_clickhouse_config(&paths, &config)?;
-        Ok(Self {
-            paths,
-            config,
-            child: Mutex::new(None),
-        })
+        Ok(Self { paths, config, child: Mutex::new(None) })
     }
 
     pub fn http_url(&self) -> String {
@@ -59,12 +56,8 @@ impl ClickHouseSupervisor {
 
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         for candidate in [
-            manifest
-                .join("../../apps/desktop/src-tauri/binaries")
-                .join(&named),
-            manifest
-                .join("../../apps/desktop/src-tauri/binaries")
-                .join(&plain),
+            manifest.join("../../apps/desktop/src-tauri/binaries").join(&named),
+            manifest.join("../../apps/desktop/src-tauri/binaries").join(&plain),
             PathBuf::from("/tmp/rivet-clickhouse"),
             PathBuf::from("/tmp/rivet-clickhouse.exe"),
         ] {
@@ -85,6 +78,7 @@ impl ClickHouseSupervisor {
         self.refresh_locked(&mut slot)
     }
 
+    #[allow(clippy::option_if_let_else)] // Clearing `slot` requires a mutable borrow alongside `try_wait`.
     fn refresh_locked(&self, slot: &mut Option<Child>) -> bool {
         if let Some(child) = slot.as_mut() {
             match child.try_wait() {
@@ -93,13 +87,13 @@ impl ClickHouseSupervisor {
                     *slot = None;
                     crate::pids::clear_clickhouse_pid(&self.paths);
                     false
-                }
+                },
                 Ok(None) => true,
                 Err(_) => {
                     *slot = None;
                     crate::pids::clear_clickhouse_pid(&self.paths);
                     false
-                }
+                },
             }
         } else {
             port_open(self.config.clickhouse_http_port)
@@ -115,10 +109,7 @@ impl ClickHouseSupervisor {
 
         let mut slot = self.child.lock().expect("ch child lock");
         if self.refresh_locked(&mut slot) {
-            info!(
-                port = self.config.clickhouse_http_port,
-                "clickhouse already listening"
-            );
+            info!(port = self.config.clickhouse_http_port, "clickhouse already listening");
             return Ok(true);
         }
 
@@ -137,9 +128,7 @@ impl ClickHouseSupervisor {
             cmd.process_group(0);
         }
 
-        let child = cmd
-            .spawn()
-            .with_context(|| format!("spawn clickhouse {}", bin.display()))?;
+        let child = cmd.spawn().with_context(|| format!("spawn clickhouse {}", bin.display()))?;
         info!(path = %bin.display(), pid = child.id(), "clickhouse sidecar started");
         crate::pids::write_clickhouse_pid(&self.paths, child.id());
         *slot = Some(child);
@@ -150,8 +139,11 @@ impl ClickHouseSupervisor {
             if port_open(port) {
                 return Ok(true);
             }
-            let mut slot = self.child.lock().expect("ch child lock");
-            if !self.refresh_locked(&mut slot) {
+            let exited = {
+                let mut slot = self.child.lock().expect("ch child lock");
+                !self.refresh_locked(&mut slot)
+            };
+            if exited {
                 bail!(
                     "clickhouse exited before listening on 127.0.0.1:{port} — check {}",
                     self.paths.clickhouse_log_dir()
@@ -164,18 +156,17 @@ impl ClickHouseSupervisor {
     }
 
     pub fn stop(&self) -> Result<()> {
-        let mut slot = self.child.lock().expect("ch child lock");
-        if let Some(mut child) = slot.take() {
+        let child = {
+            let mut slot = self.child.lock().expect("ch child lock");
+            slot.take()
+        };
+        if let Some(mut child) = child {
             let pid = child.id();
             #[cfg(unix)]
             {
-                let _ = Command::new("kill")
-                    .args(["-TERM", &format!("-{pid}")])
-                    .status();
+                let _ = Command::new("kill").args(["-TERM", &format!("-{pid}")]).status();
                 thread::sleep(Duration::from_millis(200));
-                let _ = Command::new("kill")
-                    .args(["-KILL", &format!("-{pid}")])
-                    .status();
+                let _ = Command::new("kill").args(["-KILL", &format!("-{pid}")]).status();
             }
             #[cfg(windows)]
             {

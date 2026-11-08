@@ -1,5 +1,5 @@
-import type { CatalogProvider } from "../providerUtils";
-import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../types";
+import type { CatalogProvider } from "../lib/provider-utils";
+import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
 import type { QuotaAccountUx } from "../quota";
 import type { WikiInfo } from "../components/WikiBoard";
 import type { MockScenario } from "./mode";

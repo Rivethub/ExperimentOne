@@ -12,16 +12,15 @@ import {
   SettingsPane,
   WikiPane,
 } from "./panes";
-import { pageSubtitle, pageTitle } from "./pageMeta";
+import { pageSubtitle, pageTitle } from "./lib/page-meta";
 import {
   AccountDetailSheet,
-  MetricMode,
   OnboardingOverlay,
-  QuotaAccountUx,
   dismissOnboarding,
   isOnboardingDismissed,
   onboardingIncomplete,
 } from "./quota";
+import type { MetricMode, QuotaAccountUx } from "./quota";
 import type {
   ConversationSummary,
   Page,
@@ -29,7 +28,7 @@ import type {
   SearchMode,
   SettingsTab,
   TrafficEvent,
-} from "./types";
+} from "./lib/types";
 import { Button } from "./ui";
 import styles from "./styles/app.module.css";
 
@@ -393,7 +392,7 @@ export default function App() {
             }
           })();
         }}
-        accountCount={derived.counts.all}
+        accountCount={derived.counts.all ?? 0}
         status={rivet.status}
         apiOnline={rivet.apiOnline}
         onOpenRuntime={() => setPage("runtime")}

@@ -1,4 +1,4 @@
-import type { TrafficEvent } from "../types";
+import type { TrafficEvent } from "../lib/types";
 import { partsMatchQuery, turnsFromTrafficEvents } from "./parse";
 import type { TimelineItem, TranscriptPart, TranscriptTurn } from "./types";
 

@@ -71,7 +71,7 @@ function delayLoginComplete(s: MockStore, provider: string) {
       ],
     };
     s.quotaAccounts.push(account);
-    rebuildDerivedQuota(s);
+    rebuildDerivedQuota();
     s.login = {
       active: true,
       provider,
@@ -117,7 +117,7 @@ export async function handleApiRequest(
         }
       }
     }
-    rebuildDerivedQuota(s);
+    rebuildDerivedQuota();
     return ok({ ok: true, refresh: { mock: true }, quota: currentQuota(s) });
   }
 
@@ -138,12 +138,12 @@ export async function handleApiRequest(
     return ok(hits.slice(0, limit));
   }
   if (m === "GET" && base === "/v1/conversations") {
-    const { conversationsFromEvents } = await import("../conversationUtils");
+    const { conversationsFromEvents } = await import("../lib/conversation-utils");
     const limit = Number(q.get("limit") ?? "100") || 100;
     return ok(conversationsFromEvents(s.traffic, limit));
   }
   if (m === "GET" && base === "/v1/conversations/events") {
-    const { conversationIdFor } = await import("../conversationUtils");
+    const { conversationIdFor } = await import("../lib/conversation-utils");
     const id = (q.get("id") ?? "").trim();
     const limit = Number(q.get("limit") ?? "500") || 500;
     if (!id) return ok([]);
@@ -155,7 +155,7 @@ export async function handleApiRequest(
     return ok(hits);
   }
   if (m === "GET" && base === "/v1/conversations/search") {
-    const { conversationsFromEvents } = await import("../conversationUtils");
+    const { conversationsFromEvents } = await import("../lib/conversation-utils");
     const needle = (q.get("q") ?? "").trim().toLowerCase();
     const limit = Number(q.get("limit") ?? "100") || 100;
     const mode = (q.get("mode") ?? "keyword").toLowerCase();
@@ -268,7 +268,7 @@ export async function handleApiRequest(
   if (m === "DELETE" && base.startsWith("/v1/accounts/")) {
     const id = decodeURIComponent(base.slice("/v1/accounts/".length));
     s.quotaAccounts = s.quotaAccounts.filter((a) => a.id !== id);
-    rebuildDerivedQuota(s);
+    rebuildDerivedQuota();
     return ok({ ok: true });
   }
 
