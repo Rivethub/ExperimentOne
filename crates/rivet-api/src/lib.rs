@@ -594,10 +594,7 @@ async fn search_conversations(
             .list_conversations(limit)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        return Ok(Json(ConversationSearchResponse {
-            mode: "list",
-            results,
-        }));
+        return Ok(Json(ConversationSearchResponse { mode: "list", results }));
     }
 
     let vector_on = state.config.read().await.capabilities.vector_search;
@@ -611,7 +608,7 @@ async fn search_conversations(
         match semantic_conversation_search(&state, &query, limit).await {
             Ok((mode, results)) => {
                 return Ok(Json(ConversationSearchResponse { mode, results }));
-            }
+            },
             Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
         }
     }
@@ -621,10 +618,7 @@ async fn search_conversations(
         .search_conversations(&query, limit)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(ConversationSearchResponse {
-        mode: "keyword",
-        results,
-    }))
+    Ok(Json(ConversationSearchResponse { mode: "keyword", results }))
 }
 
 async fn semantic_conversation_search(
@@ -645,20 +639,13 @@ async fn semantic_conversation_search(
     scored.truncate((limit as usize).saturating_mul(4).max(limit as usize));
 
     if scored.is_empty() {
-        let results = state
-            .store
-            .search_conversations(query, limit)
-            .await
-            .map_err(|e| e.to_string())?;
+        let results =
+            state.store.search_conversations(query, limit).await.map_err(|e| e.to_string())?;
         return Ok(("keyword_fallback", results));
     }
 
     let ids: Vec<String> = scored.iter().map(|(_, id)| id.clone()).collect();
-    let found = state
-        .store
-        .get_by_ids(&ids)
-        .await
-        .map_err(|e| e.to_string())?;
+    let found = state.store.get_by_ids(&ids).await.map_err(|e| e.to_string())?;
     // Preserve score order when projecting to conversations.
     let mut by_id = HashMap::new();
     for event in &found {
@@ -678,21 +665,14 @@ async fn semantic_conversation_search(
         if !seen.insert(cid.clone()) {
             continue;
         }
-        let session = state
-            .store
-            .conversation_events(&cid, 200)
-            .await
-            .unwrap_or_default();
+        let session = state.store.conversation_events(&cid, 200).await.unwrap_or_default();
         if session.is_empty() {
             expanded.push(ev.clone());
         } else {
             expanded.extend(session);
         }
     }
-    Ok((
-        "vector",
-        conversations_from_events(&expanded, limit.max(1)),
-    ))
+    Ok(("vector", conversations_from_events(&expanded, limit.max(1))))
 }
 
 #[derive(Debug, Deserialize)]

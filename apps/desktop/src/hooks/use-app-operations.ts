@@ -1,9 +1,10 @@
 import { Effect } from "effect";
 import { useCallback, useRef, useState } from "react";
 import type { WikiInfo } from "../components/WikiBoard";
-import { Rivet, rivetErrorMessage, runApp } from "../effect";
-import { pickRivetbag } from "../tauriUtils";
-import type { ConversationSummary, SearchMode, Status, TrafficEvent } from "../types";
+import { rivetErrorMessage, runApp } from "../effect";
+import * as Rivet from "../effect/rivet";
+import { pickRivetbag } from "../lib/tauri-utils";
+import type { ConversationSummary, SearchMode, Status, TrafficEvent } from "../lib/types";
 
 export function useAppOperations(opts: {
   ensureSession: () => Promise<void>;
@@ -305,8 +306,8 @@ export function useAppOperations(opts: {
             embedding_model: embedModel,
             wiki_model: wikiModel,
             capabilities: {
-              vector_search: !!embedModel.trim() || status?.capabilities.vector_search,
-              wiki: !!wikiModel.trim() || status?.capabilities.wiki,
+              vector_search: Boolean(embedModel.trim() || status?.capabilities.vector_search),
+              wiki: Boolean(wikiModel.trim() || status?.capabilities.wiki),
             },
           });
         }),

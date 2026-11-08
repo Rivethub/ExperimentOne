@@ -75,7 +75,14 @@ function WorkRow({
 
 function BrainIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75">
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+    >
       <path d="M9.5 4.5a3 3 0 0 0-2.8 4.1A3.5 3.5 0 0 0 5 11.8c0 1.6.9 3 2.3 3.7V17a2 2 0 0 0 2 2h1" />
       <path d="M14.5 4.5a3 3 0 0 1 2.8 4.1A3.5 3.5 0 0 1 19 11.8c0 1.6-.9 3-2.3 3.7V17a2 2 0 0 1-2 2h-1" />
       <path d="M12 3v18" />
@@ -85,7 +92,14 @@ function BrainIcon() {
 
 function TerminalIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75">
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+    >
       <rect x="3.5" y="5" width="17" height="14" rx="2" />
       <path d="M7.5 10.5 10 13l-2.5 2.5" />
       <path d="M12.5 15.5h4" />
@@ -95,7 +109,14 @@ function TerminalIcon() {
 
 function WrenchIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75">
+    <svg
+      viewBox="0 0 24 24"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+    >
       <path d="M14.7 6.3a4 4 0 0 0-5.6 5.6L4 17l3 3 5.1-5.1a4 4 0 0 0 5.6-5.6l-2.5 2.5-2.5-2.5z" />
     </svg>
   );

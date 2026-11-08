@@ -1,7 +1,7 @@
 import { SETTINGS_TABS } from "./constants";
-import { fmt } from "./providerUtils";
+import { fmt } from "./provider-utils";
 import type { Page, QuotaSnapshot, SettingsTab, Status } from "./types";
-import type { WikiInfo } from "./components/WikiBoard";
+import type { WikiInfo } from "../components/WikiBoard";
 
 const TITLE_MAP: Record<Page, string> = {
   quota: "Quota Management",

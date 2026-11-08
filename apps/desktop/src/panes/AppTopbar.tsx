@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import type { Page } from "../types";
+import type { Page } from "../lib/types";
 import { Button } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";

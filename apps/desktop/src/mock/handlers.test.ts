@@ -36,7 +36,9 @@ describe("mock IPC handlers", () => {
   });
 
   it("lists and searches conversations", async () => {
-    const list = JSON.parse((await handleApiRequest("GET", "/v1/conversations?limit=20", null)).body);
+    const list = JSON.parse(
+      (await handleApiRequest("GET", "/v1/conversations?limit=20", null)).body,
+    );
     expect(Array.isArray(list)).toBe(true);
     expect(list.length).toBeGreaterThan(0);
     expect(list[0].title).toBeTruthy();
