@@ -629,7 +629,7 @@ export function seedStatus(
     ok: true,
     proxy_running: opts.proxyRunning,
     proxy_base_url: "http://127.0.0.1:18317",
-    mcp_url: "http://127.0.0.1:8741/mcp",
+    mcp_url: "http://127.0.0.1:8742/mcp",
     access_key_hint: "mock…key",
     account_count: opts.accounts.length,
     traffic_backend: "clickhouse",

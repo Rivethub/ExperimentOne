@@ -1,5 +1,6 @@
 //! Local meta store — jobs, wiki index, topics, summaries, enrichments, quota.
-//! Embeddings live in `ClickHouse`; legacy `embeddings.json` is migrated once.
+//! Job cursors, wiki index, topics, summaries, and related meta live here.
+//! Embeddings live in `ClickHouse`.
 //! File-backed (no SQLite). Wiki page bodies live under `wiki/` on disk.
 
 use anyhow::{Context, Result};
@@ -144,12 +145,11 @@ fn default_pending() -> String {
     "pending".into()
 }
 
-/// Summary node kind in the leaf → branch → root DAG (or legacy flat).
+/// Summary node kind in the leaf → branch → root DAG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SummaryKind {
     #[default]
-    Flat,
     Leaf,
     Branch,
     Root,
@@ -158,7 +158,6 @@ pub enum SummaryKind {
 impl SummaryKind {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Flat => "flat",
             Self::Leaf => "leaf",
             Self::Branch => "branch",
             Self::Root => "root",
@@ -181,7 +180,7 @@ pub struct SummaryMeta {
     pub message_count: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    /// `flat` (legacy) | `leaf` | `branch` | `root`.
+    /// `leaf` | `branch` | `root`.
     #[serde(default)]
     pub kind: SummaryKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -224,13 +223,6 @@ pub struct EnrichmentEvent {
     pub ts: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EmbeddingRow {
-    pub event_id: String,
-    pub dims: Vec<f32>,
-    pub updated_at: String,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct JobsFile {
     #[serde(default)]
@@ -253,18 +245,6 @@ struct TopicsFile {
 struct SummariesFile {
     #[serde(default)]
     by_id: BTreeMap<String, SummaryMeta>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct EmbeddingEntry {
-    dims: Vec<f32>,
-    updated_at: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct EmbeddingsFile {
-    #[serde(default)]
-    by_event: BTreeMap<String, EmbeddingEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,7 +300,6 @@ struct MetaPaths {
     topics: PathBuf,
     summaries: PathBuf,
     enrichments: PathBuf,
-    embeddings: PathBuf,
     quota: PathBuf,
     sessions: PathBuf,
     tidy: PathBuf,
@@ -339,9 +318,6 @@ impl MetaStore {
     pub fn open(paths: &RivetPaths) -> Result<Self> {
         let dir = paths.meta_dir();
         fs::create_dir_all(dir.as_std_path())?;
-        // Drop legacy SQLite files if present (no migrator).
-        let _ = fs::remove_file(paths.root.join("rivet.sqlite").as_std_path());
-        let _ = fs::remove_file(paths.root.join("traffic.sqlite").as_std_path());
         Ok(Self {
             paths: MetaPaths {
                 jobs: dir.join("jobs.json").into_std_path_buf(),
@@ -349,7 +325,6 @@ impl MetaStore {
                 topics: dir.join("topics.json").into_std_path_buf(),
                 summaries: dir.join("summaries.json").into_std_path_buf(),
                 enrichments: dir.join("enrichments.jsonl").into_std_path_buf(),
-                embeddings: dir.join("embeddings.json").into_std_path_buf(),
                 quota: dir.join("quota_snapshots.jsonl").into_std_path_buf(),
                 sessions: dir.join("session_projects.json").into_std_path_buf(),
                 tidy: dir.join("tidy_proposals.json").into_std_path_buf(),
@@ -505,29 +480,6 @@ impl MetaStore {
         Ok(n)
     }
 
-    /// Drain legacy `embeddings.json` for a one-shot `ClickHouse` import.
-    ///
-    /// Returns rows and renames the file to `embeddings.json.migrated` so we do
-    /// not re-import on the next boot. Missing file → empty vec.
-    pub fn take_legacy_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>> {
-        let _g = self.lock.lock().expect("meta lock");
-        if !self.paths.embeddings.exists() {
-            return Ok(Vec::new());
-        }
-        let file: EmbeddingsFile = Self::read_json(&self.paths.embeddings)?;
-        let out: Vec<(String, Vec<f32>)> =
-            file.by_event.into_iter().map(|(id, e)| (id, e.dims)).collect();
-        let migrated = self.paths.embeddings.with_extension("json.migrated");
-        match fs::rename(&self.paths.embeddings, &migrated) {
-            Ok(()) => {},
-            Err(_) => {
-                // If rename fails (e.g. cross-device), delete so we do not loop.
-                let _ = fs::remove_file(&self.paths.embeddings);
-            },
-        }
-        Ok(out)
-    }
-
     pub fn wiki_page_count(&self, project_id: &str) -> Result<u64> {
         let _g = self.lock.lock().expect("meta lock");
         let file: WikiFile = Self::read_json(&self.paths.wiki)?;
@@ -652,12 +604,11 @@ impl MetaStore {
             return Ok(None);
         }
         let mut rows = self.list_summaries_for_session(sid)?;
-        // Prefer root, then branch, then leaf/flat — best overview for browse.
+        // Prefer root, then branch, then leaf — best overview for browse.
         rows.sort_by_key(|s| match s.kind {
             SummaryKind::Root => 0u8,
             SummaryKind::Branch => 1,
             SummaryKind::Leaf => 2,
-            SummaryKind::Flat => 3,
         });
         Ok(rows.into_iter().next())
     }
@@ -682,14 +633,14 @@ impl MetaStore {
         Ok(out)
     }
 
-    /// Event ids already covered by leaf (or flat) summaries for a session.
+    /// Event ids already covered by leaf summaries for a session.
     pub fn covered_event_ids(
         &self,
         session_id: &str,
     ) -> Result<std::collections::BTreeSet<String>> {
         let mut out = std::collections::BTreeSet::new();
         for summary in self.list_summaries_for_session(session_id)? {
-            if matches!(summary.kind, SummaryKind::Leaf | SummaryKind::Flat) {
+            if matches!(summary.kind, SummaryKind::Leaf) {
                 out.extend(summary.event_ids);
             }
         }

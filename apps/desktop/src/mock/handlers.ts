@@ -498,7 +498,7 @@ export async function handleApiRequest(
   if (m === "GET" && base === "/v1/harness/mcp.json") {
     return ok({
       mcpServers: {
-        rivet: { url: "http://127.0.0.1:8741/mcp" },
+        rivet: { url: "http://127.0.0.1:8742/mcp" },
       },
     });
   }

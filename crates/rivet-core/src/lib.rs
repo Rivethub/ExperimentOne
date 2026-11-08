@@ -37,7 +37,7 @@ pub use fusion::{
 };
 pub use harness::{
     harness_target_for_provider, harness_user_ready, install_harness, install_harness_plugins,
-    migrate_claude_connector_auth, HarnessInstallMode, HarnessInstallResult,
+    HarnessInstallMode, HarnessInstallResult,
 };
 pub use http_guard::{host_is_loopback, origin_allowed};
 pub use ingest_validate::{

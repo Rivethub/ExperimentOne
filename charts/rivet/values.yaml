@@ -59,10 +59,13 @@ clickhouse:
     service:
       type: ClusterIP
 
+# When false (default), rivetd runs RIVET_WORKER_ROLE=all in-process.
+# When true, rivetd uses role=none and separate Deployments claim NATS jobs.
 workers:
-  enabled: true
-  replicaCount: 2
-  # Same image as rivetd; entrypoint overridden to worker mode later.
+  enabled: false
+  replicaCount: 1
+  roles: [embed, compact, wiki]
+  # Same image as rivetd; role selected via RIVET_WORKER_ROLE.
   image:
     repository: rivet/rivetd
     tag: "0.1.0"
@@ -87,7 +90,7 @@ teams:
     issuer: ""
     clientId: ""
 
-# Bus for enterprise fan-out (NATS or Redpanda) — unused locally
+# NATS JetStream job plane (required). Point at a cluster URL before install.
 bus:
-  enabled: false
-  natsUrl: ""
+  enabled: true
+  natsUrl: "nats://nats:4222"

@@ -113,7 +113,7 @@
       }
     },
     {
-      "files": ["src/effect/ipc.ts", "src/lib/api.ts"],
+      "files": ["src/effect/ipc.ts"],
       "rules": {
         "de-clank/no-unvalidated-json-parse": "off",
         "typescript/no-unsafe-type-assertion": "off",
@@ -202,7 +202,6 @@
         "allowBoundaryFunctions": true,
         "allowedFilePatterns": [
           "/src/effect/ipc\\.ts$",
-          "/src/lib/api\\.ts$",
           "/src/mock/",
           "/src/lib/tauri-utils\\.ts$"
         ]

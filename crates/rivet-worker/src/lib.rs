@@ -4,14 +4,16 @@
 //! (explicit fields / harness project keys). Workers classify when evidence was
 //! missing — never promote cwd alone to a project at capture time.
 //!
-//! - **Vectorize**: embeds traffic content (proxy `/v1/embeddings` when
-//!   `embedding_model` is set, otherwise local lexical vectors).
+//! - **Vectorize**: embeds traffic content as local lexical 64-d vectors into
+//!   ClickHouse HNSW (`LEXICAL_SPACE`).
 //! - **Wiki**: traffic markdown tree + knowledge extract (patch → bound →
 //!   archive → consolidate/recompile) when `wiki_model` is set.
 //! - **Topics**: durable keyword topics with event/session citations in meta.
 //! - **Classify**: backfill session→project bindings from cwd when missing.
 //! - **Compact**: conversation summaries under meta + wiki/summaries.
 //! - **Wiki FS sync**: watches `wiki/` and keeps file meta aligned with disk.
+//!
+//! Role isolation via `RIVET_WORKER_ROLE=all|embed|compact|wiki|none`.
 
 mod prompts;
 mod wiki_fs;
@@ -40,7 +42,6 @@ use rivet_store::{
     TASK_ENQUEUE_WIKI_BACKFILL, TASK_EXTRACT_WIKI, TASK_RECOMPILE_WIKI, TASK_SUGGEST_TAGS,
     TASK_SYNTHESIZE_TOOL, TASK_UPSERT_TOPICS,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
@@ -112,6 +113,9 @@ impl WorkerPool {
             self.live.clone(),
         );
         let mut handles = vec![watcher];
+        if role == WorkerRole::None {
+            return handles;
+        }
         let roles: Vec<WorkerRole> = match role {
             WorkerRole::All => {
                 vec![WorkerRole::Embed, WorkerRole::Compact, WorkerRole::Wiki]
@@ -442,7 +446,7 @@ impl WorkerPool {
             let root = self.meta.get_summary_for_session(&session_id).ok().flatten();
             let has_root = root
                 .as_ref()
-                .is_some_and(|s| matches!(s.kind, SummaryKind::Root | SummaryKind::Flat));
+                .is_some_and(|s| matches!(s.kind, SummaryKind::Root));
             let pipeline_stale =
                 self.meta.session_needs_pipeline_refresh(&session_id).unwrap_or(false);
             let root_age = root.as_ref().and_then(|s| {
@@ -511,7 +515,7 @@ impl WorkerPool {
         let has_root = self
             .meta
             .get_summary_for_session(session_id)?
-            .is_some_and(|s| matches!(s.kind, SummaryKind::Root | SummaryKind::Flat));
+            .is_some_and(|s| matches!(s.kind, SummaryKind::Root));
 
         // Nothing new and root is current — only stale/pipeline rebuilds the DAG top.
         if uncovered.is_empty() && has_root && !pipeline_refresh && reason != "stale" {
@@ -1084,7 +1088,7 @@ impl WorkerPool {
         let mut jobs = Vec::new();
         for summary in summaries
             .into_iter()
-            .filter(|s| matches!(s.kind, SummaryKind::Root | SummaryKind::Flat))
+            .filter(|s| matches!(s.kind, SummaryKind::Root))
             .filter(|s| cursor.as_ref().is_none_or(|c| s.updated_at.as_str() > c.as_str()))
             .take(16)
         {
@@ -1148,7 +1152,7 @@ impl WorkerPool {
         let Some(lead) = self.meta.get_summary(summary_id)? else {
             return Ok(());
         };
-        if !matches!(lead.kind, SummaryKind::Root | SummaryKind::Flat) {
+        if !matches!(lead.kind, SummaryKind::Root) {
             return Ok(());
         }
         let mut routes = if payload_routes.is_empty() {
@@ -1256,7 +1260,7 @@ impl WorkerPool {
                 let _ = self.jobs.release_job(claimed).await;
                 continue;
             };
-            if !matches!(summary.kind, SummaryKind::Root | SummaryKind::Flat) {
+            if !matches!(summary.kind, SummaryKind::Root) {
                 let _ = self.jobs.release_job(claimed).await;
                 continue;
             }
@@ -1345,7 +1349,7 @@ impl WorkerPool {
         summaries.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
         let next = summaries
             .into_iter()
-            .filter(|s| matches!(s.kind, SummaryKind::Root | SummaryKind::Flat))
+            .filter(|s| matches!(s.kind, SummaryKind::Root))
             .find(|s| cursor.as_ref().is_none_or(|c| s.updated_at.as_str() > c.as_str()));
         if let Some(lead) = next {
             let routes = self.wiki_extract_routes(&lead);
@@ -1643,7 +1647,7 @@ impl WorkerPool {
         let Ok(Some(root)) = self.meta.get_summary_for_session(session_id) else {
             return;
         };
-        if matches!(root.kind, SummaryKind::Root | SummaryKind::Flat) {
+        if matches!(root.kind, SummaryKind::Root) {
             let routes = self.wiki_extract_routes(&root);
             let _ = self
                 .jobs
@@ -2082,36 +2086,6 @@ impl WorkerPool {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    async fn proxy_embed(&self, cfg: &RivetConfig, text: &str) -> Result<Vec<f32>> {
-        let model = cfg.embedding_model.as_deref().ok_or_else(|| anyhow!("no embedding_model"))?;
-        let url = format!("{}/v1/embeddings", cfg.proxy_base_url());
-        let res = self
-            .http
-            .post(&url)
-            .bearer_auth(&cfg.proxy_access_key)
-            .header("X-Rivet-Internal", "vectorize-worker")
-            .json(&json!({
-                "model": model,
-                "input": text.chars().take(8_000).collect::<String>(),
-            }))
-            .send()
-            .await
-            .context("embeddings request")?;
-        if !res.status().is_success() {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            anyhow::bail!("embeddings HTTP {status}: {body}");
-        }
-        let parsed: EmbeddingsResponse = res.json().await.context("embeddings json")?;
-        parsed
-            .data
-            .into_iter()
-            .next()
-            .map(|d| d.embedding)
-            .ok_or_else(|| anyhow!("empty embeddings response"))
-    }
-
     #[allow(clippy::too_many_lines)] // Wiki sections share ordering and TOC bookkeeping in one pass.
     async fn upsert_wiki(&self, cfg: &RivetConfig) -> Result<()> {
         let project = &cfg.wiki_project_id;
@@ -2403,16 +2377,6 @@ impl WorkerPool {
         self.meta.upsert_wiki_page(&page)?;
         Ok(())
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct EmbeddingsResponse {
-    data: Vec<EmbeddingData>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EmbeddingData {
-    embedding: Vec<f32>,
 }
 
 #[derive(Debug)]

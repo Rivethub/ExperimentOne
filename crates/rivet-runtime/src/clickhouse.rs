@@ -1,6 +1,6 @@
 //! Supervises a bundled single-node `ClickHouse` sidecar.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
@@ -268,7 +268,3 @@ fn port_open(port: u16) -> bool {
     .is_ok()
 }
 
-#[allow(dead_code)]
-fn _path_is_bin(p: &Path) -> bool {
-    p.is_file()
-}

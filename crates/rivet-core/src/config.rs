@@ -10,7 +10,7 @@ use crate::paths::RivetPaths;
 pub struct Capabilities {
     /// Keyword/SQL history via MCP always on once traffic exists.
     pub mcp: bool,
-    /// Requires an embedding model routed through the proxy (or local lexical fallback).
+    /// Lexical vector search over `ClickHouse` embeddings (on by default locally).
     pub vector_search: bool,
     /// Requires a text-generation model routed through the proxy (or stub wiki pages).
     pub wiki: bool,
@@ -34,7 +34,8 @@ pub struct RivetConfig {
     #[serde(default)]
     pub management_secret: String,
     pub capabilities: Capabilities,
-    /// Optional model id routed via the local proxy for embeddings.
+    /// Reserved / UI field — live embed path is lexical-only; setting this forces
+    /// `capabilities.vector_search = true` for older configs.
     #[serde(default)]
     pub embedding_model: Option<String>,
     /// Optional model id routed via the local proxy for wiki generation.

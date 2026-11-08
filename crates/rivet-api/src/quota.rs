@@ -264,18 +264,8 @@ pub async fn fetch_quota_snapshot(
 }
 
 async fn list_credentials(http: &reqwest::Client, base: &str, key: &str) -> Result<CredList> {
-    let v8 = format!("{base}/v8/management/credentials");
-    let res = auth_headers(http.get(&v8), key).send().await.context("list credentials")?;
-    if res.status() == reqwest::StatusCode::NOT_FOUND {
-        let v0 = format!("{base}/v0/management/auth-files");
-        let res = auth_headers(http.get(&v0), key).send().await.context("list auth-files")?;
-        if !res.status().is_success() {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            anyhow::bail!("management list HTTP {status}: {body}");
-        }
-        return res.json().await.context("auth-files json");
-    }
+    let url = format!("{base}/v8/management/credentials");
+    let res = auth_headers(http.get(&url), key).send().await.context("list credentials")?;
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
@@ -295,16 +285,6 @@ pub async fn refresh_credentials(cfg: &RivetConfig) -> Result<serde_json::Value>
         .send()
         .await
         .context("refresh credentials")?;
-    if res.status() == reqwest::StatusCode::NOT_FOUND {
-        let url = format!("{base}/v0/management/auth-files/refresh?all=true");
-        let res = auth_headers(http.post(&url), key).send().await.context("refresh auth-files")?;
-        if !res.status().is_success() {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            anyhow::bail!("refresh HTTP {status}: {body}");
-        }
-        return res.json().await.context("refresh json");
-    }
     if !res.status().is_success() {
         let status = res.status();
         let body = res.text().await.unwrap_or_default();
@@ -441,23 +421,15 @@ async fn fetch_live_quota(
     key: &str,
     auth_index: &str,
 ) -> Result<QuotaFetchResponse> {
-    for path in ["/v8/management/credentials/quota/fetch", "/v0/management/quota/fetch"] {
-        let url = format!("{base}{path}");
-        let res = auth_headers(http.post(&url), key)
-            .json(&serde_json::json!({ "auth_index": auth_index }))
-            .send()
-            .await?;
-        if res.status() == reqwest::StatusCode::NOT_FOUND
-            || res.status() == reqwest::StatusCode::NOT_IMPLEMENTED
-        {
-            continue;
-        }
-        if !res.status().is_success() {
-            return Err(anyhow!("quota fetch {}", res.status()));
-        }
-        return Ok(res.json().await?);
+    let url = format!("{base}/v8/management/credentials/quota/fetch");
+    let res = auth_headers(http.post(&url), key)
+        .json(&serde_json::json!({ "auth_index": auth_index }))
+        .send()
+        .await?;
+    if !res.status().is_success() {
+        return Err(anyhow!("quota fetch {}", res.status()));
     }
-    Err(anyhow!("no quota fetch endpoint"))
+    Ok(res.json().await?)
 }
 
 fn windows_from_fetch(fetched: &QuotaFetchResponse) -> Vec<QuotaWindow> {

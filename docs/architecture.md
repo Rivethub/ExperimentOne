@@ -1,8 +1,12 @@
 # Rivet architecture
 
 Rivet is a local-first multi-account AI proxy: harnesses talk to a localhost
-proxy, Rivet captures traffic into ClickHouse, and the desktop app surfaces
-quota, conversation history, wiki, and MCP.
+proxy, Rivet captures traffic into ClickHouse, workers compact and index it over
+NATS JetStream, and the desktop app surfaces quota, conversations, topics,
+wiki, and MCP.
+
+This document is derived from the current codebase (`crates/`, `apps/desktop`,
+`vendor/cliproxyapi`, `charts/rivet`). Prefer code when other docs disagree.
 
 ## Goals
 
@@ -14,13 +18,34 @@ quota, conversation history, wiki, and MCP.
 ## What is (and isn’t) traffic
 
 **Captured / exportable traffic:** prompts, completions, tool calls, usage counts,
-model IDs, latency, session IDs, cwd signals, account labels, and `project_id`
-only when hard evidence exists (explicit field/header or harness `projects/<id>/`
-key — never guessed from cwd alone).
+model IDs, latency, session IDs, cwd signals, account labels, subagent/git/error
+enrichments from the wire, and `project_id` only when hard evidence exists
+(explicit field/header, harness `projects/<id>/` key on import, or
+`POST /v1/harness/session` binding — never guessed from cwd alone).
 
 **Never exported as credentials:** OAuth blobs, API keys, management secrets,
 provider credentials under `proxy/auth/`. Captured text may still be sensitive
 after best-effort redaction.
+
+---
+
+## Crates and layout
+
+| Path | Role |
+| --- | --- |
+| `crates/rivet-core` | Config, paths, traffic types, redaction, harness helpers, LiveBus, scoring/fusion |
+| `crates/rivet-store` | ClickHouse traffic + embeddings, meta files, NATS job plane |
+| `crates/rivet-ingest` | `/v1/ingest` + `/v1/ingest/batch` |
+| `crates/rivet-api` | Control API (`/v1/*`) |
+| `crates/rivet-worker` | Embed / compact / wiki role loops |
+| `crates/rivet-mcp` | Streamable-HTTP MCP (`/mcp`) |
+| `crates/rivet-export` | `.rivetbag` export/import + local transcript ingest |
+| `crates/rivet-runtime` | `rivetd` binary: boot, sidecars, TCP + control IPC + MCP |
+| `crates/rivet-cli` | Headless CLI (`rivet`) |
+| `apps/desktop` | Tauri 2 tray app + webview |
+| `vendor/cliproxyapi` | Go proxy fork (`rivetsink` push ingest) |
+| `plugins/` | Optional Claude / Codex / Cursor harness plugins |
+| `charts/rivet` | Helm scaffold |
 
 ---
 
@@ -29,7 +54,7 @@ after best-effort redaction.
 ```mermaid
 flowchart TB
   subgraph clients [Clients]
-    Harness[Harnesses<br/>Claude Code / Codex / T3]
+    Harness[Harnesses<br/>Claude Code / Codex / Cursor / T3]
     UI[Desktop UI<br/>Tauri webview]
     CLI[rivet CLI]
   end
@@ -51,6 +76,7 @@ flowchart TB
 
   subgraph sidecars [Sidecars]
     Proxy[rivet-proxy<br/>CLIProxyAPI fork]
+    NATS[(NATS JetStream)]
     CH[(ClickHouse)]
   end
 
@@ -58,15 +84,18 @@ flowchart TB
     Meta[meta/]
     WikiFS[wiki/]
     Auth[proxy/auth/]
-    Logs[proxy/logs · clickhouse/logs]
+    Blobs[blobs/]
+    Logs[proxy/logs · clickhouse/logs · nats/logs]
     Bags[exports/*.rivetbag]
   end
 
   Harness -->|OpenAI / Claude HTTP| Proxy
   Proxy -->|batched POST /v1/ingest/batch| Ingest
   Ingest --> Store
+  Ingest -->|publish jobs| NATS
+  Worker -->|pull claim| NATS
   Worker --> Store
-  Worker -->|wiki index · cursors| Meta
+  Worker -->|wiki index · cursors · summaries| Meta
   Worker --> WikiFS
   Store -->|traffic + embeddings| CH
   API --> Store
@@ -83,36 +112,107 @@ flowchart TB
   TCP --> Ingest
 
   rivetd -->|spawn / supervise| Proxy
-  rivetd -->|spawn / supervise| CH
+  rivetd -->|spawn / connect| NATS
+  rivetd -->|spawn / connect| CH
   Proxy --> Auth
   Proxy --> Logs
+  Proxy --> Blobs
   Harness -.->|optional MCP| MCP
 ```
 
-**Process boundaries**
+### Process boundaries
 
 | Process | Owns |
 | --- | --- |
-| Desktop app | Tray, UI, starts/stops `rivetd` via Tauri |
+| Desktop app | Tray, UI; starts/stops `rivetd` via Tauri; injects control key over IPC |
 | `rivetd` | API, ingest, workers, MCP, control IPC; supervises sidecars |
-| `rivet-proxy` | Provider routing, OAuth login, quota management API |
-| ClickHouse | Durable `traffic_events` |
+| `rivet-proxy` | Provider routing, OAuth login, quota management API, `rivetsink` push |
+| NATS JetStream | Durable job plane (`RIVET_JOBS` / `RIVET_JOBS_DEAD`) |
+| ClickHouse | Durable `traffic_events` + `embeddings` (analytics only — not jobs) |
+
+Workers run as Tokio tasks inside `rivetd` (desktop default `RIVET_WORKER_ROLE=all`
+spawns three isolated role loops). They are not a separate binary locally.
 
 ---
 
 ## Ports, URLs, and auth
 
-| Surface | Default | Auth |
-| --- | --- | --- |
-| Proxy (harnesses) | `http://127.0.0.1:18317` | Harness → proxy access key / provider OAuth as configured |
-| API + ingest | `http://127.0.0.1:8741` | Loopback Host + `X-Rivet-Key` / `X-Rivet-Ingest-Key` |
-| MCP | `http://127.0.0.1:8742/mcp` | Loopback Host/Origin guards |
-| ClickHouse HTTP | `http://127.0.0.1:8123` | Local sidecar / `RIVET_CLICKHOUSE_URL` |
-| Control IPC | `{data}/rivetd.sock` (Windows named pipe) | Host injects key; webview never sees it |
+Defaults from `RivetConfig` (`crates/rivet-core/src/config.rs`):
 
-Env overrides: `RIVET_DATA_DIR`, `RIVET_CLICKHOUSE_URL`, `RIVET_PROXY_BIN`,
-`RIVET_CLICKHOUSE_BIN`. Runtime sets `RIVET_INGEST_URL` / `RIVET_INGEST_KEY` when
-spawning the proxy.
+| Surface | Default | Auth / binding |
+| --- | --- | --- |
+| Proxy (harnesses) | `http://127.0.0.1:18317` | Loopback. Harness client keys optional (`access.api-keys: []` by default). Management uses distinct `management_secret`. Busy-port fallbacks: `18741`, `28417`, `38417`, `48417`, `5817` |
+| API + ingest (TCP) | `http://127.0.0.1:8741` | Loopback `Host`. Control: `X-Rivet-Key` / `Authorization: Bearer` = `proxy_access_key`. Ingest: `X-Rivet-Ingest-Key` **or** `X-Rivet-Key`. Rate-limited (`tower-governor`, default 500 rps / 1000 burst) |
+| MCP | `http://127.0.0.1:8742/mcp` | Loopback `Host`; if `Origin` present must be allowlisted. **No API key** |
+| ClickHouse HTTP | `http://127.0.0.1:8123` | Local sidecar (empty password) or `RIVET_CLICKHOUSE_URL` |
+| NATS client | `nats://127.0.0.1:4222` | Local sidecar or `RIVET_NATS_URL`; monitoring HTTP on `nats_port + 1000` (`5222`) |
+| Control IPC | `{data}/rivetd.sock` (Windows named pipe) | HTTP/1.1 over UDS/pipe; host injects `X-Rivet-Key`. **API only — no ingest**. Webview never sees the raw key |
+| Metrics | `GET /metrics` on API TCP | Loopback; default `metrics_enabled: true` |
+
+**Public (loopback Host, no key):** `/v1/status`, `/v1/session`, `/v1/openapi.json`, `/v1/live`.
+
+`proxy_access_key` and `management_secret` are generated as `rivet_{uuid}`; on load,
+`management_secret` is forced distinct from the access key.
+
+### Env overrides
+
+| Var | Role |
+| --- | --- |
+| `RIVET_DATA_DIR` | Data root |
+| `RIVET_PROXY_BIN` / `RIVET_CLICKHOUSE_BIN` / `RIVET_NATS_BIN` | Sidecar binaries |
+| `RIVET_CLICKHOUSE_URL` / `RIVET_NATS_URL` | External CH / NATS (skip bundled spawn) |
+| `RIVET_INGEST_URL` / `RIVET_INGEST_KEY` | Set by runtime when spawning the proxy |
+| `RIVET_BLOBS_DIR` / `RIVET_INGEST_SPOOL_DIR` | Passed into proxy child |
+| `RIVET_WORKER_ROLE` | `all` (default) / `embed` / `compact` / `wiki` |
+| `RIVET_OTLP_ENDPOINT` | Optional OTLP tracing |
+| `RIVET_STARTUP_INJECT` | `0` disables SessionStart memory inject |
+| `RIVETD_BIN` / `RIVET_API_URL` | Desktop/CLI resolve paths |
+| `RIVET_PLUGINS_SRC` | Plugin source tree for harness install |
+
+---
+
+## Boot and sidecar lifecycle
+
+Actual start order in `rivet-runtime` (`Runtime::run_inner`):
+
+1. Telemetry → discover/ensure data dirs → acquire `pids/rivetd.lock`
+2. Load `config.json` (migrate busy `proxy_port` if needed)
+3. **Proxy `start()`** — failure is **warn-only** (UI can start it later)
+4. **NATS** — fatal without binary **and** without `RIVET_NATS_URL`; ensure JetStream schema
+5. **ClickHouse** — same pattern with `RIVET_CLICKHOUSE_URL`; `ensure_schema`
+6. Spawn worker role loops; start proxy **watchdog** (5s, only while desired-running)
+7. Bind TCP `127.0.0.1:{api_port}` with **API ∪ ingest** (+ rate limit / metrics)
+8. Serve control IPC (**API-only**) and MCP on `{mcp_port}`
+9. Shutdown on SIGTERM/SIGINT, `/v1/shutdown`, or serve error → stop proxy, CH, NATS
+
+```mermaid
+sequenceDiagram
+  participant D as Desktop / rivet CLI
+  participant R as rivetd
+  participant P as rivet-proxy
+  participant N as NATS
+  participant C as ClickHouse
+  D->>R: start
+  R->>P: spawn (warn if missing)
+  R->>N: spawn / connect + JetStream schema
+  R->>C: spawn / connect + ensure_schema
+  R->>R: API + ingest + MCP + workers + control IPC
+  Note over R,P: watchdog restarts proxy if desired but dead
+  Note over R,N: CH/NATS are not auto-restarted
+  D->>R: shutdown / Quit
+  R->>P: stop
+  R->>C: stop owned sidecar
+  R->>N: stop owned sidecar
+```
+
+| Component | Supervised | External alt | Auto-restart |
+| --- | --- | --- | --- |
+| `rivet-proxy` | Yes | Local binary required | Yes (5s watchdog) |
+| ClickHouse | Yes if binary found | `RIVET_CLICKHOUSE_URL` | No |
+| NATS | Yes if binary found | `RIVET_NATS_URL` | No |
+
+Desktop Quit: `POST /v1/shutdown` + `POST /v1/proxy/stop` over IPC, then TERM/KILL held
+`rivetd` child and reclaim proxy/CH/rivetd pidfiles.
 
 ---
 
@@ -128,42 +228,48 @@ sequenceDiagram
   H->>P: POST /v1/messages (etc) @ :18317
   P->>P: accept → pick credential → execute
   alt first upstream fails
-    P->>U: attempt 1 (e.g. api.anthropic.com)
+    P->>U: attempt 1
     U-->>P: 429 / error
-    P->>U: attempt 2 (e.g. Vertex)
+    P->>U: attempt 2 (failover)
     U-->>P: 200 stream/JSON
   else happy path
     P->>U: single upstream call
     U-->>P: 200
   end
-  P-->>H: response (same path reversed)
+  P-->>H: response
 ```
 
 The harness never calls providers directly. Each failover retry is an extra
-`proxy → upstream` hop.
+`proxy → upstream` hop. Winning `upstream_host` + `attempt_count` land on the
+captured event.
 
 ### 2. Traffic capture (proxy → ClickHouse)
 
-Not disk log scraping. The Rivet fork wraps CPA’s request logger and **pushes**
-events over HTTP.
+Not disk log scraping. The Rivet fork wraps CPA’s request logger (`rivetsink`)
+and **pushes** events over HTTP.
 
 ```mermaid
 flowchart LR
   A[Finalized request<br/>stream or unary] --> B[rivetsink Wrapper]
   B --> C[Bounded queue<br/>256 · drop if full]
-  C --> D[Batch worker<br/>≤32 events · ≤1 MiB]
-  D -->|POST /v1/ingest/batch| E[rivet-ingest]
-  E --> F[RedactingStore]
-  F --> G[(ClickHouse<br/>traffic_events)]
+  C --> D[Batch worker<br/>≤32 events · ≤1 MiB · ≤50 ms]
+  D -->|POST /v1/ingest/batch<br/>X-Rivet-Ingest-Key| E[rivet-ingest]
+  E --> F[Validate · prepare · soft→wire]
+  F --> G[RedactingStore]
+  G --> H[(ClickHouse<br/>traffic_events)]
+  E --> I[NATS jobs]
+  E --> J[LiveBus Traffic]
 ```
 
 | Detail | Behavior |
 | --- | --- |
 | Trigger | Same logger hook CPA uses for request logs |
 | Payload | Structured `TrafficEvent` (no credentials) |
+| Server limits | Batch ≤2000 events; content ≤2 MiB; token fields capped |
 | Disk `request-log` | **Off by default** — ClickHouse is the product store |
-| Forced errors | `error-*.log` still written when the inner logger is disabled |
-| Process logs | Under `logs-max-total-size-mb: 256` cleaner |
+| Overflow | After 3 retries, spool under `{data}/spool/ingest` |
+| Preview / spill | CH `content` holds a truncated preview; full body may spill to `blobs/traffic/…` with `body_ref` |
+| Skipped | Requests marked `x-rivet-internal` |
 
 ### 3. Desktop control path (UI → rivetd)
 
@@ -179,21 +285,25 @@ flowchart LR
 
 Loopback TCP on `api_port` still serves the same control routes for CLI, plus
 ingest for the proxy. The webview never uses TCP to `rivetd` and never sees the
-raw access key.
+raw access key. Desktop also polls `GET /v1/live` over IPC every 2s and emits
+`rivet-live`.
 
 ### 4. Conversations / Data pane
 
 ```mermaid
 flowchart TB
-  CH[(traffic_events)] --> API["/v1/conversations<br/>/search · /events"]
-  Emb[(embeddings · HNSW)] -.->|vector mode| API
+  CH[(traffic_events)] --> API["/v1/conversations<br/>/search · /events · /browse"]
+  Emb[(embeddings · HNSW)] -.->|vector / hybrid| API
+  MetaS[summaries.json] -.->|hybrid lineage| API
   API --> UI[Data pane]
   UI --> T[Transcript view<br/>text · thinking · tools]
 ```
 
 Events sharing a `session_id` become one conversation. Keyword search hits
 ClickHouse content; vector search uses the ClickHouse HNSW `embeddings` index
-then hydrates traffic rows.
+then hydrates traffic rows. Conversation search accepts
+`mode=keyword|vector|semantic|hybrid|rrf` (RRF + recency/access boosts +
+summary lineage expand in API/`fusion.rs`/`scoring.rs`).
 
 ### 5. Quota
 
@@ -226,28 +336,37 @@ flowchart LR
 ```mermaid
 flowchart LR
   UI[Settings · Harness] -->|POST /v1/harness/write| API
-  API --> Files["~/.claude or ~/.codex<br/>backup then overlay"]
+  API --> Files["~/.claude · ~/.codex · ~/.cursor<br/>backup then overlay"]
   API --> Iso["{data}/harness/* isolated"]
+  API --> Plug["{data}/plugins copy + MCP rewrite"]
   Files --> ProxyURL[ANTHROPIC_BASE_URL / Codex rivet provider]
-  API --> MCPJSON["/v1/harness/mcp.json → :mcp_port/mcp"]
+  API --> MCPJSON["mcp → :mcp_port/mcp"]
 ```
+
+Targets: `claude` | `codex` | `cursor`. Modes: `user` (default) | `isolated`.
+Install always copies bundled `plugins/` into `{data}/plugins` and rewrites MCP
+URLs to the configured `mcp_url()`.
 
 ### 8. Workers: NATS JetStream job plane + role isolation
 
-Jobs live in NATS JetStream (`RIVET_JOBS` WorkQueue + `RIVET_JOBS_DEAD`
-for flagged/dead). Publish uses `Nats-Msg-Id = job_key` for dedup; role
-pull consumers claim with ack/nak (retry) — no Postgres/SQLite/ClickHouse
-queue. ClickHouse stays analytics-only (traffic + embeddings).
+Jobs live in NATS JetStream (`RIVET_JOBS` WorkQueue + `RIVET_JOBS_DEAD` for
+flagged/dead). Publish uses `Nats-Msg-Id = job_key` for dedup; role pull
+consumers claim with ack/nak (retry). ClickHouse stays analytics-only.
 
-Ingest enqueues live `embed-event` / `classify-session`; cron backstops
-enqueue backlog scans, idle compact, topics, and wiki extract.
+Ingest enqueues live `embed-event` / optional `synthesize-tool` /
+`classify-session`. A 60s backstop publishes `enqueue-unembedded`,
+`enqueue-idle`, `upsert-topics`, and (when wiki capability is on)
+`extract-wiki:tick` / `enqueue-wiki-backfill:tick`.
 
 | Role (`RIVET_WORKER_ROLE`) | Claims |
 | --- | --- |
 | `embed` | `embed-event`, `enqueue-unembedded` |
-| `compact` | `classify-session`, `compact-session`, `enqueue-idle`, … |
-| `wiki` | `upsert-topics`, `extract-wiki`, `enqueue-wiki-backfill`, `consolidate-wiki`, `recompile-wiki`, … |
-| `all` (desktop default) | Every role as isolated Tokio loops in one process |
+| `compact` | `classify-session`, `compact-session`, `enqueue-idle`, `synthesize-tool`, `suggest-tags` |
+| `wiki` | `upsert-topics`, `extract-wiki`, `enqueue-wiki-backfill`, `consolidate-wiki`, `recompile-wiki` |
+| `all` (desktop default) | Every role as **three** isolated Tokio loops in one process |
+| `none` | No NATS consumers (API-only rivetd when workers are split out) |
+
+Priorities: live compact `0`, embed `3`, classify `4`, wiki `5`, backfill `10`.
 
 ```mermaid
 flowchart TB
@@ -256,7 +375,7 @@ flowchart TB
   NATS --> EmbedLoop[embed pull consumer]
   NATS --> CompactLoop[compact pull consumer]
   NATS --> WikiLoop[wiki pull consumer]
-  EmbedLoop --> Emb[(embeddings HNSW)]
+  EmbedLoop --> Emb[(embeddings HNSW · lexical 64-d)]
   CompactLoop --> MetaS[session_projects / summaries]
   WikiLoop --> MetaT[topics.json]
   WikiLoop --> WikiFS[wiki/&#123;project&#125;/*.md]
@@ -264,46 +383,48 @@ flowchart TB
   FS[FS watcher] --> MetaW[wiki_pages.json]
 ```
 
-API: `GET /v1/workers/queue`, `POST /v1/workers/tick`, queue counters on
-`/v1/status`. Helm can run three Deployments of the same binary with
-`RIVET_WORKER_ROLE=embed|compact|wiki` against a shared NATS URL
-(`RIVET_NATS_URL`); desktop bundles `nats-server` as a sidecar.
+| Job plane detail | Value |
+| --- | --- |
+| Jobs stream | `RIVET_JOBS` — WorkQueue, subjects `rivet.jobs.>`, file store, duplicate_window 120s |
+| Dead stream | `RIVET_JOBS_DEAD` — subject `rivet.dead.jobs` (outside WorkQueue wildcard) |
+| Subject | `rivet.jobs.<task>` |
+| Consumers | durable `rivet-embed` / `rivet-compact` / `rivet-wiki`; ack_wait 90s; max_deliver 8 |
+| Success / retry | `ack`; else attempts++ → Nak delay or publish dead then ack |
+| Coalesce | sibling `extract-wiki` jobs with overlapping `session:` / `topic:` routes can fold into one LLM call |
 
-MCP tools: `search_history`, `semantic_search`, `hybrid_search` (RRF +
-recency/access boosts + summary lineage expand), `topic_search`, `topic_get`,
-`get_full`, `browse_session`, `memory_stats`, `memory_startup`. Conversation
-search accepts `mode=hybrid`. Compaction writes a leaf→branch→root summary DAG
-with incremental tails: active threshold (≥10 unsummarized), idle mop (15m),
-stale refresh (~4d or new traffic since root), and `pipeline_version` bumps to
-force re-mine. Summaries stamp `parent_id` / `source_summary_ids`; hybrid API +
-MCP expand fused hits through that lineage. Leaf/branch/root bodies run a
-`work_first` strip so meta openings ("This batch…") are dropped. Wiki knowledge pipeline (RivetHub-aligned, file-backed): compact enqueues
-per-summary `extract-wiki:{id}`; extract is page-aware (existing topic
-inventories), coalesces same-session and same-topic-route summaries, emits
-ClickHouse claim/gather coalesce (sibling `extract-wiki` jobs sharing
-`session:` / `topic:` routes are claimed, folded into one LLM call, then
-completed or released) → schemars-constrained `create`/`update` `PagePatch`es
-(`response_format` + prompt schema; soft fallback) with citations/sources →
-merge →
-bound (16 KiB article / 4 KiB section / 12 KiB sections / 2400-char summary,
-fence-aware blocks + repeat drop) → monthly `archive/<slug>/YYYY-MM[.N].md` →
-identity/stem `consolidate-wiki` and merge-prompt `recompile-wiki` (≥~60 KiB).
-Knowledge pages use `<!-- rivet:knowledge -->` so traffic upserts do not
-clobber them; `archive/` is not indexed. Entity pages live under
-`entities/` (optionally `entities/{type}/`) with topics under
-`type:entities`; extract labels may carry `type:Name`. Apply path can
-merge-rewrite existing topic articles before bound. Bound uses
-fence-aware rebase/dropped history + entity spill caps. Topics nest ≤4
-levels (`parent_slug`). Ingest enqueues `synthesize-tool`.
-Desktop Wiki/Topics panes browse monthly archive segments via
-`/v1/wiki/archives` + `/v1/wiki/archive`. Topics also show knowledge body
-when present. Other APIs: `/v1/topics/tidy`, `/v1/topics/tags`,
-`/v1/workers/flagged`. Offline fusion gate:
-`crates/rivet-store/tests/search_eval/`. Soft→wire via `soft_alias` /
-`soft_wire.json`. Optional SessionStart inject of budgeted
-`/v1/memory/startup` (`SOUL`/`IDENTITY`/`MEMORY` + recall) —
-`RIVET_STARTUP_INJECT=0` disables. Redaction covers Slack/PEM/ASIA. Proxy
-ingest spool under `spool/ingest/`.
+API: `GET /v1/workers/queue`, `POST /v1/workers/tick`, `GET|POST /v1/workers/flagged`,
+queue counters on `/v1/status`.
+
+#### Compaction DAG
+
+`compact-session` builds a leaf → branch → root summary DAG
+(`COMPACT_PIPELINE_VERSION` in meta):
+
+1. **Leaves** — batches of ~10 events (`summary:{sid}:leaf:{i}`)
+2. **Branches** — groups of leaves (`…:branch:{i}`), leave `parent_id` links
+3. **Root** — session root + title; branches get `parent_id`
+
+Idle enqueue reasons: `threshold` (≥10 unsummarized), `idle` (15m quiet),
+`stale` (~4d or new traffic since root), `pipeline` (version bump). Leaf/branch/root
+bodies run a `work_first` strip so meta openings are dropped. After compact:
+`upsert-topics`, `suggest-tags`, and `extract-wiki:{summary_id}`.
+
+#### Wiki / topics knowledge pipeline
+
+1. Compact enqueues `extract-wiki:{id}` with routes (`session:…`, `topic:…`)
+2. Extract coalesces sibling jobs → schemars-constrained `PagePatch`es → merge →
+   bound (16 KiB article / 4 KiB section / 12 KiB sections / 2400-char summary)
+3. Overflow → monthly `archive/<slug>/YYYY-MM[.N].md`
+4. Identity/stem `consolidate-wiki`; merge-prompt `recompile-wiki` (≥~60 KiB)
+5. Knowledge pages use `<!-- rivet:knowledge -->` so traffic upserts do not clobber them;
+   `archive/` is not indexed. Entity pages live under `entities/` (optionally
+   `entities/{type}/`). Topics nest ≤4 levels (`parent_slug`)
+6. FS watcher keeps `wiki_pages.json` in sync and bumps wiki revision / LiveBus
+
+#### Embed path
+
+`embed-event` writes **lexical** 64-d vectors into ClickHouse `embeddings`
+(`LEXICAL_SPACE`) with HNSW cosine index.
 
 ### 9. MCP
 
@@ -315,6 +436,21 @@ flowchart LR
   Emb --> CH
 ```
 
+Single v1 surface: streamable HTTP via `rmcp` at `/mcp`.
+
+| Tool | Purpose |
+| --- | --- |
+| `search_history` | Keyword search over captured traffic |
+| `semantic_search` | Lexical vector search (gated by `capabilities.vector_search`); keyword fallback |
+| `topic_search` | Search durable knowledge topics |
+| `topic_get` | Fetch one topic by slug or id |
+| `get_full` | Hydrate a traffic event or conversation with full bodies |
+| `browse_session` | Browse normalized turns for a session |
+| `memory_stats` | Summary stats for memory / topics / wiki |
+
+Hybrid conversation search and memory startup are **control API** surfaces
+(`/v1/conversations/search?mode=hybrid`, `/v1/memory/startup`) — not MCP tools.
+
 ### 10. Export / import
 
 ```mermaid
@@ -322,13 +458,28 @@ flowchart LR
   UI[Data · export/import] --> API["/v1/export · /v1/import"]
   API --> Exp[rivet-export]
   Exp --> CH[(ClickHouse)]
-  Exp --> Bag[".rivetbag<br/>manifest + traffic_events.json"]
+  Exp --> Bag[".rivetbag<br/>gzip+tar: manifest + traffic_events.json"]
   Bag -->|import| CH
 ```
 
-Embeddings and wiki are not packaged yet. Credentials are never included.
+Embeddings and wiki are not packaged (`includes_embeddings=false`,
+`includes_wiki=false`). Credentials are never included. Export hydrates
+`body_ref` into `content` when blobs are available and re-redacts.
 
-### 11. Logs (debug escape hatch)
+Offline transcript import: `POST /v1/ingest/local` (Claude / Codex / Cursor
+trees) with `capture_quality=imported`.
+
+### 11. Live refresh
+
+| Route | Role |
+| --- | --- |
+| `GET /v1/live` | Snapshot cursor (`wiki_revision`, `traffic_events`, `observed_at`) — public |
+| `GET /v1/events` | SSE: seed `cursor`, then `live` (`wiki` / `traffic` / `heartbeat`) — API key |
+
+Ingest publishes `LiveEvent::Traffic` after successful insert. Desktop host polls
+`/v1/live` and emits `rivet-live` to the webview.
+
+### 12. Logs (debug escape hatch)
 
 ```mermaid
 flowchart LR
@@ -336,23 +487,26 @@ flowchart LR
   API --> Files[Newest *.log under<br/>proxy/logs or clickhouse/logs]
 ```
 
-### 12. Sidecar lifecycle
+---
 
-```mermaid
-sequenceDiagram
-  participant D as Desktop / rivet CLI
-  participant R as rivetd
-  participant P as rivet-proxy
-  participant C as ClickHouse
-  D->>R: start
-  R->>C: spawn / connect + ensure_schema
-  R->>P: spawn with RIVET_INGEST_*
-  R->>R: API + ingest + MCP + workers + control IPC
-  Note over R,P: watchdog restarts proxy if desired but dead
-  D->>R: shutdown / Quit
-  R->>P: stop
-  R->>C: stop owned sidecar
-```
+## Control API surface
+
+Grouped from `crates/rivet-api` (OpenAPI export is partial — see
+`scripts/export-openapi.sh` → `docs/openapi.json`).
+
+| Group | Routes |
+| --- | --- |
+| Bootstrap | `GET /v1/status`, `/v1/session`, `/v1/openapi.json`, `/v1/live` |
+| Live | `GET /v1/events` (SSE) |
+| Config / control | `GET\|PUT /v1/config`, `POST /v1/proxy/start\|stop`, `POST /v1/shutdown`, `GET /v1/logs/{kind}` |
+| Traffic | `/v1/traffic/recent`, `/search`, `/full`, `/v1/demo/seed` |
+| Conversations | `/v1/conversations`, `/search`, `/events`, `/browse` |
+| Accounts / quota | `/v1/providers`, `/v1/accounts*`, `/v1/quota*` |
+| Wiki / topics / memory | `/v1/wiki*`, `/v1/topics*`, `/v1/summaries`, `/v1/memory/startup`, `/v1/memory/stats` |
+| Harness | `/v1/harness/write`, snippets, `/v1/harness/session` |
+| Workers | `/v1/workers/tick`, `/queue`, `/flagged` |
+| Export | `/v1/export`, `/v1/import`, `/v1/ingest/local` |
+| Ingest (same TCP port) | `POST /v1/ingest`, `POST /v1/ingest/batch` |
 
 ---
 
@@ -360,28 +514,28 @@ sequenceDiagram
 
 ### ClickHouse
 
-Primary local store. Schema applied at boot (`CREATE DATABASE rivet` + tables).
+Primary local store. Schema applied at boot (`CREATE DATABASE rivet` + versioned
+migrations in `schema_migrations`). Details: [clickhouse.md](clickhouse.md).
 
 | Table / artifact | Role |
 | --- | --- |
-| `traffic_events` | One row per captured request/stream segment (`session_id`, optional hard-evidence `project_id`, `cwd`, `body_ref`, `capture_quality`, …) |
-| `embeddings` | Lexical (64-dim) vectors with HNSW `vector_similarity('hnsw', 'cosineDistance', 64)` |
+| `traffic_events` | One row per captured request/stream segment (MergeTree, `ORDER BY (ts, id)`) |
+| `embeddings` | Lexical 64-d vectors; ReplacingMergeTree + HNSW `vector_similarity('hnsw', 'cosineDistance', 64)` |
+| `schema_migrations` | Applied migration versions |
 
-Job durability is **not** in ClickHouse — see NATS JetStream below.
-`usage_rollups` and `wiki_pages` as CH tables remain sketched / optional; the
-wiki **index** and quota history samples still live in meta files.
+Job durability is **not** in ClickHouse. Wiki **index** and quota history samples
+live in meta files.
 
 ### NATS JetStream (job plane)
 
-Bundled `nats-server` (desktop/CLI) or external `RIVET_NATS_URL` (enterprise).
+Bundled `nats-server` (desktop/CLI) or external `RIVET_NATS_URL`. File-backed
+store under `{data}/nats/`.
 
 | Stream / artifact | Role |
 | --- | --- |
 | `RIVET_JOBS` | WorkQueue subjects `rivet.jobs.<task>`; `Msg-Id=job_key` publish dedup |
 | Role pull consumers | `embed` / `compact` / `wiki` filter by task; ack = done, nak = retry |
-| `RIVET_JOBS_DEAD` | Flagged / exhausted jobs on `rivet.dead.jobs` (outside WorkQueue wildcard) |
-
-File-backed JetStream store under `{data}/nats/` — same binary path locally and in prod.
+| `RIVET_JOBS_DEAD` | Flagged / exhausted jobs on `rivet.dead.jobs` |
 
 Ingest rejects oversized batches / content before insert (`rivet-core`
 `ingest_validate`).
@@ -395,85 +549,94 @@ traffic, tools, or thinking.
 **Subagent context** is detected on the wire from request headers (no plugin
 needed): Claude Code `x-claude-code-agent-id` / `parent-agent-id` /
 `request-class` / `agent-type`, plus OpenCode `x-parent-session-id`. Fields
-land on `traffic_events` and surface in the Data pane (conversation pills +
-per-turn badges).
+land on `traffic_events` and surface in the Data pane.
 
 **Other proxy-only enrichments** (still no harness ingress): cache-read /
 cache-creation / thinking token breakdowns; `git_branch` / `git_repo` from
-`git_state`; `task_id` / `turn_id`; winning `upstream_host` + `attempt_count`
-(failover); `stop_reason`; wire-parsed `tool_names` + `tool_call_count`;
-`stream_complete`; `request_path` / `api_format`; `error_type` /
-`error_message`; credential `auth_id`; `has_thinking`; `media_count`.
+`git_state`; `task_id` / `turn_id`; winning `upstream_host` + `attempt_count`;
+`stop_reason`; wire-parsed `tool_names` + `tool_call_count`; `stream_complete`;
+`request_path` / `api_format`; `error_type` / `error_message`; credential
+`auth_id`; `has_thinking`; `media_count`.
 
-**Capture** records observables from the proxy (and optional offline transcript
-import via `/v1/ingest/local`): bodies / `body_ref`, sessions (wire or soft),
-usage, account labels, cwd when present, and `capture_quality`
-(`wire` / `soft` / `imported`).
+**Capture quality:** `wire` (hard session marker), `soft` (`soft:{hash}` from
+provider+account+model+prompt fingerprint), `imported` (local transcript
+import). Soft→wire upgrades record aliases in `meta/soft_wire.json` (and
+ingest-only `soft_alias` is not persisted to CH).
 
 `project_id` is set only with **hard evidence**:
-- an explicit harness/API project field or header on the proxied request,
-- the harness’s own on-disk project key (Claude `~/.claude/projects/<id>/`,
-  Cursor `~/.cursor/projects/<slug>/` as stored) on import, or
-- an optional Rivet harness plugin binding (`POST /v1/harness/session`) that maps
-  `session_id` → cwd/project, joined at proxy ingest before ClickHouse insert
 
-Cwd and path text in prompts alone are signals, not project classifications —
-unless the plugin attested the session’s project.
+- explicit headers (`x-project-id`, `x-rivet-project-id`, `project-id`,
+  `openai-project`, …) or body `project_id` / `metadata.project_id`
+- harness on-disk project key on import (Claude `~/.claude/projects/<id>/`,
+  Cursor `~/.cursor/projects/<slug>/`)
+- optional Rivet harness plugin binding (`POST /v1/harness/session`) joined at
+  ingest before ClickHouse insert
+
+Cwd alone is stored as `cwd`, never promoted to `project_id` at capture.
+**Classification** (`classify-session` worker) fills gaps when hard evidence was
+absent — assign from cwd + content + session affinity.
 
 **Harness plugins** (optional — `plugins/rivet`, `plugins/rivet-codex`,
-`plugins/rivet-cursor`) improve proxy fidelity and session context: SessionStart
-/ cwd heartbeats, SessionEnd clear, Rivet MCP, SessionStart inject of budgeted
-`/v1/memory/startup` (workspace `SOUL.md` / `IDENTITY.md` / `MEMORY.md` +
-recall), and (Claude) a forward-compatible `customHeadersHelper` for
-`X-Project-Id` once Claude Code ships that setting. Proxy routing alone is
-enough to capture; plugins never ingress traffic.
-
-**Classification** (workers) fills gaps when hard evidence was absent — assign
-or reconcile projects from cwd + content + session affinity.
+`plugins/rivet-cursor`, shared `plugins/common`): SessionStart / cwd heartbeats,
+SessionEnd clear, Rivet MCP, SessionStart inject of budgeted
+`/v1/memory/startup` (workspace `SOUL.md` / `IDENTITY.md` / `MEMORY.md` /
+`AGENTS.md` + recall), and (Claude) a forward-compatible `customHeadersHelper`
+for `X-Project-Id`. Proxy routing alone is enough to capture; plugins never
+ingress traffic. Disable inject with `RIVET_STARTUP_INJECT=0`.
 
 ### Meta files (`{data}/meta/`)
 
 | File | Role |
 | --- | --- |
-| Job cursors | Vectorize / wiki / topics / classify / compact progress |
+| `jobs.json` | Worker cursors (vectorize / wiki / topics / classify / compact, …) |
 | `wiki_pages.json` | Wiki page index for the UI |
 | `topics.json` | Durable topics with citations (curated fields preserved) |
-| `summaries.json` | Compaction summaries per session |
+| `summaries.json` | Compaction summary DAG per session |
 | `enrichments.jsonl` | Worker enrichments (e.g. tool-synth), not harness ingress |
 | `session_projects.json` | Session → project/cwd bindings |
 | `quota_snapshots.jsonl` | Quota history samples |
-| `embeddings.json` | Legacy only — imported into CH once, then `.migrated` |
+| `tidy_proposals.json` | Human-gated topic tidy proposals |
+| `tag_suggestions.json` | Pending tag suggestions |
+| `access_counts.json` | Hybrid search access boosts |
+| `soft_wire.json` | Soft → hard session map |
 
 ### Other directories
 
 | Path | Role |
 | --- | --- |
+| `config.json` | Rivet config (ports, keys, capabilities, models) |
 | `proxy/auth/` | OAuth / provider credentials (never exported) |
 | `proxy/logs/` | Process + forced error logs |
+| `clickhouse/` | Sidecar data / logs / `config.xml` |
+| `nats/` | JetStream store / logs / `nats.conf` |
 | `wiki/` | Generated markdown tree |
 | `exports/` | `.rivetbag` packages |
-| `blobs/` | Spilled full bodies when preview is truncated (`body_ref`); small turns stay inline in `content` |
-| `pids/` | Sidecar PID tracking |
+| `blobs/` | Spilled full bodies when preview is truncated (`body_ref`) |
+| `harness/{claude,codex}/` | Isolated harness configs |
+| `plugins/` | Local marketplace copy installed for harnesses |
+| `spool/ingest/` | rivetsink overflow spool |
+| `pids/` | Sidecar + rivetd PID / lock files |
+| `rivetd.sock` | Control IPC (Unix) |
 
-Default data root: macOS
-`~/Library/Application Support/Rivet`, Linux `~/.local/share/Rivet`, Windows
-`%APPDATA%\Rivet` (`RIVET_DATA_DIR` overrides).
+Default data root: macOS `~/Library/Application Support/Rivet`, Linux
+`~/.local/share/Rivet`, Windows `%APPDATA%\Rivet` (`RIVET_DATA_DIR` overrides).
 
 ---
 
 ## Local vs enterprise
 
-| Concern | Local (desktop / CLI) | Enterprise (Helm) |
+| Concern | Local (desktop / CLI) | Enterprise (Helm `charts/rivet`) |
 | --- | --- | --- |
 | Proxy | Sidecar process (`:18317`) | Deployment (chart often `:8317`) |
-| ClickHouse | Bundled single-node or URL | Cluster / managed (analytics only) |
-| NATS | Bundled `nats-server` JetStream | Cluster / managed JetStream |
-| Workers | In-process role loops (`RIVET_WORKER_ROLE=all`) | Separate Deployments per role pulling from NATS |
-| Bus | NATS JetStream job plane + in-process `LiveBus` (`/v1/live` / SSE) | Same JetStream URL; Redpanda optional later for fan-out |
-| UI auth | Loopback + key / control IPC | OIDC + admin portal |
-| Tenancy | Single user | Org / team namespaces |
+| ClickHouse | Bundled single-node or URL | Altinity CHI / managed (analytics only) |
+| NATS | Bundled `nats-server` JetStream (**required**) | External `bus.natsUrl` (required) |
+| Workers | In-process role loops (`RIVET_WORKER_ROLE=all`) | Default in-process on rivetd; optional `workers.enabled` → role Deployments (`embed`/`compact`/`wiki`) + rivetd `none` |
+| Bus | NATS JetStream job plane + in-process `LiveBus` | Same intended JetStream URL; Redpanda optional later for fan-out |
+| UI auth | Loopback + key / control IPC | OIDC + admin portal (scaffold) |
+| Tenancy | Single user | Org / team namespaces (`capabilities.teams`) |
 
 Shared contracts: ingest protocol, store schemas, MCP tools, `.rivetbag` format.
+See [enterprise.md](enterprise.md) for Helm install notes.
 
 ---
 
@@ -482,11 +645,11 @@ Shared contracts: ingest protocol, store schemas, MCP tools, `.rivetbag` format.
 | Pane | Reads | Writes |
 | --- | --- | --- |
 | Quota | `/v1/quota`, history, traffic burn | Refresh credentials |
-| Data | Conversations / search / events | Export · import |
-| Runtime | Status, sidecar health, log tails | Start/stop proxy |
-| Wiki | `/v1/wiki` + pages + archives | (generated by worker) |
+| Data | Conversations / search / events / browse | Export · import |
 | Topics | `/v1/topics*` + wiki knowledge/archive | tidy / tags / flagged |
-| Settings | Accounts, intelligence, harness | Login, import, harness write |
+| Runtime | Status, sidecar health, log tails, worker cards | Start/stop proxy; run workers |
+| Wiki | `/v1/wiki` + pages + archives | (generated by worker) |
+| Settings | Accounts, intelligence, harness | Login, import, harness write, models/caps |
 
 Close-to-tray; Quit from tray stops `rivetd`.
 
@@ -497,6 +660,9 @@ Close-to-tray; Quit from tray stops `rivetd`.
 - Capture is local by default.
 - Export is user-initiated traffic sharing, not credential sharing.
 - Multi-account pooling carries provider ToS risk (disclose in product).
+- Redaction covers common secrets (Bearer, `sk-*`, JWTs, PEM, OAuth JSON fields,
+  `rivet_*` keys, Slack/PEM/ASIA patterns, …) on write and before spill.
+- Proxy logrus: Rivet `RedactHook` masks tokens before stdout/file sinks.
 
 ## Stack locks
 
@@ -504,19 +670,30 @@ Close-to-tray; Quit from tray stops `rivetd`.
 - Go only inside the forked proxy sidecar
 - Tauri 2 desktop → DMG / deb+AppImage / NSIS
 - ClickHouse for traffic analytics + embeddings (not jobs; official `clickhouse` Rust client)
-- NATS JetStream for the durable job plane (desktop ≡ prod)
-- MCP via official `rmcp` streamable HTTP; control contracts via `utoipa` (`GET /v1/openapi.json`); desktop Effect schemas mirror exported OpenAPI (`scripts/export-openapi.sh` → `docs/openapi.json`)
+- NATS JetStream for the durable job plane (desktop ≡ intended prod path)
+- MCP via official `rmcp` streamable HTTP; control contracts via `utoipa`
+  (`GET /v1/openapi.json`); desktop Effect schemas mirror exported OpenAPI
+  (`scripts/export-openapi.sh` → `docs/openapi.json`)
 - Live refresh: `LiveBus` → `GET /v1/live` + `GET /v1/events` (SSE); Tauri emits `rivet-live`
 - Loopback API/ingest: `tower-governor` rate limits + optional Prometheus (`GET /metrics`)
 - Optional OTLP tracing when `RIVET_OTLP_ENDPOINT` is set
-- Proxy logrus: Rivet `RedactHook` masks tokens before stdout/file sinks
 - No TigerBeetle; no Flink locally (Rust workers; Redpanda optional later for enterprise fan-out)
 
-## Implementation notes (doc vs code)
+## Implementation notes
 
-1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`), not Unix-socket NDJSON (`ingest.sock` path may exist unused). Batches are size-validated before insert.
-2. **Embeddings** live in ClickHouse with HNSW; **wiki index** and **quota history** remain meta-file backed. Schema evolves via versioned CH migrations.
-3. **`body_ref` / `blobs/`** hold spilled full turns when the preview is short; small bodies stay in `content`.
-4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context when needed.
-5. Helm proxy port may differ from the local default `18317`.
-6. **Jobs** are NATS JetStream messages (`Msg-Id=job_key` dedup, role pull consumers, dead stream for flagged) — not Postgres/SQLite/ClickHouse.
+1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`).
+   Batches are size-validated before insert.
+2. **Embeddings** live in ClickHouse with HNSW; embed path is **lexical-only**.
+   Wiki index and quota history remain meta-file backed. Schema evolves via
+   versioned CH migrations.
+3. **`body_ref` / `blobs/`** hold spilled full turns when the preview is short; small
+   bodies stay in `content`.
+4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context
+   when needed.
+5. Helm proxy port may differ from the local default `18317`. Role-split workers use
+   `RIVET_WORKER_ROLE=embed|compact|wiki` (worker-only process) and need a shared
+   data volume for meta/wiki.
+6. **Jobs** are NATS JetStream messages (`Msg-Id=job_key` dedup, role pull consumers,
+   dead stream for flagged) — not Postgres/SQLite/ClickHouse.
+7. **Control IPC ≠ full TCP surface** — no ingest merge, no governor/metrics layers.
+8. Proxy boot failure is non-fatal; NATS and ClickHouse without URL are fatal.

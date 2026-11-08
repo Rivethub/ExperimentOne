@@ -47,14 +47,16 @@ cd apps/desktop && bun install && bun run tauri dev
 
 Scopes: `api`, `charts`, `ci`, `cli`, `core`, `deps`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`. Squash merges use the PR title as `{title} (#N)`; CI lints that subject.
 
-## Product (v1.0)
+## Product (v1)
 
 Local control app + `rivetd` control plane on **macOS, Linux, and Windows**.
 Quota charts use live provider windows plus burn/cost from **captured local
-traffic**. Traffic lives in ClickHouse (bundled sidecar or `RIVET_CLICKHOUSE_URL`);
-meta (wiki index, quota history, embeddings) is file-backed under `meta/`.
-Close the window to keep Rivet in the tray; Quit from the tray menu stops
-`rivetd`. Default proxy port is **18317** (auto-migrates if busy).
+traffic**. Traffic + embeddings live in ClickHouse (bundled sidecar or
+`RIVET_CLICKHOUSE_URL`); jobs run on NATS JetStream (bundled `nats-server` or
+`RIVET_NATS_URL`); meta (wiki index, quota history, summaries) is file-backed
+under `meta/`. Close the window to keep Rivet in the tray; Quit from the tray
+menu stops `rivetd`. Default ports: proxy **18317**, API/ingest **8741**, MCP
+**8742**.
 
 Data directory: macOS `~/Library/Application Support/Rivet`, Linux
 `~/.local/share/Rivet`, Windows `%APPDATA%\Rivet` (override with
@@ -75,13 +77,12 @@ Supported credentials (same catalog as prox / CLIProxyAPI): Claude, Codex
 Kimi.ai, xAI, Meta, Devin (OAuth), plus Vertex AI service-account import.
 Accounts live under Settings → Accounts as a list with **Add account**.
 
-Workers (on by default): **vectorize** embeds traffic for MCP `semantic_search`
-(lexical locally, or proxy embeddings when `embedding_model` is set); **wiki**
-writes one **README.md per project** under the local Rivet data directory, with a
-full TOC of every project file, plus optional LLM overview when `wiki_model` is
-set. The Wiki board opens those READMEs and navigates by markdown links only
-(no full file-list UI). Trigger immediately via `POST /v1/workers/tick` or
-Intelligence → Run workers now.
+Workers (on by default, `RIVET_WORKER_ROLE=all`): **vectorize** writes lexical
+64-d embeddings into ClickHouse for MCP `semantic_search`; **wiki** maintains a
+markdown tree under the Rivet data directory (traffic READMEs + knowledge
+pages when `wiki_model` is set); **compact** builds session summary DAGs.
+Trigger immediately via `POST /v1/workers/tick` or Intelligence → Run workers
+now.
 
 ## Milestones
 
@@ -99,9 +100,10 @@ Intelligence → Run workers now.
 - `GET /v1/status`, `GET|PUT /v1/config`
 - `POST /v1/proxy/start|stop`
 - `POST /v1/accounts/login`, harness write, export/import
-- `GET /v1/wiki`
+- `GET /v1/wiki`, `/v1/topics`, `/v1/conversations*`
 
-MCP (`:8742`): `search_history`; `semantic_search` when vectors enabled.
+MCP streamable HTTP (`:8742/mcp`): `search_history`, `semantic_search`,
+`topic_search`, `topic_get`, `get_full`, `browse_session`, `memory_stats`.
 
 ## Agent / CLI setup
 

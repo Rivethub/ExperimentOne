@@ -140,10 +140,6 @@ impl RivetPaths {
         self.root.join("plugins")
     }
 
-    pub fn ingest_sock(&self) -> Utf8PathBuf {
-        self.root.join("ingest.sock")
-    }
-
     /// Unix domain socket for Desktop ↔ rivetd control IPC (not TCP).
     pub fn control_sock(&self) -> Utf8PathBuf {
         self.root.join("rivetd.sock")

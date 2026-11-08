@@ -29,6 +29,15 @@ spec:
           env:
             - name: RIVET_CLICKHOUSE_URL
               value: {{ include "rivet.clickhouse.url" . | quote }}
+            - name: RIVET_NATS_URL
+              value: {{ required "bus.natsUrl is required (JetStream job plane)" .Values.bus.natsUrl | quote }}
+            {{- if .Values.workers.enabled }}
+            - name: RIVET_WORKER_ROLE
+              value: "none"
+            {{- else }}
+            - name: RIVET_WORKER_ROLE
+              value: "all"
+            {{- end }}
           resources:
             {{- toYaml .Values.rivetd.resources | nindent 12 }}
 ---

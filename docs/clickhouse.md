@@ -29,10 +29,7 @@ Lexical vectors live in ClickHouse `embeddings` with a native
 `vector_similarity('hnsw', 'cosineDistance', 64)` index. Semantic search uses
 `ORDER BY cosineDistance(dims, q) LIMIT k` so the engine can use HNSW.
 
-Legacy `meta/embeddings.json` is imported once on boot (then renamed
-`.migrated`).
-
 ## Meta (not ClickHouse)
 
-Quota history samples, wiki page index, and job cursors live as JSON/JSONL
-under `{data}/meta/` — see `rivet-store` `MetaStore`.
+Quota history samples, wiki page index, topics, summaries, and job cursors live
+as JSON/JSONL under `{data}/meta/` — see `rivet-store` `MetaStore`.
