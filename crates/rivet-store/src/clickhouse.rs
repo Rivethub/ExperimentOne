@@ -218,6 +218,10 @@ impl TrafficStore for ClickHouseTrafficStore {
         bail!("clickhouse search not enabled until sidecar is primary")
     }
 
+    async fn get_by_ids(&self, _ids: &[String]) -> Result<Vec<TrafficEvent>> {
+        bail!("clickhouse get_by_ids not enabled until sidecar is primary")
+    }
+
     async fn usage_totals(&self) -> Result<UsageTotals> {
         bail!("clickhouse totals not enabled until sidecar is primary")
     }
@@ -273,6 +277,10 @@ impl TrafficStore for DualWriteStore {
 
     async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
         self.primary.search_keyword(query, limit).await
+    }
+
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+        self.primary.get_by_ids(ids).await
     }
 
     async fn usage_totals(&self) -> Result<UsageTotals> {

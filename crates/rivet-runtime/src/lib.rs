@@ -92,6 +92,12 @@ impl Runtime {
         } else {
             "sqlite"
         };
+        let worker = Arc::new(WorkerPool::new(
+            store.clone(),
+            meta.clone(),
+            self.paths.clone(),
+            config.clone(),
+        ));
         let api_state = ApiState {
             config: config.clone(),
             store: store.clone(),
@@ -99,6 +105,7 @@ impl Runtime {
             paths: self.paths.clone(),
             meta: meta.clone(),
             traffic_backend,
+            workers: Some(worker.clone()),
         };
         let ingest_state = IngestState {
             store: store.clone(),
@@ -111,7 +118,6 @@ impl Runtime {
             vector_search: caps.vector_search,
         };
 
-        let worker = WorkerPool::new(store, meta, self.paths.clone(), self.config.clone());
         let _worker_handle = worker.spawn();
 
         let api_addr: SocketAddr = format!("127.0.0.1:{}", self.config.api_port).parse()?;

@@ -52,7 +52,10 @@ impl Default for RivetConfig {
             proxy_access_key: generate_access_key(),
             capabilities: Capabilities {
                 mcp: true,
-                ..Capabilities::default()
+                // Lexical vectors + structured wiki run locally without models.
+                vector_search: true,
+                wiki: true,
+                teams: false,
             },
             embedding_model: None,
             wiki_model: None,

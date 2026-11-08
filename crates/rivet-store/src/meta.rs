@@ -171,4 +171,20 @@ impl MetaStore {
         }
         Ok(out)
     }
+
+    pub fn embedding_count(&self) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM embeddings", [], |r| r.get(0))?;
+        Ok(n as u64)
+    }
+
+    pub fn wiki_page_count(&self, project_id: &str) -> Result<u64> {
+        let conn = self.conn.lock().expect("meta lock");
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM wiki_pages WHERE project_id = ?1",
+            params![project_id],
+            |r| r.get(0),
+        )?;
+        Ok(n as u64)
+    }
 }

@@ -32,6 +32,14 @@ type Status = {
   wiki_model?: string | null;
   warnings?: string[];
   onboarding?: Onboarding;
+  workers?: {
+    vector_search: boolean;
+    wiki: boolean;
+    embeddings: number;
+    wiki_pages: number;
+    vectorize_cursor?: string | null;
+    wiki_cursor?: string | null;
+  };
   capabilities: {
     mcp: boolean;
     vector_search: boolean;
@@ -790,6 +798,24 @@ export default function App() {
     }
   }
 
+  async function runWorkers() {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/v1/workers/tick`, { method: "POST" });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? "worker tick failed");
+      setBagNote(
+        `Workers ran — ${body.embeddings ?? 0} embeddings, ${body.wiki_pages ?? 0} wiki pages`,
+      );
+      await refresh();
+      await refreshWiki();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const showClaude = filter === "all" || filter === "claude";
   const showCodex = filter === "all" || filter === "codex";
   const onboard = status?.onboarding;
@@ -1457,6 +1483,9 @@ export default function App() {
                 >
                   Enable wiki worker
                 </button>
+                <button className="btn" disabled={busy} onClick={runWorkers}>
+                  Refresh wiki now
+                </button>
               </div>
               {wiki && wiki.pages.length > 0 ? (
                 <ul className="account-list">
@@ -1481,28 +1510,42 @@ export default function App() {
 
           {page === "intelligence" && (
             <section className="panel-block">
-              <h2>Optional models</h2>
+              <h2>Workers</h2>
               <p className="lede">
-                Out of the box Rivet is multi-account + traffic DB. Set model ids (routed
-                through the local proxy) to arm vector search and wiki generation. Lexical
-                embeddings keep MCP useful without a remote embedder.
+                The vectorize worker embeds traffic for MCP semantic search (lexical locally,
+                or via the proxy when an embedding model is set). The wiki worker writes a
+                markdown tree from traffic; set a wiki model to also generate an LLM overview.
               </p>
               <div className="kv">
                 <div className="kv-row">
-                  <span className="k">Vector search</span>
+                  <span className="k">Vector worker</span>
                   <span className="v">
-                    {status?.capabilities.vector_search ? "on" : "off"}
+                    {status?.workers?.vector_search || status?.capabilities.vector_search
+                      ? "on"
+                      : "off"}{" "}
+                    · {fmt(status?.workers?.embeddings ?? 0)} embeddings
                   </span>
                 </div>
                 <div className="kv-row">
-                  <span className="k">Wiki</span>
-                  <span className="v">{status?.capabilities.wiki ? "on" : "off"}</span>
+                  <span className="k">Wiki worker</span>
+                  <span className="v">
+                    {status?.workers?.wiki || status?.capabilities.wiki ? "on" : "off"} ·{" "}
+                    {fmt(status?.workers?.wiki_pages ?? 0)} pages
+                  </span>
+                </div>
+                <div className="kv-row">
+                  <span className="k">Last vectorize</span>
+                  <span className="v">{status?.workers?.vectorize_cursor ?? "—"}</span>
+                </div>
+                <div className="kv-row">
+                  <span className="k">Last wiki</span>
+                  <span className="v">{status?.workers?.wiki_cursor ?? "—"}</span>
                 </div>
               </div>
               <div className="import-row" style={{ marginTop: 14 }}>
                 <input
                   className="path-input"
-                  placeholder="embedding model id (optional)"
+                  placeholder="embedding model id (optional, e.g. text-embedding-3-small)"
                   value={embedModel}
                   onChange={(e) => setEmbedModel(e.target.value)}
                 />
@@ -1510,14 +1553,17 @@ export default function App() {
               <div className="import-row">
                 <input
                   className="path-input"
-                  placeholder="wiki text-gen model id (optional)"
+                  placeholder="wiki text-gen model id (optional, e.g. claude-sonnet-4-5)"
                   value={wikiModel}
                   onChange={(e) => setWikiModel(e.target.value)}
                 />
               </div>
               <div className="actions">
                 <button className="btn primary" disabled={busy} onClick={saveIntelligence}>
-                  Save
+                  Save models
+                </button>
+                <button className="btn primary" disabled={busy} onClick={runWorkers}>
+                  Run workers now
                 </button>
                 <button
                   className="btn"
@@ -1540,9 +1586,11 @@ export default function App() {
                 </button>
               </div>
               <p className="note">
-                Restart rivetd after enabling vectors so MCP exposes{" "}
+                Lexical embeddings work offline. Proxy models need the proxy running and a
+                signed-in account. Restart rivetd after first enabling vectors so MCP exposes{" "}
                 <span className="mono">semantic_search</span>.
               </p>
+              {bagNote && <p className="note">{bagNote}</p>}
             </section>
           )}
 

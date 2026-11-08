@@ -2,7 +2,7 @@
 //!
 //! Full MCP stdio transport can be layered later; this endpoint is enough for
 //! local harness wiring. Keyword search always works; semantic search uses
-//! stored lexical (or future remote) embeddings when vector_search is on.
+//! stored embeddings (lexical or proxy) when vector_search is on.
 
 use std::sync::Arc;
 
@@ -12,7 +12,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use rivet_core::{cosine, lexical_embed, TrafficEvent};
+use rivet_core::{cosine, lexical_embed};
 use rivet_store::{MetaStore, TrafficStore};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
@@ -38,7 +38,7 @@ fn default_limit() -> u32 {
 #[derive(Serialize)]
 pub struct SearchResponse {
     pub mode: &'static str,
-    pub results: Vec<TrafficEvent>,
+    pub results: Vec<rivet_core::TrafficEvent>,
 }
 
 #[derive(Serialize)]
@@ -102,6 +102,7 @@ async fn semantic_search(
     if !state.vector_search {
         return Err(axum::http::StatusCode::NOT_FOUND);
     }
+
     let query_vec = lexical_embed(&req.query);
     let embeddings = state
         .meta
@@ -110,13 +111,13 @@ async fn semantic_search(
 
     let mut scored: Vec<(f32, String)> = embeddings
         .into_iter()
+        .filter(|(_, dims)| dims.len() == query_vec.len())
         .map(|(id, dims)| (cosine(&query_vec, &dims), id))
         .filter(|(score, _)| *score > 0.05)
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
     scored.truncate(req.limit as usize);
 
-    // Fall back to keyword if nothing embedded yet.
     if scored.is_empty() {
         let results = state
             .store
@@ -129,13 +130,14 @@ async fn semantic_search(
         }));
     }
 
-    let recent = state
+    let ids: Vec<String> = scored.iter().map(|(_, id)| id.clone()).collect();
+    let found = state
         .store
-        .recent(500)
+        .get_by_ids(&ids)
         .await
         .map_err(|_| axum::http::StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut by_id = std::collections::HashMap::new();
-    for event in recent {
+    for event in found {
         by_id.insert(event.id.to_string(), event);
     }
     let mut results = Vec::new();
