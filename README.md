@@ -39,7 +39,7 @@ cd apps/desktop && bun install && bun run tauri dev
 #  bun run dev:mock for browser UI with mocked IPC)
 ```
 
-Scopes: `api`, `charts`, `ci`, `core`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`.
+Scopes: `api`, `charts`, `ci`, `cli`, `core`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`.
 
 ## Product (v1.0)
 
