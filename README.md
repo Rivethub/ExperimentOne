@@ -50,6 +50,12 @@ cd apps/desktop && bun install && bun run tauri dev
 
 First-run: **Start proxy → Sign in → Write harness → run traffic.**
 
+Workers (on by default): **vectorize** embeds traffic for MCP `semantic_search`
+(lexical locally, or proxy embeddings when `embedding_model` is set); **wiki**
+writes markdown under Application Support (models/sessions/topics/providers, plus
+an LLM overview when `wiki_model` is set). Trigger immediately via
+`POST /v1/workers/tick` or Intelligence → Run workers now.
+
 ## Milestones
 
 | | Status |

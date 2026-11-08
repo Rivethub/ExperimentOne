@@ -26,6 +26,7 @@ pub trait TrafficStore: Send + Sync {
     async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()>;
     async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>>;
     async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<TrafficEvent>>;
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>>;
     async fn usage_totals(&self) -> Result<UsageTotals>;
     async fn export_all(&self) -> Result<Vec<TrafficEvent>>;
 }

@@ -168,6 +168,27 @@ impl TrafficStore for SqliteTrafficStore {
         Ok(out)
     }
 
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let conn = self.conn.lock().expect("traffic lock");
+        let mut out = Vec::new();
+        for id in ids {
+            let mut stmt = conn.prepare(
+                "SELECT id, ts, provider, account_label, model, session_id, project_id,
+                        request_id, role, content, tokens_in, tokens_out, latency_ms,
+                        status_code, body_ref
+                 FROM traffic_events WHERE id = ?1",
+            )?;
+            let mut rows = stmt.query_map(params![id], Self::row_to_event)?;
+            if let Some(row) = rows.next() {
+                out.push(row?);
+            }
+        }
+        Ok(out)
+    }
+
     async fn usage_totals(&self) -> Result<UsageTotals> {
         let conn = self.conn.lock().expect("traffic lock");
         conn.query_row(

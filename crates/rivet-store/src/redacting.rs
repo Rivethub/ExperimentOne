@@ -41,6 +41,10 @@ impl TrafficStore for RedactingStore {
         self.inner.search_keyword(query, limit).await
     }
 
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+        self.inner.get_by_ids(ids).await
+    }
+
     async fn usage_totals(&self) -> Result<UsageTotals> {
         self.inner.usage_totals().await
     }

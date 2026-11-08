@@ -42,6 +42,8 @@ pub struct ApiState {
     pub meta: Arc<MetaStore>,
     /// `sqlite` or `sqlite+clickhouse` when dual-write is armed.
     pub traffic_backend: &'static str,
+    /// Background vectorize + wiki workers.
+    pub workers: Option<Arc<rivet_worker::WorkerPool>>,
 }
 
 #[derive(Serialize)]
@@ -61,6 +63,17 @@ pub struct StatusResponse {
     /// Soft warnings for the desktop UI (port conflicts, onboarding hints).
     pub warnings: Vec<String>,
     pub onboarding: OnboardingStatus,
+    pub workers: WorkersStatus,
+}
+
+#[derive(Serialize)]
+pub struct WorkersStatus {
+    pub vector_search: bool,
+    pub wiki: bool,
+    pub embeddings: u64,
+    pub wiki_pages: u64,
+    pub vectorize_cursor: Option<String>,
+    pub wiki_cursor: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -174,6 +187,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
         .route("/v1/wiki", get(wiki_info))
+        .route("/v1/workers/tick", post(workers_tick))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -221,6 +235,17 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             has_accounts: account_count > 0,
             has_traffic: usage.events > 0,
             harness_ready,
+        },
+        workers: WorkersStatus {
+            vector_search: cfg.capabilities.vector_search,
+            wiki: cfg.capabilities.wiki,
+            embeddings: state.meta.embedding_count().unwrap_or(0),
+            wiki_pages: state
+                .meta
+                .wiki_page_count(&cfg.wiki_project_id)
+                .unwrap_or(0),
+            vectorize_cursor: state.meta.job_cursor("vectorize").ok().flatten(),
+            wiki_cursor: state.meta.job_cursor("wiki").ok().flatten(),
         },
     })
 }
@@ -600,6 +625,24 @@ async fn wiki_info(
         project_id: project,
         pages,
     }))
+}
+
+async fn workers_tick(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let Some(workers) = state.workers.clone() else {
+        return Err(err_response("workers unavailable".into()));
+    };
+    workers
+        .tick_once()
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    let cfg = state.config.read().await;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "embeddings": state.meta.embedding_count().unwrap_or(0),
+        "wiki_pages": state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
+    })))
 }
 
 fn err_response(msg: String) -> (StatusCode, Json<ErrBody>) {
