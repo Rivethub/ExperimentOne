@@ -4,9 +4,7 @@ package rivetsink
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -16,15 +14,20 @@ import (
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
-	log "github.com/sirupsen/logrus"
 )
 
+type sinkError string
+
+func (e sinkError) Error() string { return string(e) }
+
+const errNoFileBodySource sinkError = "rivetsink: inner logger does not support file body sources"
+
 // Wrapper dual-writes to an inner RequestLogger and posts events to Rivet.
+// IsEnabled is always true while ingest is configured so middleware keeps
+// capturing traffic even when on-disk request-log is disabled.
 type Wrapper struct {
-	inner     logging.RequestLogger
-	ingestURL string
-	ingestKey string
-	client    *http.Client
+	inner  logging.RequestLogger
+	sender *queueSender
 }
 
 type trafficEvent struct {
@@ -61,14 +64,13 @@ func Wrap(inner logging.RequestLogger) logging.RequestLogger {
 		return inner
 	}
 	return &Wrapper{
-		inner:     inner,
-		ingestURL: strings.TrimRight(url, "/"),
-		ingestKey: strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY")),
-		client:    &http.Client{Timeout: 2 * time.Second},
+		inner:  inner,
+		sender: newQueueSender(url, strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY"))),
 	}
 }
 
-func (w *Wrapper) IsEnabled() bool { return w.inner.IsEnabled() }
+// IsEnabled reports capture as on for Rivet even if the file logger is off.
+func (w *Wrapper) IsEnabled() bool { return true }
 
 func (w *Wrapper) SetEnabled(enabled bool) {
 	if setter, ok := w.inner.(interface{ SetEnabled(bool) }); ok {
@@ -76,10 +78,103 @@ func (w *Wrapper) SetEnabled(enabled bool) {
 	}
 }
 
+func (w *Wrapper) SetHomeEnabled(enabled bool) {
+	if setter, ok := w.inner.(interface{ SetHomeEnabled(bool) }); ok {
+		setter.SetHomeEnabled(enabled)
+	}
+}
+
+func (w *Wrapper) SetErrorLogsMaxFiles(maxFiles int) {
+	if setter, ok := w.inner.(interface{ SetErrorLogsMaxFiles(int) }); ok {
+		setter.SetErrorLogsMaxFiles(maxFiles)
+	}
+}
+
+func (w *Wrapper) NewFileBodySource(prefix string) (*logging.FileBodySource, error) {
+	factory, ok := w.inner.(interface {
+		NewFileBodySource(string) (*logging.FileBodySource, error)
+	})
+	if !ok {
+		return nil, errNoFileBodySource
+	}
+	return factory.NewFileBodySource(prefix)
+}
+
+// forceForInner restores CPA's error-only file logging. Middleware only sets
+// force when !logger.IsEnabled(), but this wrapper stays enabled for Rivet.
+func (w *Wrapper) forceForInner(force bool, statusCode int) bool {
+	if force {
+		return true
+	}
+	return w.inner != nil && !w.inner.IsEnabled() && statusCode >= 400
+}
+
+func (w *Wrapper) logInnerWithForce(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
+	force = w.forceForInner(force, statusCode)
+	if withOpts, ok := w.inner.(interface {
+		LogRequestWithOptions(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, []byte, []byte, []byte, []*interfaces.ErrorMessage, bool, string, time.Time, time.Time) error
+	}); ok {
+		return withOpts.LogRequestWithOptions(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
+	}
+	return w.inner.LogRequest(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, requestID, requestTimestamp, apiResponseTimestamp)
+}
+
 func (w *Wrapper) LogRequest(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiResponseErrors []*interfaces.ErrorMessage, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
-	err := w.inner.LogRequest(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, requestID, requestTimestamp, apiResponseTimestamp)
+	err := w.logInnerWithForce(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, false, requestID, requestTimestamp, apiResponseTimestamp)
 	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
 	return err
+}
+
+// LogRequestWithOptions preserves forced error-log writes on the inner logger.
+func (w *Wrapper) LogRequestWithOptions(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
+	err := w.logInnerWithForce(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
+	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
+	return err
+}
+
+func mergeAPIRequestCapture(apiRequest []byte, source *logging.FileBodySource) []byte {
+	if source == nil || !source.HasPayload() {
+		return apiRequest
+	}
+	fromSrc, err := source.Bytes()
+	if err != nil || len(fromSrc) == 0 {
+		return apiRequest
+	}
+	if len(apiRequest) == 0 {
+		return fromSrc
+	}
+	out := make([]byte, 0, len(apiRequest)+len(fromSrc)+2)
+	out = append(out, apiRequest...)
+	if !bytes.HasSuffix(apiRequest, []byte("\n")) {
+		out = append(out, '\n')
+	}
+	out = append(out, '\n')
+	out = append(out, fromSrc...)
+	return out
+}
+
+func (w *Wrapper) LogRequestWithOptionsAndSources(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline []byte, websocketTimelineSource *logging.FileBodySource, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiWebsocketTimelineSource *logging.FileBodySource, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
+	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
+	force = w.forceForInner(force, statusCode)
+	if withOpts, ok := w.inner.(interface {
+		LogRequestWithOptionsAndSources(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, *logging.FileBodySource, []byte, []byte, []byte, *logging.FileBodySource, []*interfaces.ErrorMessage, bool, string, time.Time, time.Time) error
+	}); ok {
+		return withOpts.LogRequestWithOptionsAndSources(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, websocketTimelineSource, apiRequest, apiResponse, apiWebsocketTimeline, apiWebsocketTimelineSource, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
+	}
+	return w.logInnerWithForce(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
+}
+
+func (w *Wrapper) LogRequestWithOptionsAndAllSources(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline []byte, websocketTimelineSource *logging.FileBodySource, apiRequest []byte, apiRequestSource *logging.FileBodySource, apiResponse []byte, apiResponseSource *logging.FileBodySource, apiWebsocketTimeline []byte, apiWebsocketTimelineSource *logging.FileBodySource, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
+	// Read source-backed upstream metadata before the inner logger cleans it up.
+	apiRequestForRivet := mergeAPIRequestCapture(apiRequest, apiRequestSource)
+	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequestForRivet)
+	force = w.forceForInner(force, statusCode)
+	if withOpts, ok := w.inner.(interface {
+		LogRequestWithOptionsAndAllSources(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, *logging.FileBodySource, []byte, *logging.FileBodySource, []byte, *logging.FileBodySource, []byte, *logging.FileBodySource, []*interfaces.ErrorMessage, bool, string, time.Time, time.Time) error
+	}); ok {
+		return withOpts.LogRequestWithOptionsAndAllSources(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, websocketTimelineSource, apiRequest, apiRequestSource, apiResponse, apiResponseSource, apiWebsocketTimeline, apiWebsocketTimelineSource, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
+	}
+	return w.logInnerWithForce(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequestForRivet, apiResponse, apiWebsocketTimeline, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
 }
 
 func (w *Wrapper) LogStreamingRequest(url, method string, headers map[string][]string, body []byte, requestID string) (logging.StreamingLogWriter, error) {
@@ -114,6 +209,7 @@ type streamWrapper struct {
 	tail     []byte
 	apiReq   []byte
 	apiResp  []byte
+	apiErrs  []*interfaces.ErrorMessage
 	status   int
 	closed   bool
 	finished time.Time
@@ -201,6 +297,9 @@ func (s *streamWrapper) WriteAPIWebsocketTimeline(apiWebsocketTimeline []byte) e
 }
 
 func (s *streamWrapper) WriteAPIResponseErrors(errors []*interfaces.ErrorMessage) error {
+	s.mu.Lock()
+	s.apiErrs = append([]*interfaces.ErrorMessage(nil), errors...)
+	s.mu.Unlock()
 	return s.inner.WriteAPIResponseErrors(errors)
 }
 
@@ -234,13 +333,27 @@ func (s *streamWrapper) Close() error {
 	tokensIn := s.tokensIn
 	tokensOut := s.tokensOut
 	model := s.model
+	apiReq := append([]byte(nil), s.apiReq...)
+	apiErrs := append([]*interfaces.ErrorMessage(nil), s.apiErrs...)
+	headers := s.headers
+	reqBody := s.reqBody
+	requestID := s.requestID
+	url := s.url
 	provider := inferProviderFromCapture(s.url, s.reqBody, s.apiReq)
 	if provider == "" {
 		provider = s.provider
 	}
 	s.mu.Unlock()
 
-	s.parent.forwardStream(s.url, s.headers, s.reqBody, resp, status, s.requestID, started, finished, provider, tokensIn, tokensOut, model)
+	s.parent.forwardStream(url, headers, reqBody, resp, status, requestID, started, finished, provider, tokensIn, tokensOut, model)
+	// Inner streaming writer is often a no-op when request-log is off; force an error file.
+	if s.parent.inner != nil && !s.parent.inner.IsEnabled() && (status >= 400 || len(apiErrs) > 0) {
+		forceStatus := status
+		if forceStatus < 400 {
+			forceStatus = 500
+		}
+		_ = s.parent.logInnerWithForce(url, "POST", headers, reqBody, forceStatus, nil, resp, nil, apiReq, nil, nil, apiErrs, true, requestID, started, finished)
+	}
 	return err
 }
 
@@ -342,39 +455,10 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 	if err != nil {
 		return
 	}
-	endpoint := w.ingestURL + "/v1/ingest"
 	_ = url // retained for future request-path tagging
-	// Prefer the key captured at Wrap; fall back to live env so a rebuilt
-	// rivetd that refreshes RIVET_INGEST_KEY still authenticates.
-	ingestKey := w.ingestKey
-	if ingestKey == "" {
-		ingestKey = strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY"))
+	if w.sender != nil {
+		w.sender.enqueue(payload)
 	}
-	go func() {
-		for attempt := 0; attempt < 3; attempt++ {
-			req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, endpoint, bytes.NewReader(payload))
-			if err != nil {
-				return
-			}
-			req.Header.Set("Content-Type", "application/json")
-			if ingestKey != "" {
-				req.Header.Set("X-Rivet-Ingest-Key", ingestKey)
-			}
-			resp, err := w.client.Do(req)
-			if err != nil {
-				log.Warnf("rivet sink attempt %d: %v", attempt+1, err)
-				time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
-				continue
-			}
-			code := resp.StatusCode
-			_ = resp.Body.Close()
-			if code >= 200 && code < 300 {
-				return
-			}
-			log.Warnf("rivet sink attempt %d: HTTP %d (check RIVET_INGEST_KEY matches rivetd)", attempt+1, code)
-			time.Sleep(time.Duration(attempt+1) * 200 * time.Millisecond)
-		}
-	}()
 }
 
 func providerFromModel(model string) string {

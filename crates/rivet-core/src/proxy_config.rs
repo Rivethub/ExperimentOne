@@ -39,8 +39,10 @@ observability:
   logs:
     debug: false
     logging-to-file: true
-    request-log: true
-    # Cap on-disk request logs (full prompts); cleaner is off when unset/0.
+    # Off: Rivet ingest captures traffic into ClickHouse. Forced error-*.log
+    # files still write on failures. Set true only for raw CPA request dumps.
+    request-log: false
+    # Cap on-disk logs (process + forced errors); cleaner is off when unset/0.
     logs-max-total-size-mb: 256
   usage:
     usage-statistics-enabled: true
