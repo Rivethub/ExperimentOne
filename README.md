@@ -45,7 +45,7 @@ cd apps/desktop && bun install && bun run tauri dev
 - Dev profile keeps line-tables debug info and strips dep debug info for faster links.
 - On **Linux**, `.cargo/config.toml` links with **mold** (`sudo apt install clang mold` / `brew install mold`). macOS and Windows keep the platform linker (mold has no Mach-O/PE support).
 
-Scopes: `api`, `charts`, `ci`, `cli`, `core`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`.
+Scopes: `api`, `charts`, `ci`, `cli`, `core`, `deps`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`. Squash merges use the PR title as `{title} (#N)`; CI lints that subject.
 
 ## Product (v1.0)
 

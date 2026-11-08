@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Ready if/when the repo moves to an org (or GHEC) that supports merge queues.
+  merge_group:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -23,11 +25,17 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: committed
+      - name: Lint squash merge subject from PR title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./scripts/lint-pr-squash-msg.sh "${PR_TITLE}" "${PR_NUMBER}"
       - name: Lint commit messages
+        if: github.event_name != 'pull_request'
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
-            ./scripts/lint-commit-history.sh "origin/${{ github.base_ref }}..HEAD"
+          if [ "${{ github.event_name }}" = "merge_group" ]; then
+            ./scripts/lint-commit-history.sh "${{ github.event.merge_group.base_sha }}..HEAD"
           else
             ./scripts/lint-commit-history.sh HEAD
           fi
