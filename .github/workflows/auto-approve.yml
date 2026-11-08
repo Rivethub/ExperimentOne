@@ -1,6 +1,9 @@
-# Auto-approve PRs from org members and Dependabot so the required review
-# on `main` is satisfied without a second human. External contributors still
-# need a real review. Re-runs on synchronize because stale reviews are dismissed.
+# Auto-approve PRs from org collaborators (write+) and Dependabot so the
+# required review on `main` is satisfied without a second human. Fork /
+# external contributor PRs still need a real review. Re-runs on synchronize
+# because stale reviews are dismissed. Membership is checked via the
+# collaborators API because private org membership makes author_association
+# unreliable in Actions.
 name: Auto-approve trusted PRs
 
 on:
@@ -16,12 +19,34 @@ jobs:
     name: Auto-approve
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    if: >
-      github.event.pull_request.user.login == 'dependabot[bot]' ||
-      github.event.pull_request.author_association == 'MEMBER' ||
-      github.event.pull_request.author_association == 'OWNER'
+    outputs:
+      trusted: ${{ steps.trust.outputs.trusted }}
     steps:
+      - name: Check whether the author is trusted
+        id: trust
+        env:
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "$AUTHOR" = "dependabot[bot]" ]; then
+            echo "trusted=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          permission="$(gh api "repos/${REPO}/collaborators/${AUTHOR}/permission" --jq .permission 2>/dev/null || echo none)"
+          case "$permission" in
+            admin|maintain|write)
+              echo "trusted=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "trusted=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Approve pull request
+        if: steps.trust.outputs.trusted == 'true'
         run: gh pr review --approve "$PR_URL" --body "Auto-approved for trusted author."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
@@ -32,7 +57,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: auto-approve
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: >
+      needs.auto-approve.outputs.trusted == 'true' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
     steps:
       - name: Enable squash auto-merge
         run: gh pr merge --auto --squash "$PR_URL"
