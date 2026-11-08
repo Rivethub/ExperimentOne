@@ -3,11 +3,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use std::io::Write;
-use std::net::TcpStream;
-
 use rivet_core::pids::{identity_matches, process_exe, read_pidfile};
-use rivet_core::{exe_name, sidecar_file_name};
+use rivet_core::{control_request, control_up, exe_name, sidecar_file_name, RivetPaths};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -21,14 +18,15 @@ struct RivetdState {
 static BOOT_LOCK: Mutex<()> = Mutex::new(());
 static STOPPED: AtomicBool = AtomicBool::new(false);
 
+fn rivet_paths() -> Option<RivetPaths> {
+    RivetPaths::discover().ok()
+}
+
 fn api_up() -> bool {
-    let (api_port, _, _, _) = read_configured_ports();
-    let addr = format!("127.0.0.1:{api_port}");
-    std::net::TcpStream::connect_timeout(
-        &addr.parse().unwrap(),
-        std::time::Duration::from_millis(200),
-    )
-    .is_ok()
+    let Some(paths) = rivet_paths() else {
+        return false;
+    };
+    control_up(&paths)
 }
 
 fn rivet_data_dir() -> Option<std::path::PathBuf> {
@@ -115,53 +113,12 @@ fn read_proxy_access_key() -> Option<String> {
         .map(|s| s.to_string())
 }
 
-fn read_configured_ports() -> (u16, u16, u16, u16) {
-    let defaults = (8741u16, 8742, 18317, 8123);
-    let Some(path) = rivet_config_path() else {
-        return defaults;
-    };
-    let Ok(raw) = fs::read_to_string(path) else {
-        return defaults;
-    };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
-        return defaults;
-    };
-    (
-        v.get("api_port")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(defaults.0 as u64) as u16,
-        v.get("mcp_port")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(defaults.1 as u64) as u16,
-        v.get("proxy_port")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(defaults.2 as u64) as u16,
-        v.get("clickhouse_http_port")
-            .and_then(|x| x.as_u64())
-            .unwrap_or(defaults.3 as u64) as u16,
-    )
-}
-
 fn ask_authenticated_post(path: &str) {
-    let key = read_proxy_access_key().unwrap_or_default();
-    let (api_port, _, _, _) = read_configured_ports();
-    let addr = format!("127.0.0.1:{api_port}");
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &addr.parse().unwrap_or_else(|_| std::net::SocketAddr::from(([127, 0, 0, 1], api_port))),
-        std::time::Duration::from_millis(400),
-    ) else {
+    let Some(paths) = rivet_paths() else {
         return;
     };
-    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(400)));
-    let mut req = format!(
-        "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:{api_port}\r\nContent-Length: 0\r\nConnection: close\r\n"
-    );
-    if !key.is_empty() {
-        req.push_str(&format!("X-Rivet-Key: {key}\r\n"));
-    }
-    req.push_str("\r\n");
-    let _ = stream.write_all(req.as_bytes());
-    let _ = stream.flush();
+    let key = read_proxy_access_key().unwrap_or_default();
+    let _ = control_request(&paths, "POST", path, &key, None);
 }
 
 fn stop_rivetd(app: &AppHandle) {
@@ -255,7 +212,7 @@ fn spawn_rivetd(app: &AppHandle) -> Result<(), String> {
         }
     }
 
-    // Another rivetd is mid-boot (proxy/CH start before binding :api_port).
+    // Another rivetd is mid-boot (proxy/CH start before control IPC is up).
     if rivetd_pid_alive() {
         for _ in 0..80 {
             if api_up() {
@@ -392,10 +349,53 @@ async fn ensure_rivetd(app: AppHandle) -> Result<bool, String> {
     .map_err(|e| e.to_string())?
 }
 
+#[derive(serde::Serialize)]
+struct ApiIpcResponse {
+    status: u16,
+    body: String,
+    content_type: String,
+}
+
+fn validate_api_path(path: &str) -> Result<(), String> {
+    let path = path.trim();
+    if !path.starts_with("/v1/") {
+        return Err("path must start with /v1/".into());
+    }
+    if path.contains("://") || path.contains('\\') || path.contains("..") {
+        return Err("invalid path".into());
+    }
+    Ok(())
+}
+
+/// Proxy a rivetd control-plane request over local IPC (UDS / named pipe).
+/// The webview never talks TCP/HTTP and never sees `X-Rivet-Key` — auth is
+/// injected from the local config on the host (Docker Desktop–style).
 #[tauri::command]
-fn api_base_url() -> String {
-    let (api_port, _, _, _) = read_configured_ports();
-    format!("http://127.0.0.1:{api_port}")
+async fn api_request(
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<ApiIpcResponse, String> {
+    validate_api_path(&path)?;
+    let method = method.trim().to_ascii_uppercase();
+    match method.as_str() {
+        "GET" | "POST" | "PUT" | "PATCH" | "DELETE" => {}
+        other => return Err(format!("unsupported method {other}")),
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths = RivetPaths::discover().map_err(|e| e.to_string())?;
+        let key = read_proxy_access_key().unwrap_or_default();
+        let resp = control_request(&paths, &method, path.trim(), &key, body.as_deref())
+            .map_err(|e| e.to_string())?;
+        Ok(ApiIpcResponse {
+            status: resp.status,
+            body: resp.body,
+            content_type: resp.content_type,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -410,7 +410,7 @@ pub fn run() {
             open_wiki_dir,
             reveal_path,
             ensure_rivetd,
-            api_base_url
+            api_request
         ])
         .setup(|app| {
             let handle = app.handle().clone();

@@ -1,9 +1,9 @@
 //! Pidfiles and single-instance lock for Rivet-owned processes.
 
 use std::fs::{self, File, OpenOptions};
-use std::path::Path;
 #[cfg(unix)]
 use std::os::unix::io::AsRawFd;
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -40,7 +40,7 @@ pub fn try_acquire_rivetd_lock(paths: &RivetPaths) -> Result<InstanceLock> {
         if rc != 0 {
             bail!("another rivetd is already running (pids/rivetd.lock held)");
         }
-        return Ok(InstanceLock { _file: file });
+        Ok(InstanceLock { _file: file })
     }
     #[cfg(windows)]
     {
@@ -146,9 +146,7 @@ fn process_exe_windows(pid: u32) -> Option<String> {
             "-NoProfile",
             "-NonInteractive",
             "-Command",
-            &format!(
-                "(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").ExecutablePath"
-            ),
+            &format!("(Get-CimInstance Win32_Process -Filter \"ProcessId={pid}\").ExecutablePath"),
         ])
         .output()
         .ok()?;
@@ -202,10 +200,7 @@ fn looks_like_absolute_exe(line: &str) -> bool {
     }
     // Windows: `C:\...` or `C:/...`
     let b = line.as_bytes();
-    b.len() >= 3
-        && b[0].is_ascii_alphabetic()
-        && b[1] == b':'
-        && (b[2] == b'\\' || b[2] == b'/')
+    b.len() >= 3 && b[0].is_ascii_alphabetic() && b[1] == b':' && (b[2] == b'\\' || b[2] == b'/')
 }
 
 /// Recover argv0 even when the path contains spaces (e.g. `Application Support`).
@@ -295,6 +290,50 @@ pub fn clear_proxy_pid(paths: &RivetPaths) {
 
 pub fn clear_proxy_pid_if_ours(paths: &RivetPaths, pid: u32) {
     clear_pid_if_ours(paths.proxy_pid_file().as_std_path(), pid);
+}
+
+/// Kill a stale rivet-proxy recorded in the pidfile (e.g. after rivetd crashed).
+/// Only signals processes whose live exe still looks like rivet-proxy.
+pub fn reclaim_proxy_orphan(paths: &RivetPaths) {
+    let path = paths.proxy_pid_file();
+    let Some((pid, expected)) = read_pidfile(path.as_std_path()) else {
+        return;
+    };
+    if pid == 0 || pid == std::process::id() {
+        clear_proxy_pid(paths);
+        return;
+    }
+    let live = process_exe(pid);
+    let hints = ["rivet-proxy", "CLIProxyAPI", "cliproxy"];
+    let ours = match (&live, expected.as_deref()) {
+        (Some(live), expected) => identity_matches(live, expected, &hints),
+        (None, _) => false,
+    };
+    if !ours {
+        // Pidfile is stale or points at something else — just clear it.
+        clear_proxy_pid(paths);
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .status();
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let _ = Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .status();
+        let _ = Command::new("kill")
+            .args(["-KILL", &pid.to_string()])
+            .status();
+    }
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status();
+    }
+    clear_proxy_pid(paths);
 }
 
 pub fn write_clickhouse_pid(paths: &RivetPaths, pid: u32) {

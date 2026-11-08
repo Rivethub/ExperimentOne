@@ -1,18 +1,13 @@
-//! ClickHouse-shaped traffic store.
-//!
-//! Local DMG still defaults to SQLite. When a ClickHouse HTTP endpoint is
-//! configured (`RIVET_CLICKHOUSE_URL`, e.g. `http://127.0.0.1:8123`), inserts
-//! dual-write here. Full query/export against CH lands when the sidecar is
-//! bundled — until then reads stay on SQLite via [`DualWriteStore`].
-
-use std::sync::Arc;
+//! ClickHouse traffic store — sole persistence for captured events.
 
 use anyhow::{bail, Context, Result};
 use async_trait::async_trait;
-use rivet_core::{TrafficEvent, UsageTotals};
+use chrono::{NaiveDateTime, TimeZone, Utc};
+use rivet_core::{ProviderKind, TrafficEvent, TrafficRole, UsageTotals};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::warn;
+use uuid::Uuid;
 
 use crate::TrafficStore;
 
@@ -67,9 +62,7 @@ impl HttpEndpoint {
     }
 }
 
-/// HTTP insert client for a single-node ClickHouse.
-///
-/// Uses a tiny tokio TCP client (no reqwest) so the workspace stays on rustc 1.86.
+/// HTTP client for a single-node ClickHouse (tiny tokio TCP — no reqwest).
 pub struct ClickHouseTrafficStore {
     endpoint: HttpEndpoint,
     database: String,
@@ -105,9 +98,11 @@ impl ClickHouseTrafficStore {
     }
 
     pub async fn ensure_schema(&self) -> Result<()> {
-        // CREATE DATABASE against the default DB (rivet may not exist yet).
-        self.exec_sql_on("default", &format!("CREATE DATABASE IF NOT EXISTS {}", self.database))
-            .await?;
+        self.exec_sql_on(
+            "default",
+            &format!("CREATE DATABASE IF NOT EXISTS {}", self.database),
+        )
+        .await?;
         self.exec_sql_on(&self.database, TRAFFIC_EVENTS_DDL).await?;
         Ok(())
     }
@@ -119,6 +114,13 @@ impl ClickHouseTrafficStore {
         Ok(())
     }
 
+    async fn query_json_rows(&self, sql: &str) -> Result<String> {
+        let path = format!("/?database={}", self.database);
+        let body = format!("{sql} FORMAT JSONEachRow");
+        self.http_post(&path, "text/plain; charset=utf-8", body.as_bytes())
+            .await
+    }
+
     async fn http_post(&self, path: &str, content_type: &str, body: &[u8]) -> Result<String> {
         let mut stream = TcpStream::connect((self.endpoint.host.as_str(), self.endpoint.port))
             .await
@@ -128,8 +130,10 @@ impl ClickHouseTrafficStore {
                     self.endpoint.host, self.endpoint.port
                 )
             })?;
+        // HTTP/1.0 avoids Transfer-Encoding: chunked from ClickHouse; our tiny
+        // client otherwise treats chunk-size lines (e.g. "38081") as JSON rows.
         let header = format!(
-            "POST {path} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: {content_type}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
+            "POST {path} HTTP/1.0\r\nHost: {host}:{port}\r\nContent-Type: {content_type}\r\nContent-Length: {len}\r\nConnection: close\r\n\r\n",
             host = self.endpoint.host,
             port = self.endpoint.port,
             len = body.len(),
@@ -145,14 +149,18 @@ impl ClickHouseTrafficStore {
         if !status_line.contains(" 200 ") && !status_line.ends_with(" 200") {
             bail!("clickhouse HTTP error: {status_line} — {text}");
         }
-        Ok(text.into_owned())
+        let (headers, raw_body) = match text.split_once("\r\n\r\n") {
+            Some((h, b)) => (h, b),
+            None => match text.split_once("\n\n") {
+                Some((h, b)) => (h, b),
+                None => ("", ""),
+            },
+        };
+        Ok(decode_http_body(headers, raw_body))
     }
 
     fn event_row(event: &TrafficEvent) -> Result<String> {
-        let provider = serde_json::to_value(event.provider)?
-            .as_str()
-            .unwrap_or("other")
-            .to_string();
+        let provider = event.provider.as_str();
         let role = serde_json::to_value(event.role)?
             .as_str()
             .unwrap_or("unknown")
@@ -176,6 +184,143 @@ impl ClickHouseTrafficStore {
         });
         Ok(serde_json::to_string(&row)?)
     }
+
+    fn parse_events(body: &str) -> Result<Vec<TrafficEvent>> {
+        let mut out = Vec::new();
+        for line in body.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let row: ChEventRow =
+                serde_json::from_str(line).with_context(|| format!("parse traffic row: {line}"))?;
+            out.push(row.into_event()?);
+        }
+        Ok(out)
+    }
+
+    fn escape_literal(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('\'', "\\'")
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct ChEventRow {
+    id: String,
+    ts: String,
+    provider: String,
+    #[serde(default)]
+    account_label: Option<String>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    project_id: Option<String>,
+    #[serde(default)]
+    request_id: Option<String>,
+    role: String,
+    #[serde(default)]
+    content: Option<String>,
+    #[serde(default)]
+    tokens_in: u32,
+    #[serde(default)]
+    tokens_out: u32,
+    #[serde(default)]
+    latency_ms: Option<u64>,
+    #[serde(default)]
+    status_code: Option<u16>,
+    #[serde(default)]
+    body_ref: Option<String>,
+}
+
+impl ChEventRow {
+    fn into_event(self) -> Result<TrafficEvent> {
+        let id = Uuid::parse_str(&self.id).context("event id")?;
+        let ts = parse_ch_ts(&self.ts)?;
+        let role = match self.role.as_str() {
+            "system" => TrafficRole::System,
+            "user" => TrafficRole::User,
+            "assistant" => TrafficRole::Assistant,
+            "tool" => TrafficRole::Tool,
+            _ => TrafficRole::Unknown,
+        };
+        Ok(TrafficEvent {
+            id,
+            ts,
+            provider: ProviderKind::parse(&self.provider),
+            account_label: self.account_label,
+            model: self.model,
+            session_id: self.session_id,
+            project_id: self.project_id,
+            request_id: self.request_id,
+            role,
+            content: self.content,
+            tokens_in: self.tokens_in,
+            tokens_out: self.tokens_out,
+            latency_ms: self.latency_ms,
+            status_code: self.status_code,
+            body_ref: self.body_ref,
+        })
+    }
+}
+
+/// Decode an HTTP response body, unwrapping `Transfer-Encoding: chunked` when present.
+fn decode_http_body(headers: &str, body: &str) -> String {
+    let chunked = headers.lines().any(|line| {
+        let line = line.trim();
+        let Some((name, value)) = line.split_once(':') else {
+            return false;
+        };
+        name.eq_ignore_ascii_case("transfer-encoding")
+            && value.split(',').any(|p| p.trim().eq_ignore_ascii_case("chunked"))
+    });
+    if !chunked {
+        return body.to_string();
+    }
+    let mut out = String::new();
+    let mut rest = body;
+    while !rest.is_empty() {
+        let (size_line, after) = match rest.split_once("\r\n") {
+            Some(pair) => pair,
+            None => match rest.split_once('\n') {
+                Some(pair) => pair,
+                None => break,
+            },
+        };
+        let size_hex = size_line.split(';').next().unwrap_or("").trim();
+        let Ok(size) = usize::from_str_radix(size_hex, 16) else {
+            // Not a valid chunk stream — return raw body rather than drop data.
+            return body.to_string();
+        };
+        if size == 0 {
+            break;
+        }
+        if after.len() < size {
+            out.push_str(after);
+            break;
+        }
+        out.push_str(&after[..size]);
+        rest = &after[size..];
+        if let Some(stripped) = rest.strip_prefix("\r\n") {
+            rest = stripped;
+        } else if let Some(stripped) = rest.strip_prefix('\n') {
+            rest = stripped;
+        }
+    }
+    out
+}
+
+fn parse_ch_ts(raw: &str) -> Result<chrono::DateTime<Utc>> {
+    let raw = raw.trim();
+    // DateTime64 JSON: "2024-01-02 03:04:05.678" or with Z / offset
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+    let naive = NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S%.3f")
+        .or_else(|_| NaiveDateTime::parse_from_str(raw, "%Y-%m-%d %H:%M:%S"))
+        .with_context(|| format!("clickhouse ts: {raw}"))?;
+    Ok(Utc.from_utc_datetime(&naive))
 }
 
 #[async_trait]
@@ -209,85 +354,77 @@ impl TrafficStore for ClickHouseTrafficStore {
         Ok(())
     }
 
-    async fn recent(&self, _limit: u32) -> Result<Vec<TrafficEvent>> {
-        warn!("ClickHouse recent() not used locally — reads go through SQLite");
-        bail!("clickhouse reads not enabled until sidecar is primary")
-    }
-
-    async fn search_keyword(&self, _query: &str, _limit: u32) -> Result<Vec<TrafficEvent>> {
-        bail!("clickhouse search not enabled until sidecar is primary")
-    }
-
-    async fn get_by_ids(&self, _ids: &[String]) -> Result<Vec<TrafficEvent>> {
-        bail!("clickhouse get_by_ids not enabled until sidecar is primary")
-    }
-
-    async fn usage_totals(&self) -> Result<UsageTotals> {
-        bail!("clickhouse totals not enabled until sidecar is primary")
-    }
-
-    async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
-        bail!("clickhouse export not enabled until sidecar is primary")
-    }
-}
-
-/// Primary SQLite + optional best-effort ClickHouse insert path.
-pub struct DualWriteStore {
-    primary: Arc<dyn TrafficStore>,
-    secondary: Option<Arc<dyn TrafficStore>>,
-}
-
-impl DualWriteStore {
-    pub fn new(
-        primary: Arc<dyn TrafficStore>,
-        secondary: Option<Arc<dyn TrafficStore>>,
-    ) -> Self {
-        Self {
-            primary,
-            secondary,
-        }
-    }
-}
-
-#[async_trait]
-impl TrafficStore for DualWriteStore {
-    async fn insert_event(&self, event: &TrafficEvent) -> Result<()> {
-        self.primary.insert_event(event).await?;
-        if let Some(sec) = &self.secondary {
-            if let Err(err) = sec.insert_event(event).await {
-                warn!(?err, "clickhouse dual-write insert failed");
-            }
-        }
-        Ok(())
-    }
-
-    async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()> {
-        self.primary.insert_batch(events).await?;
-        if let Some(sec) = &self.secondary {
-            if let Err(err) = sec.insert_batch(events).await {
-                warn!(?err, "clickhouse dual-write batch failed");
-            }
-        }
-        Ok(())
-    }
-
     async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>> {
-        self.primary.recent(limit).await
+        let limit = limit.clamp(1, 5000);
+        let body = self
+            .query_json_rows(&format!(
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events ORDER BY ts DESC LIMIT {limit}"
+            ))
+            .await?;
+        Self::parse_events(&body)
     }
 
     async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
-        self.primary.search_keyword(query, limit).await
+        let limit = limit.clamp(1, 5000);
+        let q = Self::escape_literal(query.trim());
+        if q.is_empty() {
+            return self.recent(limit).await;
+        }
+        let body = self
+            .query_json_rows(&format!(
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
+            ))
+            .await?;
+        Self::parse_events(&body)
     }
 
     async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
-        self.primary.get_by_ids(ids).await
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let list = ids
+            .iter()
+            .map(|id| format!("'{}'", Self::escape_literal(id)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let body = self
+            .query_json_rows(&format!(
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE toString(id) IN ({list})"
+            ))
+            .await?;
+        Self::parse_events(&body)
     }
 
     async fn usage_totals(&self) -> Result<UsageTotals> {
-        self.primary.usage_totals().await
+        let body = self
+            .query_json_rows(
+                "SELECT count() AS events, sum(tokens_in) AS tokens_in, sum(tokens_out) AS tokens_out FROM traffic_events",
+            )
+            .await?;
+        let line = body.lines().find(|l| !l.trim().is_empty()).unwrap_or("{}");
+        #[derive(Default, serde::Deserialize)]
+        struct Totals {
+            #[serde(default)]
+            events: u64,
+            #[serde(default)]
+            tokens_in: u64,
+            #[serde(default)]
+            tokens_out: u64,
+        }
+        let t: Totals = serde_json::from_str(line).unwrap_or_default();
+        Ok(UsageTotals {
+            events: t.events,
+            tokens_in: t.tokens_in,
+            tokens_out: t.tokens_out,
+        })
     }
 
     async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
-        self.primary.export_all().await
+        let body = self
+            .query_json_rows(
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events ORDER BY ts ASC",
+            )
+            .await?;
+        Self::parse_events(&body)
     }
 }

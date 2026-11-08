@@ -34,6 +34,7 @@ impl RivetPaths {
             self.proxy_logs_dir().as_std_path(),
             self.exports_dir().as_std_path(),
             self.wiki_dir().as_std_path(),
+            self.meta_dir().as_std_path(),
             self.harness_claude_dir().as_std_path(),
             self.harness_codex_dir().as_std_path(),
             self.pid_dir().as_std_path(),
@@ -47,8 +48,9 @@ impl RivetPaths {
         self.root.join("config.json")
     }
 
-    pub fn sqlite_file(&self) -> Utf8PathBuf {
-        self.root.join("rivet.sqlite")
+    /// Jobs, wiki index, embeddings, quota history (JSON / JSONL).
+    pub fn meta_dir(&self) -> Utf8PathBuf {
+        self.root.join("meta")
     }
 
     pub fn clickhouse_dir(&self) -> Utf8PathBuf {
@@ -115,6 +117,11 @@ impl RivetPaths {
 
     pub fn ingest_sock(&self) -> Utf8PathBuf {
         self.root.join("ingest.sock")
+    }
+
+    /// Unix domain socket for Desktop ↔ rivetd control IPC (not TCP).
+    pub fn control_sock(&self) -> Utf8PathBuf {
+        self.root.join("rivetd.sock")
     }
 
     pub fn pid_dir(&self) -> Utf8PathBuf {

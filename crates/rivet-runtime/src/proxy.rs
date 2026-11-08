@@ -12,33 +12,10 @@ use rivet_api::{
     AccountInfo, ControlApi, HarnessWriteResponse, LoginStartResponse, LoginStatusResponse,
 };
 use rivet_core::{
-    claude_settings_json, codex_config_toml, exe_name, sidecar_file_name, which_bin,
-    write_proxy_config, RivetConfig, RivetPaths,
+    exe_name, install_harness, sidecar_file_name, which_bin, write_proxy_config,
+    HarnessInstallMode, RivetConfig, RivetPaths,
 };
 use tracing::{info, warn};
-
-/// Quote a path for the host shell (paths often contain spaces).
-fn shell_quote(path: &str) -> String {
-    #[cfg(windows)]
-    {
-        format!("\"{}\"", path.replace('"', "\"\""))
-    }
-    #[cfg(not(windows))]
-    {
-        format!("'{}'", path.replace('\'', "'\"'\"'"))
-    }
-}
-
-fn harness_env_hint(var: &str, dir: &str) -> String {
-    #[cfg(windows)]
-    {
-        format!("$env:{var}={}", shell_quote(dir))
-    }
-    #[cfg(not(windows))]
-    {
-        format!("{var}={}", shell_quote(dir))
-    }
-}
 
 pub struct ProxySupervisor {
     paths: RivetPaths,
@@ -195,6 +172,10 @@ impl ProxySupervisor {
             return Ok(());
         }
 
+        // Drop orphans left by a previous rivetd so we don't bind the wrong port
+        // or leave an ingest-deaf proxy running after a crash.
+        crate::pids::reclaim_proxy_orphan(&self.paths);
+
         let bin = Self::resolve_binary()?;
         let mut cmd = self.base_command(&bin)?;
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
@@ -266,7 +247,8 @@ impl ProxySupervisor {
             }
             crate::pids::clear_proxy_pid_if_ours(&self.paths, pid);
         } else {
-            info!("proxy stop requested but no child handle");
+            info!("proxy stop requested but no child handle — reclaiming pidfile orphan");
+            crate::pids::reclaim_proxy_orphan(&self.paths);
         }
         *self.running.lock().expect("running lock") = false;
         *self.want_running.lock().expect("want_running lock") = false;
@@ -280,19 +262,34 @@ impl ProxySupervisor {
         alive
     }
 
-    pub fn start_login(&self, provider: &str) -> Result<LoginStartResponse> {
+    pub fn start_login(&self, provider: &str, method: Option<&str>) -> Result<LoginStartResponse> {
         let entry = rivet_core::find_provider(provider).ok_or_else(|| {
             anyhow::anyhow!(
                 "unsupported provider '{provider}' — see GET /v1/providers for the prox catalog"
             )
         })?;
-        let flag = entry.login_flag.as_deref().ok_or_else(|| {
-            anyhow::anyhow!(
-                "provider '{}' uses file import, not OAuth login — use POST /v1/accounts/import/vertex",
-                entry.id
-            )
+        let flag = rivet_core::login_flag_for_method(provider, method).ok_or_else(|| {
+            if entry.login_flag.is_none() {
+                anyhow::anyhow!(
+                    "provider '{}' uses file import, not OAuth login — use POST /v1/accounts/import/vertex",
+                    entry.id
+                )
+            } else {
+                anyhow::anyhow!(
+                    "unsupported login method {:?} for provider '{}'",
+                    method,
+                    entry.id
+                )
+            }
         })?;
         let provider = entry.id.clone();
+        let hint = match (provider.as_str(), flag) {
+            ("codex", "codex-device-login") => Some(
+                "Device code — enable Codex device sign-in under ChatGPT Security Settings if prompted, then enter the code."
+                    .into(),
+            ),
+            _ => Some(entry.hint.clone()),
+        };
 
         {
             let mut login = self.login.lock().expect("login lock");
@@ -333,13 +330,18 @@ impl ProxySupervisor {
 
         {
             let mut buf = output.lock().expect("output lock");
+            let mode = if flag.contains("device") {
+                "device"
+            } else {
+                "browser"
+            };
             buf.push_str(&format!(
-                "Starting {} login…\n{}\n",
-                entry.label, entry.hint
+                "Starting {} {} login…\n{}\n",
+                entry.label,
+                mode,
+                hint.as_deref().unwrap_or("")
             ));
         }
-
-        let hint = Some(entry.hint.clone());
 
         *self.login.lock().expect("login lock") = Some(LoginSession {
             provider: provider.clone(),
@@ -418,7 +420,9 @@ impl ProxySupervisor {
         Ok(LoginStartResponse {
             provider: "vertex".into(),
             message: "Vertex import started — watch the live log.".into(),
-            hint: Some("Service-account JSON is copied into the proxy auth dir; never exported.".into()),
+            hint: Some(
+                "Service-account JSON is copied into the proxy auth dir; never exported.".into(),
+            ),
         })
     }
 
@@ -532,33 +536,27 @@ impl ProxySupervisor {
         Ok(())
     }
 
-    pub fn write_harness(&self, target: &str) -> Result<HarnessWriteResponse> {
+    pub fn write_harness(&self, target: &str, mode: Option<&str>) -> Result<HarnessWriteResponse> {
         self.paths.ensure()?;
-        match target {
-            "claude" => {
-                let dir = self.paths.harness_claude_dir();
-                let path = dir.join("settings.json");
-                std::fs::write(path.as_std_path(), claude_settings_json(&self.config))?;
-                Ok(HarnessWriteResponse {
-                    target: "claude".into(),
-                    path: path.to_string(),
-                    env_hint: harness_env_hint("CLAUDE_CONFIG_DIR", dir.as_str()),
-                    note: "Default Claude installs are untouched. Set CLAUDE_CONFIG_DIR before launching Claude Code.".into(),
-                })
-            }
-            "codex" => {
-                let dir = self.paths.harness_codex_dir();
-                let path = dir.join("config.toml");
-                std::fs::write(path.as_std_path(), codex_config_toml(&self.config))?;
-                Ok(HarnessWriteResponse {
-                    target: "codex".into(),
-                    path: path.to_string(),
-                    env_hint: harness_env_hint("CODEX_HOME", dir.as_str()),
-                    note: "Default Codex installs are untouched. Set CODEX_HOME before launching Codex.".into(),
-                })
-            }
-            other => bail!("unknown harness target '{other}'"),
-        }
+        let mode = HarnessInstallMode::parse(mode);
+        let result = install_harness(
+            target,
+            mode,
+            &self.config,
+            self.paths.harness_claude_dir().as_std_path(),
+            self.paths.harness_codex_dir().as_std_path(),
+        )?;
+        Ok(HarnessWriteResponse {
+            target: result.target,
+            path: result.path,
+            env_hint: result.env_hint,
+            note: result.note,
+            backup_path: result.backup_path,
+            mode: match mode {
+                HarnessInstallMode::User => "user".into(),
+                HarnessInstallMode::Isolated => "isolated".into(),
+            },
+        })
     }
 }
 
@@ -575,8 +573,13 @@ impl ControlApi for ProxySupervisor {
         self.stop().map_err(|e| e.to_string())
     }
 
-    fn login_start(&self, provider: &str) -> Result<LoginStartResponse, String> {
-        self.start_login(provider).map_err(|e| e.to_string())
+    fn login_start(
+        &self,
+        provider: &str,
+        method: Option<&str>,
+    ) -> Result<LoginStartResponse, String> {
+        self.start_login(provider, method)
+            .map_err(|e| e.to_string())
     }
 
     fn import_vertex(&self, path: &str) -> Result<LoginStartResponse, String> {
@@ -599,8 +602,12 @@ impl ControlApi for ProxySupervisor {
         ProxySupervisor::remove_account(self, id).map_err(|e| e.to_string())
     }
 
-    fn write_harness(&self, target: &str) -> Result<HarnessWriteResponse, String> {
-        ProxySupervisor::write_harness(self, target).map_err(|e| e.to_string())
+    fn write_harness(
+        &self,
+        target: &str,
+        mode: Option<&str>,
+    ) -> Result<HarnessWriteResponse, String> {
+        ProxySupervisor::write_harness(self, target, mode).map_err(|e| e.to_string())
     }
 }
 

@@ -1,50 +1,29 @@
-# ClickHouse in Rivet
+# ClickHouse (local sidecar)
 
-## Local (DMG)
+Rivet uses ClickHouse as the **sole traffic store**. The desktop/runtime boots a
+bundled `clickhouse` binary when present, or connects to `RIVET_CLICKHOUSE_URL`.
 
-Rivet bundles a **single-node ClickHouse** sidecar when you run
-`./scripts/fetch-clickhouse.sh` (also called from `build-sidecars.sh`).
+## Boot
 
-At runtime `rivetd`:
-
-1. Resolves `clickhouse-$TARGET_TRIPLE` next to the binary / Tauri sidecars
-2. Writes `~/Library/Application Support/Rivet/clickhouse/config.xml`
-3. Spawns `clickhouse server --config-file …` (localhost-only HTTP + native)
-4. Ensures database `rivet` + `traffic_events`
-5. Dual-writes inserts (SQLite remains primary for reads / MCP / export)
+1. Resolve binary (`RIVET_CLICKHOUSE_BIN`, sidecar next to the app, or PATH)
+2. Write `config.xml` under the Rivet data dir
+3. Start `clickhouse server`
+4. `CREATE DATABASE rivet` + `traffic_events` MergeTree
+5. All ingest / recent / search / export / MCP keyword reads go through CH
 
 ```bash
-./scripts/fetch-clickhouse.sh          # ~120MB download, once
-cargo run -p rivet-runtime             # auto-starts CH if binary found
-# status.traffic_backend → "sqlite+clickhouse"
+# status.traffic_backend → "clickhouse"
+echo $RIVET_CLICKHOUSE_URL   # optional remote/override, e.g. http://127.0.0.1:8123
 ```
 
-Override / skip:
+Without a sidecar **and** without `RIVET_CLICKHOUSE_URL`, `rivetd` refuses to start.
 
-| Env | Effect |
-| --- | --- |
-| `RIVET_CLICKHOUSE_BIN` | Path to the multi-tool `clickhouse` binary |
-| `RIVET_CLICKHOUSE_URL` | Force dual-write URL (default `http://127.0.0.1:8123` when sidecar starts) |
-| No binary present | SQLite-only (dev without fetch) |
+| Platform | Notes |
+|----------|--------|
+| macOS / Linux x64 & arm64 | Official single binary via `scripts/build-sidecars.sh` |
+| Windows aarch64 | No official CH binary yet — set `RIVET_CLICKHOUSE_BIN` or URL |
 
-Data lives under Application Support (`clickhouse/data`), not inside the app bundle.
+## Meta (not ClickHouse)
 
-## Packaging
-
-```bash
-./scripts/build-sidecars.sh
-# produces:
-#   apps/desktop/src-tauri/binaries/rivetd-$TRIPLE
-#   apps/desktop/src-tauri/binaries/rivet-proxy-$TRIPLE
-#   apps/desktop/src-tauri/binaries/clickhouse-$TRIPLE
-```
-
-`tauri.conf.json` lists `binaries/clickhouse` in `externalBin`.
-
-macOS: the fetch script clears the quarantine xattr so Gatekeeper is less
-noisy; still codesign the binary with your Developer ID for notarized DMGs.
-
-## Enterprise
-
-Helm chart fills a CH service; same `TrafficStore` / dual-write client. See
-[enterprise.md](./enterprise.md).
+Quota history samples, wiki page index, embeddings, and job cursors live as JSON/JSONL
+under `{data}/meta/` — see `rivet-store` `MetaStore`.

@@ -1,6 +1,7 @@
 //! Boots the local Rivet control plane and supervises proxy + ClickHouse sidecars.
 
 mod clickhouse;
+mod control_ipc;
 mod pids;
 mod proxy;
 
@@ -81,7 +82,10 @@ impl Runtime {
         match self.proxy.start() {
             Ok(()) => info!("proxy sidecar ready"),
             Err(err) => {
-                tracing::warn!(?err, "proxy not started (start from UI when binary is ready)")
+                tracing::warn!(
+                    ?err,
+                    "proxy not started (start from UI when binary is ready)"
+                )
             }
         }
 
@@ -90,40 +94,57 @@ impl Runtime {
             Ok(true) => {
                 let url = self.clickhouse.http_url();
                 info!(%url, "clickhouse sidecar ready");
-                // Prefer explicit env; otherwise point dual-write at the local sidecar.
                 if clickhouse_url.is_none() {
                     clickhouse_url = Some(url.clone());
                     std::env::set_var("RIVET_CLICKHOUSE_URL", &url);
                 }
-                if let Ok(ch) = ClickHouseTrafficStore::new(clickhouse_url.as_deref().unwrap_or(&url))
+                if let Ok(ch) =
+                    ClickHouseTrafficStore::new(clickhouse_url.as_deref().unwrap_or(&url))
                 {
                     if let Err(err) = ch.ensure_schema().await {
-                        tracing::warn!(?err, "clickhouse ensure_schema failed (will retry on insert)");
+                        tracing::warn!(
+                            ?err,
+                            "clickhouse ensure_schema failed (will retry on insert)"
+                        );
                     } else {
                         info!("clickhouse schema ready (database rivet)");
                     }
                 }
             }
-            Ok(false) => info!("clickhouse skipped — SQLite-only"),
-            Err(err) => tracing::warn!(?err, "clickhouse failed to start — SQLite-only"),
+            Ok(false) => {
+                if clickhouse_url.is_none() {
+                    anyhow::bail!(
+                        "ClickHouse required: sidecar binary missing and RIVET_CLICKHOUSE_URL unset"
+                    );
+                }
+                info!("bundled clickhouse skipped — using RIVET_CLICKHOUSE_URL");
+            }
+            Err(err) => {
+                if clickhouse_url.is_none() {
+                    return Err(err)
+                        .context("ClickHouse sidecar failed and no RIVET_CLICKHOUSE_URL");
+                }
+                tracing::warn!(
+                    ?err,
+                    "bundled clickhouse failed — using RIVET_CLICKHOUSE_URL"
+                );
+            }
         }
 
         let store = self
             .stores
-            .traffic_store_with_clickhouse(clickhouse_url.clone());
+            .traffic_store_with_clickhouse(clickhouse_url.clone())?;
         let meta = self.stores.meta.clone();
         let config = Arc::new(RwLock::new(self.config.clone()));
 
-        let traffic_backend = if clickhouse_url.is_some() {
-            "sqlite+clickhouse"
-        } else {
-            "sqlite"
-        };
+        let traffic_backend = "clickhouse";
+        let wiki_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let worker = Arc::new(WorkerPool::new(
             store.clone(),
             meta.clone(),
             self.paths.clone(),
             config.clone(),
+            wiki_revision.clone(),
         ));
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
         let api_state = ApiState {
@@ -134,6 +155,7 @@ impl Runtime {
             meta: meta.clone(),
             traffic_backend,
             workers: Some(worker.clone()),
+            wiki_revision,
             shutdown: shutdown_tx,
         };
         let ingest_state = IngestState {
@@ -147,7 +169,7 @@ impl Runtime {
             config: config.clone(),
         };
 
-        let _worker_handle = worker.spawn();
+        let _worker_handles = worker.spawn();
 
         // Keep the proxy up if the user/boot asked for it.
         let proxy_watch = self.proxy.clone();
@@ -164,10 +186,16 @@ impl Runtime {
         let api_addr: SocketAddr = format!("127.0.0.1:{}", self.config.api_port).parse()?;
         let mcp_addr: SocketAddr = format!("127.0.0.1:{}", self.config.mcp_port).parse()?;
 
-        let merged = rivet_api::router(api_state).merge(rivet_ingest::router(ingest_state));
+        // TCP keeps ingest (proxy → rivetd) + optional CLI curl on loopback.
+        // Desktop never uses TCP — it talks control IPC (UDS / named pipe).
+        let control_router = rivet_api::router(api_state.clone());
+        let tcp_router = rivet_api::router(api_state).merge(rivet_ingest::router(ingest_state));
         let api_listener = tokio::net::TcpListener::bind(api_addr).await?;
-        info!(%api_addr, "rivet control+ingest listening");
+        info!(%api_addr, "rivet ingest+control loopback listening");
         info!(%mcp_addr, "rivet mcp listening");
+
+        let control_paths = self.paths.clone();
+        let control_serve = control_ipc::serve_control(control_paths, control_router);
 
         let proxy = self.proxy.clone();
         let clickhouse = self.clickhouse.clone();
@@ -189,7 +217,8 @@ impl Runtime {
         };
 
         let serve_result = tokio::select! {
-            res = axum::serve(api_listener, merged) => res.context("api serve"),
+            res = axum::serve(api_listener, tcp_router) => res.context("api serve"),
+            res = control_serve => res.context("control ipc serve"),
             res = rivet_mcp::serve(mcp_addr, mcp_state) => res.context("mcp serve"),
             _ = shutdown => {
                 info!("shutdown signaled — stopping sidecars");
@@ -198,6 +227,11 @@ impl Runtime {
         };
         let _ = proxy.stop();
         let _ = clickhouse.stop();
+        // Best-effort cleanup of the unix control socket.
+        #[cfg(unix)]
+        {
+            let _ = std::fs::remove_file(self.paths.control_sock().as_std_path());
+        }
         serve_result
     }
 }
