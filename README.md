@@ -39,6 +39,12 @@ cd apps/desktop && bun install && bun run tauri dev
 #  bun run dev:mock for browser UI with mocked IPC)
 ```
 
+### Faster Rust builds
+
+- Prefer `cargo check -p rivet-runtime` (or `-p rivet-cli`) while iterating; full `cargo build` only when you need binaries.
+- Dev profile keeps line-tables debug info and strips dep debug info for faster links.
+- On **Linux**, `.cargo/config.toml` links with **mold** (`sudo apt install clang mold` / `brew install mold`). macOS and Windows keep the platform linker (mold has no Mach-O/PE support).
+
 Scopes: `api`, `charts`, `ci`, `cli`, `core`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`.
 
 ## Product (v1.0)
