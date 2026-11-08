@@ -604,6 +604,9 @@ export default function App() {
   const [harnessNote, setHarnessNote] = useState<HarnessWrite | null>(null);
   const [login, setLogin] = useState<LoginStatus | null>(null);
   const [busy, setBusy] = useState(false);
+  const [apiOnline, setApiOnline] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [statusAction, setStatusAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tosAck, setTosAck] = useState(false);
   const [bagNote, setBagNote] = useState<string | null>(null);
@@ -633,8 +636,11 @@ export default function App() {
         setRecent(rows);
         if (!trafficQuery.trim()) setTrafficRows(rows);
       }
+      setApiOnline(true);
+      setLastSyncedAt(Date.now());
       setError(null);
     } catch (err) {
+      setApiOnline(false);
       setError(
         err instanceof Error
           ? err.message
@@ -645,6 +651,7 @@ export default function App() {
 
   async function refreshCredentials() {
     setBusy(true);
+    setStatusAction("Updating credentials…");
     try {
       const res = await fetch(`${API}/v1/quota/refresh`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
@@ -655,6 +662,7 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+      setStatusAction(null);
     }
   }
 
@@ -749,17 +757,30 @@ export default function App() {
     [recent, horizon, metricMode, providerQuota],
   );
 
-  async function proxyAction(path: "start" | "stop") {
+  async function proxyAction(path: "start" | "stop" | "restart") {
     setBusy(true);
+    setStatusAction(path === "restart" ? "Restarting proxy…" : path === "start" ? "Starting proxy…" : "Stopping proxy…");
     try {
-      const res = await fetch(`${API}/v1/proxy/${path}`, { method: "POST" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body.error ?? `proxy ${path} failed`);
+      if (path === "restart") {
+        if (status?.proxy_running) {
+          const stop = await fetch(`${API}/v1/proxy/stop`, { method: "POST" });
+          const stopBody = await stop.json().catch(() => ({}));
+          if (!stop.ok) throw new Error(stopBody.error ?? "proxy stop failed");
+        }
+        const start = await fetch(`${API}/v1/proxy/start`, { method: "POST" });
+        const startBody = await start.json().catch(() => ({}));
+        if (!start.ok) throw new Error(startBody.error ?? "proxy start failed");
+      } else {
+        const res = await fetch(`${API}/v1/proxy/${path}`, { method: "POST" });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `proxy ${path} failed`);
+      }
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+      setStatusAction(null);
     }
   }
 
@@ -1050,6 +1071,7 @@ export default function App() {
 
   async function runWorkers() {
     setBusy(true);
+    setStatusAction("Updating wiki & vectors…");
     try {
       const res = await fetch(`${API}/v1/workers/tick`, { method: "POST" });
       const body = await res.json();
@@ -1063,7 +1085,16 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
+      setStatusAction(null);
     }
+  }
+
+  function formatSynced(ts: number | null) {
+    if (!ts) return "never";
+    const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (sec < 5) return "just now";
+    if (sec < 60) return `${sec}s ago`;
+    return `${Math.floor(sec / 60)}m ago`;
   }
 
   async function loadLogs() {
@@ -1884,6 +1915,119 @@ export default function App() {
           )}
         </div>
       </div>
+
+      <footer className="statusbar" aria-label="Server status">
+        <div className="sb-group">
+          <button
+            type="button"
+            className="sb-pill"
+            title={apiOnline ? "rivetd control plane reachable" : "rivetd unreachable"}
+            onClick={() => setPage("runtime")}
+          >
+            <span className={`sb-dot ${apiOnline ? "on" : "off"}`} />
+            rivetd {apiOnline ? "online" : "offline"}
+          </button>
+          <button
+            type="button"
+            className="sb-pill"
+            title={status?.proxy_base_url ?? "Proxy"}
+            onClick={() => setPage("runtime")}
+          >
+            <span className={`sb-dot ${status?.proxy_running ? "on" : "off"}`} />
+            proxy {status?.proxy_running ? "live" : "stopped"}
+            {status?.proxy_base_url ? (
+              <span className="sb-muted">{status.proxy_base_url.replace("http://", "")}</span>
+            ) : null}
+          </button>
+          <span className="sb-pill static" title="Traffic store backend">
+            <span className={`sb-dot ${status?.traffic_backend?.includes("clickhouse") ? "on" : "idle"}`} />
+            {status?.traffic_backend ?? "sqlite"}
+          </span>
+          <span className="sb-pill static" title="Loaded credentials">
+            {counts.all} acct{counts.all === 1 ? "" : "s"}
+            <span className="sb-muted">
+              · {fmt(status?.usage.events ?? 0)} events
+            </span>
+          </span>
+        </div>
+
+        <div className="sb-group center">
+          {statusAction ? (
+            <span className="sb-action">{statusAction}</span>
+          ) : error ? (
+            <button type="button" className="sb-action bad" onClick={() => setError(null)} title={error}>
+              {trunc(error, 64)}
+            </button>
+          ) : (
+            <span className="sb-action muted">
+              synced {formatSynced(lastSyncedAt)}
+              {status?.workers ? (
+                <>
+                  {" "}
+                  · wiki {status.workers.wiki_pages} · vec {status.workers.embeddings}
+                </>
+              ) : null}
+            </span>
+          )}
+        </div>
+
+        <div className="sb-group end">
+          <button
+            type="button"
+            className="sb-btn"
+            disabled={busy || !apiOnline || !!status?.proxy_running}
+            onClick={() => void proxyAction("start")}
+            title="Start proxy sidecar"
+          >
+            Start
+          </button>
+          <button
+            type="button"
+            className="sb-btn"
+            disabled={busy || !apiOnline || !status?.proxy_running}
+            onClick={() => void proxyAction("stop")}
+            title="Stop proxy sidecar"
+          >
+            Stop
+          </button>
+          <button
+            type="button"
+            className="sb-btn"
+            disabled={busy || !apiOnline}
+            onClick={() => void proxyAction("restart")}
+            title="Restart proxy (reload config)"
+          >
+            Restart
+          </button>
+          <button
+            type="button"
+            className="sb-btn"
+            disabled={busy || !apiOnline || !status?.proxy_running}
+            onClick={() => void refreshCredentials()}
+            title="Force-refresh provider credentials / quota"
+          >
+            Update creds
+          </button>
+          <button
+            type="button"
+            className="sb-btn"
+            disabled={busy || !apiOnline}
+            onClick={() => void runWorkers()}
+            title="Run vectorize + wiki workers once"
+          >
+            Update wiki
+          </button>
+          <button
+            type="button"
+            className="sb-btn primary"
+            disabled={busy}
+            onClick={() => void refresh()}
+            title="Refresh status from rivetd"
+          >
+            Sync
+          </button>
+        </div>
+      </footer>
     </div>
   );
 }
