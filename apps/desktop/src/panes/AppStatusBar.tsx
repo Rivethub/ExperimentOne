@@ -1,8 +1,8 @@
-import { fmt } from "../providerUtils";
-import type { Status } from "../types";
+import { fmt } from "../lib/provider-utils";
+import type { Status } from "../lib/types";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
-import { AppStatusBarMeta, AppStatusBarProxyPill } from "./appStatusBarMeta";
+import { AppStatusBarMeta, AppStatusBarProxyPill } from "./app-status-bar-meta";
 
 export type AppStatusBarProps = {
   syncing: boolean;

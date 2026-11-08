@@ -1,9 +1,9 @@
 import type { ReactElement } from "react";
-import { costForProviderEvents } from "../costEstimate";
-import { providerKey } from "../providerUtils";
-import type { Series } from "../quotaSeries";
-import type { ProviderQuota, QuotaAccount, TrafficEvent } from "../types";
-import { PooledWindowCards } from "./pooledWindows";
+import { costForProviderEvents } from "../lib/cost-estimate";
+import { providerKey } from "../lib/provider-utils";
+import type { Series } from "../lib/quota-series";
+import type { ProviderQuota, QuotaAccount, TrafficEvent } from "../lib/types";
+import { PooledWindowCards } from "./pooled-windows";
 import type { MetricMode, QuotaAccountUx } from "./types";
 import { QuotaProviderAccountList, QuotaProviderCardEmpty } from "./QuotaProviderCardParts";
 import { QuotaProviderCardHeader } from "./QuotaProviderCardHeader";
@@ -14,7 +14,7 @@ import {
   quotaCardHeadline,
   quotaChartLegend,
   quotaPoolEmpty,
-} from "./quotaProviderCardLogic";
+} from "./provider-card-logic";
 import styles from "../styles/app.module.css";
 
 export type QuotaProviderCardProps = {

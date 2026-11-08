@@ -1,6 +1,6 @@
-import type { CatalogProvider } from "../../providerUtils";
+import type { CatalogProvider } from "../../lib/provider-utils";
 import type { QuotaAccountUx } from "../../quota";
-import type { Account, HarnessWrite, LoginStatus, SettingsTab, Status } from "../../types";
+import type { Account, HarnessWrite, LoginStatus, SettingsTab, Status } from "../../lib/types";
 
 export type SettingsAccountsProps = {
   accounts: Account[];

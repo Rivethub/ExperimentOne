@@ -1,4 +1,4 @@
-import { isDefined } from "../../nullish";
+import { isDefined } from "../../lib/nullish";
 import type { SettingsIntelligenceProps } from "./types";
 import { Actions, Banner, Button, Input, Panel } from "../../ui";
 import { cx } from "../../styles/cx";

@@ -3,7 +3,7 @@ import {
   providerChipLabel,
   providerColor,
   type CatalogProvider,
-} from "../providerUtils";
+} from "../lib/provider-utils";
 import { QuotaProviderCard,
   LimitRecoveryBanner,
   StaleStamp,
@@ -14,10 +14,10 @@ import {
   historyPointsForProvider,
   seriesFromEvents,
   seriesFromRemainingHistory,
-} from "../quotaSeries";
-import { isDefined } from "../nullish";
+} from "../lib/quota-series";
+import { isDefined } from "../lib/nullish";
 import { Button, Chip } from "../ui";
-import { quotaMetricModeTitle } from "./quotaPaneToolbar";
+import { quotaMetricModeTitle } from "./quota-pane-toolbar";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 import type {
@@ -27,7 +27,7 @@ import type {
   QuotaHistory,
   QuotaSnapshot,
   TrafficEvent,
-} from "../types";
+} from "../lib/types";
 
 export type QuotaPaneProps = {
   active: boolean;

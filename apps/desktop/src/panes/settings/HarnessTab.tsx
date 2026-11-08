@@ -1,4 +1,4 @@
-import { isDefined } from "../../nullish";
+import { isDefined } from "../../lib/nullish";
 import type { SettingsHarnessProps } from "./types";
 import { Actions, Banner, Button, Kv, KvRow, Panel, Snippet } from "../../ui";
 import styles from "../../styles/app.module.css";

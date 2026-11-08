@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { providerLabel, type CatalogProvider } from "../providerUtils";
+import { providerLabel, type CatalogProvider } from "../lib/provider-utils";
 import { Button, Modal } from "../ui";
 
 export type MultiAccountWarnState = {

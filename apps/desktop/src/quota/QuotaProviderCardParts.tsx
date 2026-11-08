@@ -1,8 +1,8 @@
 import { useMemo, type ReactElement } from "react";
-import { accountDisplay } from "../formatUtils";
-import { fmtPct } from "../providerUtils";
-import { isDefined } from "../nullish";
-import type { QuotaAccount } from "../types";
+import { accountDisplay } from "../lib/format-utils";
+import { fmtPct } from "../lib/provider-utils";
+import { isDefined } from "../lib/nullish";
+import type { QuotaAccount } from "../lib/types";
 import { Button } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";

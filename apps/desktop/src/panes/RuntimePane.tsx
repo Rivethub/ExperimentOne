@@ -1,9 +1,9 @@
 import type { ReactElement } from "react";
-import type { Account, SettingsTab, Status } from "../types";
+import type { Account, SettingsTab, Status } from "../lib/types";
 import { Button } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
-import { RuntimePaneCards } from "./runtimePaneCards";
+import { RuntimePaneCards } from "./runtime/pane-cards";
 
 export type RuntimePaneProps = {
   active: boolean;

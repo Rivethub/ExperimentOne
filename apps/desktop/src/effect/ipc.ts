@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { isString } from "../guards";
-import type { JsonObject } from "../jsonTypes";
+import { isString } from "../lib/guards";
+import type { JsonObject } from "../lib/json-types";
 import { ApiError, BackendUnavailable, IpcError } from "./errors";
 
 export type IpcResponse = {

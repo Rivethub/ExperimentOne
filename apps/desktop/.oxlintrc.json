@@ -113,21 +113,6 @@
         "max-lines-per-function": [
           "warn",
           {
-            "max": 100,
-            "skipBlankLines": true
-          }
-        ]
-      }
-    },
-    {
-      "files": [
-        "**/*.tsx",
-        "**/*.jsx"
-      ],
-      "rules": {
-        "max-lines-per-function": [
-          "warn",
-          {
             "max": 160,
             "skipBlankLines": true
           }
@@ -136,22 +121,32 @@
     },
     {
       "files": [
-        "src/App.tsx"
+        "src/effect/ipc.ts",
+        "src/lib/api.ts"
       ],
       "rules": {
-        "max-lines-per-function": "off",
-        "de-clank-react/no-giant-component": "off",
-        "react/rule-suppression": "off"
+        "de-clank/no-unvalidated-json-parse": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-unnecessary-type-parameters": "off",
+        "de-clank/no-unknown-parameters": "off",
+        "unicorn/no-useless-undefined": "off"
       }
     },
     {
       "files": [
-        "src/mock/**",
-        "src/effect/ipc.ts",
-        "src/api.ts",
-        "src/mock/tauri-*.ts"
+        "src/effect/errors.ts"
       ],
-      "rules": {}
+      "rules": {
+        "max-classes-per-file": "off"
+      }
+    },
+    {
+      "files": [
+        "src/lib/tauri-utils.ts"
+      ],
+      "rules": {
+        "de-clank/no-default-on-catch": "off"
+      }
     }
   ],
   "plugins": [
@@ -168,7 +163,7 @@
     "vitest"
   ],
   "rules": {
-    "de-clank/no-array-filter-map": "off",
+    "de-clank/no-array-filter-map": "warn",
     "de-clank/no-reduce-accumulator-copy": "warn",
     "de-clank/require-readable-spacing": "off",
     "de-clank/enforce-import-boundaries": "warn",
@@ -179,7 +174,7 @@
     "de-clank/no-closing-brace-labels": "warn",
     "de-clank/no-conditional-empty-object-spread": "warn",
     "de-clank/no-cross-package-relative-imports": "warn",
-    "de-clank/no-default-on-catch": "off",
+    "de-clank/no-default-on-catch": "warn",
     "de-clank/no-date-only-date-constructor": "warn",
     "de-clank/no-decorative-section-comments": "warn",
     "de-clank/no-development-stage-labels": "warn",
@@ -215,13 +210,33 @@
     "de-clank/no-shell-string-execution": "warn",
     "de-clank/no-source-inspection-tests": "warn",
     "de-clank/no-test-only-production-code": "warn",
-    "de-clank/no-unknown-parameters": "off",
-    "de-clank/no-unknown-returns": "off",
+    "de-clank/no-unknown-parameters": [
+      "warn",
+      {
+        "allowBoundaryFunctions": true,
+        "allowedFilePatterns": [
+          "/src/effect/ipc\\.ts$",
+          "/src/lib/api\\.ts$",
+          "/src/mock/",
+          "/src/lib/tauri-utils\\.ts$"
+        ]
+      }
+    ],
+    "de-clank/no-unknown-returns": "warn",
     "de-clank/no-unknown-type-aliases": "warn",
-    "de-clank/no-unvalidated-json-parse": "off",
+    "de-clank/no-unvalidated-json-parse": "warn",
     "de-clank/no-unvalidated-json-body": "warn",
-    "de-clank/no-unowned-source-root-files": "off",
-    "de-clank/no-unsafe-dictionary-type": "off",
+    "de-clank/no-unowned-source-root-files": [
+      "warn",
+      {
+        "allowed": [
+          "App.tsx",
+          "main.tsx",
+          "vite-env.d.ts"
+        ]
+      }
+    ],
+    "de-clank/no-unsafe-dictionary-type": "warn",
     "de-clank/no-widen-then-assert": "warn",
     "de-clank/no-work-item-references": "warn",
     "de-clank/require-justified-suppressions": "warn",
@@ -310,7 +325,10 @@
     "import/prefer-default-export": "off",
     "import/unambiguous": "off",
     "init-declarations": "off",
-    "max-classes-per-file": "off",
+    "max-classes-per-file": [
+      "warn",
+      1
+    ],
     "max-lines": [
       "warn",
       {
@@ -421,12 +439,12 @@
     "typescript/no-misused-promises": "warn",
     "typescript/no-non-null-assertion": "warn",
     "typescript/no-unnecessary-condition": "warn",
-    "typescript/no-unsafe-argument": "off",
-    "typescript/no-unsafe-assignment": "off",
-    "typescript/no-unsafe-call": "off",
-    "typescript/no-unsafe-member-access": "off",
-    "typescript/no-unsafe-return": "off",
-    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/no-unsafe-argument": "warn",
+    "typescript/no-unsafe-assignment": "warn",
+    "typescript/no-unsafe-call": "warn",
+    "typescript/no-unsafe-member-access": "warn",
+    "typescript/no-unsafe-return": "warn",
+    "typescript/no-unsafe-type-assertion": "warn",
     "typescript/parameter-properties": "warn",
     "typescript/prefer-readonly": "warn",
     "typescript/prefer-readonly-parameter-types": "off",
@@ -450,7 +468,7 @@
     "de-clank-effect/no-inline-schema-construction": "warn",
     "de-clank-effect/no-parallel-schema-types": "warn",
     "de-clank-effect/no-run-effect-inside-effect": "warn",
-    "de-clank-effect/no-silent-effect-error-swallow": "off",
+    "de-clank-effect/no-silent-effect-error-swallow": "warn",
     "de-clank-effect/no-static-effect-service-forwarders": "warn",
     "de-clank-effect/no-throw-in-effect-generator": "warn",
     "de-clank-effect/prefer-effect-schema-boundary-decoding": [
@@ -767,7 +785,7 @@
       "warn",
       "property"
     ],
-    "typescript/no-restricted-types": "off",
+    "typescript/no-restricted-types": "warn",
     "typescript/no-empty-object-type": "warn",
     "typescript/consistent-indexed-object-style": [
       "warn",
@@ -826,7 +844,7 @@
     "react/no-unstable-nested-components": "warn",
     "react/no-array-index-key": "warn",
     "anti-slop/no-chained-type-assertions": "warn",
-    "anti-slop/no-unnecessary-type-widening": "off",
+    "anti-slop/no-unnecessary-type-widening": "warn",
     "anti-slop/no-object-parameters": "warn",
     "anti-slop/no-reduce-accumulator-copy": "warn",
     "anti-slop/no-typeof-outside-guards": "warn",
@@ -838,16 +856,24 @@
     "vite-plus/prefer-vite-plus-imports": "warn",
     "anti-slop/require-logical-blank-lines": "off",
     "react/set-state-in-effect": "off",
-    "unicorn/filename-case": "off",
+    "unicorn/filename-case": [
+      "warn",
+      {
+        "cases": {
+          "kebabCase": true,
+          "pascalCase": true
+        }
+      }
+    ],
     "react/todo": "off",
-    "oxc/no-barrel-file": "off",
-    "func-names": "off",
+    "oxc/no-barrel-file": "warn",
+    "func-names": "warn",
     "eslint/no-negated-condition": "off",
     "no-negated-condition": "off",
-    "unicorn/no-negated-condition": "off",
-    "jsx-a11y/prefer-tag-over-role": "off",
-    "typescript/no-unnecessary-type-parameters": "off",
-    "unicorn/no-useless-undefined": "off"
+    "unicorn/no-negated-condition": "warn",
+    "jsx-a11y/prefer-tag-over-role": "warn",
+    "typescript/no-unnecessary-type-parameters": "warn",
+    "unicorn/no-useless-undefined": "warn"
   },
   "settings": {
     "react": {

@@ -1,5 +1,5 @@
-import { NAV, SETTINGS_TABS } from "../constants";
-import type { Page, SettingsTab } from "../types";
+import { NAV, SETTINGS_TABS } from "../lib/constants";
+import type { Page, SettingsTab } from "../lib/types";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 

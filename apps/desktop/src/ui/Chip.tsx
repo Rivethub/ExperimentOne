@@ -1,5 +1,5 @@
 import type { ButtonHTMLAttributes, ReactElement, ReactNode } from "react";
-import { isDefined } from "../nullish";
+import { isDefined } from "../lib/nullish";
 import { cx } from "../styles/cx";
 import styles from "./Chip.module.css";
 

@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { WikiInfo, WikiPageCard } from "../components/WikiBoard";
-import type { CatalogProvider } from "../providerUtils";
+import type { JsonObject } from "../lib/json-types";
+import type { CatalogProvider } from "../lib/provider-utils";
 import type {
   Account,
   BagResult,
@@ -13,7 +14,7 @@ import type {
   SearchMode,
   Status,
   TrafficEvent,
-} from "../types";
+} from "../lib/types";
 import type { ApiError, BackendUnavailable, IpcError } from "./errors";
 import {
   apiJson,
@@ -23,6 +24,7 @@ import {
   invokeCommand,
   type SoftHttpResult,
 } from "./ipc";
+import { softEffect } from "./soft";
 
 export { ensureRivetd as requireBackend } from "./ipc";
 
@@ -93,7 +95,8 @@ export const getClaudeEnv = apiText("GET", "/v1/harness/claude.env");
 export const getCodexToml = apiText("GET", "/v1/harness/codex.toml");
 export const getMcpJson = apiText("GET", "/v1/harness/mcp.json");
 
-export const putConfig = (body: unknown): ApiFx<unknown> => apiJson("PUT", "/v1/config", body);
+export const putConfig = (body: JsonObject): ApiFx<JsonObject> =>
+  apiJson<JsonObject>("PUT", "/v1/config", body);
 export const tickWorkers = apiJson<{ embeddings?: number; wiki_pages?: number }>(
   "POST",
   "/v1/workers/tick",
@@ -109,20 +112,10 @@ export const getClickhouseLog = (lines = 80): ApiFx<SoftHttpResult> =>
   apiResult("GET", `/v1/logs/clickhouse?lines=${lines}`);
 
 export const openWikiDir = (path: string): Effect.Effect<boolean | null> =>
-  invokeCommand<boolean>("open_wiki_dir", { path }).pipe(
-    Effect.catch(() =>
-      // JUSTIFICATION: soft boolean|null — UI treats cancel/missing path as null.
-      Effect.succeed(null as boolean | null),
-    ),
-  );
+  softEffect(invokeCommand<boolean>("open_wiki_dir", { path }));
 
 export const revealPath = (path: string): Effect.Effect<boolean | null> =>
-  invokeCommand<boolean>("reveal_path", { path }).pipe(
-    Effect.catch(() =>
-      // JUSTIFICATION: soft boolean|null — UI treats cancel/missing path as null.
-      Effect.succeed(null as boolean | null),
-    ),
-  );
+  softEffect(invokeCommand<boolean>("reveal_path", { path }));
 
 export type RefreshSnapshot = {
   status: Status;

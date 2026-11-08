@@ -1,5 +1,5 @@
-import { formatCheckedAgo } from "../providerUtils";
-import { isDefined } from "../nullish";
+import { formatCheckedAgo } from "../lib/provider-utils";
+import { isDefined } from "../lib/nullish";
 import styles from "../styles/app.module.css";
 
 export function StaleStamp({

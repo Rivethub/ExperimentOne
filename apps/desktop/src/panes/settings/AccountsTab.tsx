@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { isDefined } from "../../nullish";
+import { isDefined } from "../../lib/nullish";
 import { AccountConnectCards } from "../../quota";
 import { Panel } from "../../ui";
 import { AccountsTabActions } from "./AccountsTabActions";
-import { AccountsTabAddModal, AccountsTabLoginModal } from "./accountsTabModals";
+import { AccountsTabAddModal, AccountsTabLoginModal } from "./accounts-tab-modals";
 import type { SettingsAccountsProps } from "./types";
 import styles from "../../styles/app.module.css";
 

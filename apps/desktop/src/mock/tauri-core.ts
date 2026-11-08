@@ -1,8 +1,8 @@
 /** Vite alias target for `@tauri-apps/api/core` when `VITE_MOCK_IPC=1`. */
 /* oxlint-disable eslint/no-console -- mock IPC logs to devtools */
 
-import type { JsonObject } from "../jsonTypes";
-import { isDefined } from "../nullish";
+import type { JsonObject } from "../lib/json-types";
+import { isDefined } from "../lib/nullish";
 import { handleApiRequest, type MockHttpResult } from "./handlers";
 import { getStore } from "./store";
 

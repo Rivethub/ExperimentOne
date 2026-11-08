@@ -6,8 +6,8 @@ import {
   ensureReadmeToc,
   relativeWhen,
   coverTone,
-} from "./wikiBoardLogic";
-import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wikiReaderMarkdown";
+} from "./wiki-board-logic";
+import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wiki-reader-markdown";
 
 export type WikiPageCard = {
   id: string;

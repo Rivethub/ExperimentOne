@@ -1,7 +1,7 @@
 import { Data } from "effect";
-import { hasStringMessage, isRecord, isString } from "../guards";
+import { hasStringMessage, isRecord, isString } from "../lib/guards";
 
-export { hasStringMessage } from "../guards";
+export { hasStringMessage } from "../lib/guards";
 
 /** Tauri invoke failed or returned an unexpected shape. */
 export class IpcError extends Data.TaggedError("IpcError")<{
@@ -30,11 +30,10 @@ export class BackendUnavailable extends Data.TaggedError("BackendUnavailable")<{
 }
 
 function readApiErrorText(value: unknown): string | undefined {
-  if (!isRecord(value)) {
+  if (!isRecord(value) || !("error" in value)) {
     return undefined;
   }
-  const errText = value["error"];
-  return isString(errText) ? errText : undefined;
+  return isString(value.error) ? value.error : undefined;
 }
 
 /** Control-plane `/v1` response was non-2xx or body was invalid. */

@@ -1,5 +1,5 @@
-import { fmtUsd } from "../costEstimate";
-import type { Series } from "../quotaSeries";
+import { fmtUsd } from "../lib/cost-estimate";
+import type { Series } from "../lib/quota-series";
 import type { MetricMode } from "./types";
 import { QuotaChart } from "./QuotaChart";
 import styles from "../styles/app.module.css";

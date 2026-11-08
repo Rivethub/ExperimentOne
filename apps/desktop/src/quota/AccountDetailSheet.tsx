@@ -5,8 +5,8 @@ import {
   providerColor,
   providerKey,
   type CatalogProvider,
-} from "../providerUtils";
-import { isDefined } from "../nullish";
+} from "../lib/provider-utils";
+import { isDefined } from "../lib/nullish";
 import type { QuotaAccountUx } from "./types";
 import { Button, Kv, KvRow } from "../ui";
 import { cx } from "../styles/cx";

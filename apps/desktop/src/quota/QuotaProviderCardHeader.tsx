@@ -1,5 +1,5 @@
-import { isDefined } from "../nullish";
-import type { ProviderQuota } from "../types";
+import { isDefined } from "../lib/nullish";
+import type { ProviderQuota } from "../lib/types";
 import type { MetricMode } from "./types";
 import { StaleStamp } from "./StaleStamp";
 import { cx } from "../styles/cx";

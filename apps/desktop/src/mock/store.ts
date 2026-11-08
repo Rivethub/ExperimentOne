@@ -1,4 +1,4 @@
-import type { LoginStatus, QuotaHistory, QuotaSnapshot, Status } from "../types";
+import type { LoginStatus, QuotaHistory, QuotaSnapshot, Status } from "../lib/types";
 import {
   MOCK_PROVIDERS,
   accountsFromQuota,
