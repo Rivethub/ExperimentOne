@@ -1397,7 +1397,7 @@ mod tests {
         let text = format!("{}\n\n{}", "a".repeat(100), "b".repeat(100));
         let (kept, overflow) = fit(&text, 120);
         assert!(kept.len() <= 120);
-        assert!(!overflow.is_empty());
+        assert_ne!(overflow, "");
     }
 
     #[test]
@@ -1478,7 +1478,7 @@ mod tests {
         assert!(page.article.contains("New setup."));
         assert!(page.article.contains("Extra note."));
         assert!(page.article.contains("Keep me."));
-        assert!(!page.history.is_empty());
+        assert_ne!(page.history.len(), 0);
     }
 
     #[test]
