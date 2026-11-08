@@ -1,0 +1,29 @@
+{{- if .Values.workers.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rivet.fullname" . }}-workers
+  labels:
+    {{- include "rivet.labels" . | nindent 4 }}
+    app.kubernetes.io/component: workers
+spec:
+  replicas: {{ .Values.workers.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: workers
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: workers
+    spec:
+      containers:
+        - name: worker
+          image: "{{ .Values.workers.image.repository }}:{{ .Values.workers.image.tag }}"
+          env:
+            - name: RIVET_ROLE
+              value: worker
+            - name: RIVET_CLICKHOUSE_URL
+              value: "http://{{ include "rivet.fullname" . }}-clickhouse:{{ .Values.clickhouse.service.httpPort }}"
+{{- end }}

@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
+      - name: Check control plane
+        run: cargo check -p rivet-runtime
+
+  desktop:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.90"
+      - name: Install frontend deps
+        working-directory: apps/desktop
+        run: bun install
+      - name: Typecheck / build UI
+        working-directory: apps/desktop
+        run: bun run build
+      - name: Check Tauri crate
+        working-directory: apps/desktop/src-tauri
+        run: cargo check

@@ -1,0 +1,78 @@
+# Rivet
+
+Local-first multi-account AI proxy, traffic database, and optional knowledge layer.
+
+Install the macOS app, sign in your provider accounts, point Claude Code / Codex /
+other harnesses at the local proxy. Rivet captures every request and response,
+gives you stats and limits, and lets you export/import **traffic data** (never
+OAuth, API keys, or proxy secrets).
+
+## Layout
+
+```
+apps/desktop     Tauri 2 control app (DMG + tray)
+crates/          Rust control plane, store, workers, MCP
+vendor/          Forked CLIProxyAPI (Go sidecar)
+charts/rivet     Helm chart (enterprise)
+docs/            Architecture, packaging, ClickHouse, enterprise
+```
+
+## Dev
+
+Requires **Rust 1.90** (`rust-toolchain.toml` pins it).
+
+```bash
+# Sidecars (rivetd + rivet-proxy + ClickHouse) into Tauri binaries/
+./scripts/build-sidecars.sh
+
+# Or run control plane alone
+cargo run -p rivet-runtime
+
+# Desktop UI (tray + auto-starts rivetd)
+cd apps/desktop && bun install && bun run tauri dev
+# (bun run dev for Vite-only against an already-running rivetd)
+```
+
+## Product (v1.0)
+
+Local macOS control app + `rivetd` control plane. Quota charts and burn/drain
+metrics use **captured local traffic** (honest estimates until live provider
+quota APIs). ClickHouse dual-write when the bundled sidecar is present. Close
+the window to keep Rivet in the tray; Quit from the tray menu stops `rivetd`.
+Default proxy port is **18317** (auto-migrates if busy).
+
+```bash
+./scripts/build-sidecars.sh
+cd apps/desktop && bun install && bun run tauri dev
+# optional: POST http://127.0.0.1:8741/v1/demo/seed  → sample traffic for UI walkthrough
+# release: ./scripts/release-dmg.sh   (+ --notarize with Developer ID creds)
+```
+
+First-run: **Start proxy → Sign in → Write harness → run traffic.**
+
+## Milestones
+
+| | Status |
+| --- | --- |
+| **M1** Local loop — supervise proxy, ingest, harness, login UI | Done |
+| **M2** Traffic quality — rivetsink parse, redaction, export, CH dual-write path | Done |
+| **M3** Desktop polish — tray (close-to-tray), traffic browser, wiki, DMG docs | Done |
+| **M4** Optional intelligence — vector/wiki workers + semantic MCP | Done |
+| **M5** Enterprise Helm scaffold | Done (OIDC/teams later) |
+
+## Control API (localhost:8741)
+
+- `GET /v1/status`, `GET|PUT /v1/config`
+- `POST /v1/proxy/start|stop`
+- `POST /v1/accounts/login`, harness write, export/import
+- `GET /v1/wiki`
+
+MCP (`:8742`): `search_history`; `semantic_search` when vectors enabled.
+
+## Docs
+
+- [Architecture](docs/architecture.md)
+- [Packaging / DMG](docs/packaging.md)
+- [ClickHouse](docs/clickhouse.md)
+- [Enterprise](docs/enterprise.md)
+- [Proxy fork](vendor/FORK.md)

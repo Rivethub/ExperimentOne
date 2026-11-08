@@ -1,0 +1,17 @@
+[package]
+name = "rivet-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared types, paths, and config for Rivet"
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+chrono.workspace = true
+dirs.workspace = true
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

@@ -1,0 +1,13 @@
+apiVersion: v2
+name: rivet
+description: Rivet enterprise stack — control plane, proxy, ClickHouse, workers, MCP
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - ai
+  - proxy
+  - traffic
+  - clickhouse
+maintainers:
+  - name: Rivet

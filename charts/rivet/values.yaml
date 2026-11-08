@@ -1,0 +1,76 @@
+# Enterprise deploy values. Local DMG does not use Helm.
+
+nameOverride: ""
+fullnameOverride: ""
+
+rivetd:
+  replicaCount: 1
+  image:
+    repository: rivet/rivetd
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    apiPort: 8741
+    mcpPort: 8742
+  env:
+    RIVET_CLICKHOUSE_URL: "http://{{ .Release.Name }}-clickhouse:8123"
+  resources: {}
+
+proxy:
+  enabled: true
+  replicaCount: 2
+  image:
+    repository: rivet/rivet-proxy
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8317
+  resources: {}
+
+clickhouse:
+  enabled: true
+  # Prefer an operator / managed CH in production; this ships a single-node Dev chart dependency stub.
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: "24.8"
+  service:
+    httpPort: 8123
+    nativePort: 9000
+  persistence:
+    enabled: true
+    size: 50Gi
+
+workers:
+  enabled: true
+  replicaCount: 2
+  # Same image as rivetd; entrypoint overridden to worker mode later.
+  image:
+    repository: rivet/rivetd
+    tag: "0.1.0"
+
+mcp:
+  enabled: true
+
+ingress:
+  enabled: false
+  className: ""
+  hosts:
+    - host: rivet.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Teams / admin portal / OIDC — scaffold only
+teams:
+  enabled: false
+  oidc:
+    issuer: ""
+    clientId: ""
+
+# Bus for enterprise fan-out (NATS or Redpanda) — unused locally
+bus:
+  enabled: false
+  natsUrl: ""
