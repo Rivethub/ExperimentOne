@@ -132,8 +132,8 @@ mod tests {
         for m in MIGRATIONS {
             assert!(m.version > last, "migration versions must increase");
             assert!(seen.insert(m.version), "duplicate migration version");
-            assert!(!m.name.is_empty());
-            assert!(!m.sql.trim().is_empty());
+            assert_ne!(m.name, "");
+            assert_ne!(m.sql.trim(), "");
             last = m.version;
         }
     }

@@ -1,4 +1,4 @@
-//! Snapshot the control-plane OpenAPI document into `docs/openapi.json`.
+//! Snapshot the control-plane `OpenAPI` document into `docs/openapi.json`.
 //!
 //! Run: `cargo test -p rivet-api --test export_openapi -- --ignored`
 //! Or: `./scripts/export-openapi.sh`
