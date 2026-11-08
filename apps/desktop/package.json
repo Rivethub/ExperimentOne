@@ -16,6 +16,7 @@
     "check": "vp fmt --check && vp lint --deny-warnings && tsc -b --pretty false"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.14.26",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-dialog": "^2.8.4",
     "@tauri-apps/plugin-shell": "^2.6.0",

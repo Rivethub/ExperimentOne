@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { MultiAccountWarnModal } from "./components/MultiAccountWarnModal";
 import { useAccounts, useAppOperations, useQuotaDerived, useRivetData, useWiki } from "./hooks";
 import { MockDevBar } from "./mock";
@@ -6,15 +6,13 @@ import {
   AppSidebar,
   AppStatusBar,
   AppTopbar,
-  ExportPane,
+  DataPane,
   QuotaPane,
   RuntimePane,
   SettingsPane,
-  TrafficPane,
   WikiPane,
 } from "./panes";
 import { pageSubtitle, pageTitle } from "./pageMeta";
-import { providerKey } from "./providerUtils";
 import {
   AccountDetailSheet,
   MetricMode,
@@ -24,8 +22,15 @@ import {
   isOnboardingDismissed,
   onboardingIncomplete,
 } from "./quota";
-import { filterTrafficRows } from "./trafficUtils";
-import type { Page, ProviderFilter, SettingsTab, TrafficEvent } from "./types";
+import type {
+  ConversationSummary,
+  Page,
+  ProviderFilter,
+  SearchMode,
+  SettingsTab,
+  TrafficEvent,
+} from "./types";
+import { Button } from "./ui";
 import styles from "./styles/app.module.css";
 
 export default function App() {
@@ -37,11 +42,15 @@ export default function App() {
   const [detailAccount, setDetailAccount] = useState<QuotaAccountUx | null>(null);
   const [onboardingDismissed, setOnboardingDismissed] = useState(isOnboardingDismissed);
   const [limitBannerHidden, setLimitBannerHidden] = useState(false);
-  const [trafficQuery, setTrafficQuery] = useState("");
-  const [trafficProvider, setTrafficProvider] = useState<ProviderFilter>("all");
-  const [trafficStatus, setTrafficStatus] = useState<"all" | "ok" | "error">("all");
-  const [selectedEvent, setSelectedEvent] = useState<TrafficEvent | null>(null);
-  const [importPath, setImportPath] = useState("");
+  const [listQuery, setListQuery] = useState("");
+  const deferredListQuery = useDeferredValue(listQuery);
+  const [searchMode, setSearchMode] = useState<SearchMode>("keyword");
+  const deferredSearchMode = useDeferredValue(searchMode);
+  const [searchModeLabel, setSearchModeLabel] = useState<string | null>(null);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [conversationMessages, setConversationMessages] = useState<TrafficEvent[]>([]);
+  const [threadQuery, setThreadQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [statusAction, setStatusAction] = useState<string | null>(null);
@@ -53,10 +62,11 @@ export default function App() {
   }, []);
 
   const onModelsHydratedRef = useRef((_embed: string, _wiki: string) => {});
+  const onDataMutatedRef = useRef(() => {});
 
   const rivet = useRivetData({
     horizon,
-    trafficQuery,
+    trafficQuery: "",
     setBusy,
     setStatusAction,
     setError,
@@ -70,17 +80,20 @@ export default function App() {
     refresh: rivet.refresh,
     refreshWiki: wikiHook.refreshWiki,
     setTrafficRows: rivet.setTrafficRows,
+    setConversations,
+    setSearchModeLabel,
     setBusy,
     setStatusAction,
     setError,
-    setPage,
     status: rivet.status,
     wiki: wikiHook.wiki,
-    importPath,
-    setImportPath,
+    onDataMutated: () => onDataMutatedRef.current(),
   });
 
   onModelsHydratedRef.current = ops.hydrateModels;
+  onDataMutatedRef.current = () => {
+    if (page === "data") void ops.searchConversations(deferredListQuery, deferredSearchMode);
+  };
 
   const accountsHook = useAccounts({
     accounts: rivet.accounts,
@@ -108,8 +121,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount wiki snapshot after rivet boot
   }, []);
 
-  const { loadLogs } = ops;
-  const { refreshCredentials, trafficRows } = rivet;
+  const { loadLogs, loadConversationEvents, searchConversations, listSearching } = ops;
 
   useEffect(() => {
     if (page === "runtime") void loadLogs();
@@ -122,11 +134,38 @@ export default function App() {
     return () => clearInterval(id);
   }, [page, loadLogs]);
 
-  const filteredTraffic = useMemo(
-    () => filterTrafficRows(trafficRows, trafficProvider, trafficStatus, providerKey),
-    [trafficRows, trafficProvider, trafficStatus],
+  const vectorSearchEnabled = !!rivet.status?.capabilities.vector_search;
+
+  useEffect(() => {
+    if (vectorSearchEnabled || searchMode !== "vector") return;
+    setSearchMode("keyword");
+  }, [vectorSearchEnabled, searchMode]);
+
+  useEffect(() => {
+    if (page !== "data") return;
+    void searchConversations(deferredListQuery, deferredSearchMode);
+  }, [page, deferredListQuery, deferredSearchMode, searchConversations]);
+
+  const listPending =
+    listQuery !== deferredListQuery ||
+    searchMode !== deferredSearchMode ||
+    listSearching;
+
+  const selectConversation = useCallback(
+    async (id: string | null) => {
+      setSelectedConversationId(id);
+      setThreadQuery("");
+      if (!id) {
+        setConversationMessages([]);
+        return;
+      }
+      const messages = await loadConversationEvents(id);
+      setConversationMessages(messages);
+    },
+    [loadConversationEvents],
   );
 
+  const { refreshCredentials } = rivet;
   const limitActions = useMemo(
     () => ({
       onRefreshCredentials: () => void refreshCredentials(),
@@ -143,7 +182,7 @@ export default function App() {
     status: rivet.status,
     quota: rivet.quota,
     accountCount: rivet.accounts.length,
-    recentCount: rivet.recent.length,
+    recentCount: conversations.length || rivet.recent.length,
     wiki: wikiHook.wiki,
   });
 
@@ -165,7 +204,10 @@ export default function App() {
           subtitle={subtitle}
           page={page}
           busy={busy}
-          onRefresh={() => void rivet.refresh()}
+          onRefresh={() => {
+            void rivet.refresh();
+            if (page === "data") void searchConversations(deferredListQuery, deferredSearchMode);
+          }}
           quota={
             page === "quota"
               ? {
@@ -195,9 +237,27 @@ export default function App() {
                 }
               : undefined
           }
+          data={
+            page === "data"
+              ? {
+                  canRevealExport: !!ops.bagPath,
+                  onExport: () => void ops.exportBag(),
+                  onImport: () => void ops.importBag(),
+                  onRevealExport: () => void ops.revealExport(),
+                }
+              : undefined
+          }
         />
 
         {error && <div className={styles.errorBanner}>{error}</div>}
+        {ops.bagNote && (
+          <div className={styles.noteBanner} role="status">
+            <span>{ops.bagNote}</span>
+            <Button variant="ghost" onClick={() => ops.clearBagNote()}>
+              Dismiss
+            </Button>
+          </div>
+        )}
         {rivet.status?.warnings?.map((w) => (
           <div key={w} className={styles.errorBanner}>
             {w}
@@ -227,24 +287,24 @@ export default function App() {
             onAddCredentials={accountsHook.beginAddAccount}
             onAccountSelect={setDetailAccount}
           />
-          <TrafficPane
-            active={page === "traffic"}
+          <DataPane
+            active={page === "data"}
             limitHit={derived.limitHit}
             limitActions={limitActions}
-            trafficProvider={trafficProvider}
-            onTrafficProviderChange={setTrafficProvider}
-            providerIds={derived.providerIds}
             catalog={rivet.catalog}
-            trafficStatus={trafficStatus}
-            onTrafficStatusChange={setTrafficStatus}
-            trafficQuery={trafficQuery}
-            onTrafficQueryChange={setTrafficQuery}
-            onSearch={() => void ops.searchTraffic(trafficQuery)}
-            busy={busy}
-            filteredTraffic={filteredTraffic}
-            trafficRows={rivet.trafficRows}
-            selectedEvent={selectedEvent}
-            onSelectEvent={setSelectedEvent}
+            listQuery={listQuery}
+            onListQueryChange={setListQuery}
+            searchMode={searchMode}
+            onSearchModeChange={setSearchMode}
+            vectorSearchEnabled={vectorSearchEnabled}
+            searchModeLabel={searchModeLabel}
+            listPending={listPending}
+            conversations={conversations}
+            selectedId={selectedConversationId}
+            onSelectConversation={(id) => void selectConversation(id)}
+            messages={conversationMessages}
+            threadQuery={threadQuery}
+            onThreadQueryChange={setThreadQuery}
           />
           <RuntimePane
             active={page === "runtime"}
@@ -310,18 +370,6 @@ export default function App() {
               onLoadMcp: () => void accountsHook.loadMcp(),
               onCopyText: (t) => void ops.copyText(t),
             }}
-          />
-          <ExportPane
-            active={page === "export"}
-            busy={busy}
-            bagPath={ops.bagPath}
-            importPath={importPath}
-            bagNote={ops.bagNote}
-            onImportPathChange={setImportPath}
-            onExport={() => void ops.exportBag()}
-            onRevealExport={() => void ops.revealExport()}
-            onPickImport={() => void ops.pickImport()}
-            onImport={() => void ops.importBag()}
           />
         </div>
       </div>

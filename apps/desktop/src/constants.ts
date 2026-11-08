@@ -26,10 +26,9 @@ export const FALLBACK_PROVIDERS: CatalogProvider[] = [
 
 export const NAV: { id: Page; label: string; icon: string }[] = [
   { id: "quota", label: "Quota", icon: "◈" },
-  { id: "traffic", label: "Traffic", icon: "◫" },
+  { id: "data", label: "Data", icon: "◫" },
   { id: "runtime", label: "Runtime", icon: "⏻" },
   { id: "wiki", label: "Wiki", icon: "☰" },
-  { id: "export", label: "Export", icon: "⇪" },
   { id: "settings", label: "Settings", icon: "⚙" },
 ];
 

@@ -35,6 +35,37 @@ describe("mock IPC handlers", () => {
     expect(seed.inserted).toBe(1);
   });
 
+  it("lists and searches conversations", async () => {
+    const list = JSON.parse((await handleApiRequest("GET", "/v1/conversations?limit=20", null)).body);
+    expect(Array.isArray(list)).toBe(true);
+    expect(list.length).toBeGreaterThan(0);
+    expect(list[0].title).toBeTruthy();
+
+    const searched = JSON.parse(
+      (
+        await handleApiRequest(
+          "GET",
+          "/v1/conversations/search?limit=20&mode=keyword&q=conversation",
+          null,
+        )
+      ).body,
+    );
+    expect(searched.mode).toBe("keyword");
+    expect(Array.isArray(searched.results)).toBe(true);
+
+    const events = JSON.parse(
+      (
+        await handleApiRequest(
+          "GET",
+          `/v1/conversations/events?id=${encodeURIComponent(list[0].id)}`,
+          null,
+        )
+      ).body,
+    );
+    expect(Array.isArray(events)).toBe(true);
+    expect(events.length).toBeGreaterThan(0);
+  });
+
   it("toggles proxy and writes harness", async () => {
     await handleApiRequest("POST", "/v1/proxy/stop", null);
     let status = JSON.parse((await handleApiRequest("GET", "/v1/status", null)).body);

@@ -121,7 +121,7 @@ export async function handleApiRequest(
     return ok({ ok: true, refresh: { mock: true }, quota: currentQuota(s) });
   }
 
-  // Traffic
+  // Traffic / conversations
   if (m === "GET" && base === "/v1/traffic/recent") {
     const limit = Number(q.get("limit") ?? "200") || 200;
     return ok(s.traffic.slice(0, limit));
@@ -132,10 +132,48 @@ export async function handleApiRequest(
     if (!needle) return ok(s.traffic.slice(0, limit));
     const hits = s.traffic.filter((ev) => {
       const hay =
-        `${ev.content ?? ""} ${ev.model ?? ""} ${ev.account_label ?? ""} ${ev.provider}`.toLowerCase();
+        `${ev.content ?? ""} ${ev.model ?? ""} ${ev.account_label ?? ""} ${ev.provider} ${ev.session_id ?? ""}`.toLowerCase();
       return hay.includes(needle);
     });
     return ok(hits.slice(0, limit));
+  }
+  if (m === "GET" && base === "/v1/conversations") {
+    const { conversationsFromEvents } = await import("../conversationUtils");
+    const limit = Number(q.get("limit") ?? "100") || 100;
+    return ok(conversationsFromEvents(s.traffic, limit));
+  }
+  if (m === "GET" && base === "/v1/conversations/events") {
+    const { conversationIdFor } = await import("../conversationUtils");
+    const id = (q.get("id") ?? "").trim();
+    const limit = Number(q.get("limit") ?? "500") || 500;
+    if (!id) return ok([]);
+    const hits = s.traffic
+      .filter((ev) => conversationIdFor(ev) === id)
+      .slice()
+      .sort((a, b) => +new Date(a.ts) - +new Date(b.ts))
+      .slice(0, limit);
+    return ok(hits);
+  }
+  if (m === "GET" && base === "/v1/conversations/search") {
+    const { conversationsFromEvents } = await import("../conversationUtils");
+    const needle = (q.get("q") ?? "").trim().toLowerCase();
+    const limit = Number(q.get("limit") ?? "100") || 100;
+    const mode = (q.get("mode") ?? "keyword").toLowerCase();
+    if (!needle) {
+      return ok({ mode: "list", results: conversationsFromEvents(s.traffic, limit) });
+    }
+    const hits = s.traffic.filter((ev) => {
+      const hay =
+        `${ev.content ?? ""} ${ev.model ?? ""} ${ev.account_label ?? ""} ${ev.provider} ${ev.session_id ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+    const used =
+      mode === "vector" ? "vector" : "keyword";
+    // Mock has no real embeddings — keyword match labeled by requested mode.
+    return ok({
+      mode: used === "vector" ? "vector" : "keyword",
+      results: conversationsFromEvents(hits, limit),
+    });
   }
   if (m === "POST" && base === "/v1/demo/seed") {
     if (s.traffic.length === 0) {

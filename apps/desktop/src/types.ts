@@ -4,7 +4,7 @@ import type { OnboardingStatus, QuotaAccountUx } from "./quota";
 export type { CatalogProvider };
 export type { OnboardingStatus, QuotaAccountUx as QuotaAccount, QuotaWindow } from "./quota";
 
-export type Page = "quota" | "traffic" | "runtime" | "wiki" | "export" | "settings";
+export type Page = "quota" | "data" | "runtime" | "wiki" | "settings";
 
 export type SettingsTab = "accounts" | "intelligence" | "harness";
 
@@ -121,6 +121,29 @@ export type TrafficEvent = {
   status_code?: number | null;
   account_label?: string | null;
   latency_ms?: number | null;
+  session_id?: string | null;
+  project_id?: string | null;
 };
+
+export type ConversationSummary = {
+  id: string;
+  title: string;
+  preview?: string | null;
+  provider: string;
+  model?: string | null;
+  project_id?: string | null;
+  started_at: string;
+  updated_at: string;
+  message_count: number;
+  tokens_in: number;
+  tokens_out: number;
+};
+
+export type ConversationSearchResponse = {
+  mode: string;
+  results: ConversationSummary[];
+};
+
+export type SearchMode = "keyword" | "vector";
 
 export type ProviderFilter = string;

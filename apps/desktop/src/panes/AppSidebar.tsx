@@ -26,7 +26,7 @@ export function AppSidebar({
         <div className={styles.brandMark}>R</div>
         <div className={styles.brandCopy}>
           <strong>Rivet</strong>
-          <span>local traffic hub</span>
+          <span>local data hub</span>
         </div>
       </div>
       {NAV.map((item) => (
@@ -47,7 +47,7 @@ export function AppSidebar({
             {item.id === "settings" && accountCount > 0 && (
               <span className={styles.badge}>{accountCount}</span>
             )}
-            {item.id === "traffic" && trafficEventCount > 0 && (
+            {item.id === "data" && trafficEventCount > 0 && (
               <span className={styles.badge}>
                 {trafficEventCount > 99 ? "99+" : trafficEventCount}
               </span>

@@ -130,10 +130,13 @@ Excludes: OAuth credential directories, proxy access keys, management secrets. C
 - Settings: nested sidebar destinations (Accounts / Intelligence / Harness); main views
   stay mounted so switching pages does not remount the whole tree
 - Quota: live remaining % + per-window bars; history sampled into `meta/`; tokens/cost from traffic
+- **Data**: historical conversations (session-grouped traffic) with T3-style list + transcript
+  (markdown text, collapsible thinking, tool call/result cards across Claude/OpenAI/Responses/Gemini);
+  keyword search on the list and inside a thread; vector search when `capabilities.vector_search`;
+  export / import menu on the Data topbar (no separate Export page)
 - Wiki: project README shelf → link-only navigation; FS watcher keeps meta in sync
   (creates/edits/deletes, including removing a project folder) without a Refresh button
 - MCP endpoint + copy config for harnesses
-- Export / import
 - Point harness: per-account one-click overlay into `~/.claude` / `~/.codex`
   (backup first); isolated Rivet config dirs remain as an advanced option
 
@@ -143,12 +146,13 @@ Shipped: account list + Add, browser Codex login (device code after start), nest
 nav, keep-alive main views, per-account harness install, **pooled window bars**, **Cost /
 Tokens / Limits (`C`/`T`/`L`)** on Quota, **limit-hit recovery banners**, **branded
 connect/reconnect cards**, **first-run checklist overlay**, **stale “checked Nm ago” stamps**
-with ~5m quota refresh + manual Refresh credentials, ClickHouse-only traffic backend in UI.
+with ~5m quota refresh + manual Refresh credentials, ClickHouse-only traffic backend in UI,
+**Data pane conversation list + transcript** (read-only history, not a composer).
 
 **Medium**
 
 7. Inline remaining meters on the status bar / Runtime header for the active provider.
-8. Command palette / shortcuts for Quota, Traffic, Settings (and period chips).
+8. Command palette / shortcuts for Quota, Data, Settings (and period chips).
 9. Manual OAuth callback paste when loopback/browser handoff fails.
 10. Account detail sheet: plan, email, reset times, cooldown, “Use reset” if credits exist.
 11. Empty states with one primary action (already partial; make universal copy pattern).
@@ -157,7 +161,7 @@ with ~5m quota refresh + manual Refresh credentials, ClickHouse-only traffic bac
 **Skip / don’t copy**
 
 - Thread composer, `/usage-limits` slash commands, mobile widgets, worktree/PR chrome —
-  wrong product surface for Rivet (traffic hub, not agent IDE).
+  Rivet is a history/quota hub, not an agent IDE.
 
 ## Security / ToS posture
 

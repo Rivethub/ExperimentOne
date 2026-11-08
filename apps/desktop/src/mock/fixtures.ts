@@ -263,6 +263,85 @@ export function seedQuotaHistory(quotaAccounts: QuotaAccountUx[], hours: number)
   };
 }
 
+function claudeUserTurn(prompt: string): string {
+  return JSON.stringify({
+    model: "claude-sonnet-4-5",
+    max_tokens: 4096,
+    messages: [{ role: "user", content: prompt }],
+  });
+}
+
+function claudeAssistantTurn(opts: {
+  thinking: string;
+  text: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+}): string {
+  const content: unknown[] = [
+    { type: "thinking", thinking: opts.thinking },
+    { type: "text", text: opts.text },
+  ];
+  if (opts.toolName) {
+    content.push({
+      type: "tool_use",
+      id: `toolu_${opts.toolName}`,
+      name: opts.toolName,
+      input: opts.toolInput ?? {},
+    });
+  }
+  return JSON.stringify({
+    id: "msg_mock",
+    type: "message",
+    role: "assistant",
+    model: "claude-sonnet-4-5",
+    content,
+  });
+}
+
+function claudeToolResultTurn(toolId: string, output: string): string {
+  return JSON.stringify({
+    model: "claude-sonnet-4-5",
+    max_tokens: 4096,
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: toolId, content: output }],
+      },
+    ],
+  });
+}
+
+function codexAssistantTurn(opts: {
+  reasoning: string;
+  text: string;
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+}): string {
+  const message: Record<string, unknown> = {
+    role: "assistant",
+    content: opts.text,
+    reasoning_content: opts.reasoning,
+  };
+  if (opts.toolName) {
+    message.tool_calls = [
+      {
+        id: `call_${opts.toolName}`,
+        type: "function",
+        function: {
+          name: opts.toolName,
+          arguments: JSON.stringify(opts.toolArgs ?? {}),
+        },
+      },
+    ];
+  }
+  return JSON.stringify({
+    id: "chatcmpl_mock",
+    object: "chat.completion",
+    model: "gpt-5",
+    choices: [{ index: 0, message, finish_reason: opts.toolName ? "tool_calls" : "stop" }],
+  });
+}
+
 export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
   if (scenario === "empty" || scenario === "fresh") return [];
   const limitHit = scenario === "limit-hit";
@@ -273,23 +352,137 @@ export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
     { provider: "codex", model: "gpt-5", account: "main@openai.example" },
   ];
   for (let i = 0; i < 48; i++) {
-    const m = models[i % models.length]!;
+    // Keep provider/model stable for the whole session so tool calls pair with results.
+    const sessionIndex = Math.floor(i / 4);
+    const m = models[sessionIndex % models.length]!;
     const fail = limitHit && i < 6;
-    const role = i % 3 === 0 ? "user" : "assistant";
+    const session = sessionIndex + 1;
+    const step = i % 4;
+    let role = "assistant";
+    let content: string;
+    if (fail) {
+      role = "assistant";
+      content = `rate_limit_error: ${m.provider} quota exhausted for window`;
+    } else if (m.provider === "codex") {
+      if (step === 0) {
+        role = "user";
+        content = JSON.stringify({
+          model: m.model,
+          messages: [
+            { role: "user", content: `How do I inspect conversation history for session ${session}?` },
+          ],
+        });
+      } else if (step === 1) {
+        role = "assistant";
+        content =
+          JSON.stringify({
+            model: m.model,
+            messages: [
+              { role: "user", content: `How do I inspect conversation history for session ${session}?` },
+            ],
+          }) +
+          "\n---\n" +
+          codexAssistantTurn({
+            reasoning: "User wants history search — call the local search tool first.",
+            text: "I'll search your captured Rivet history.",
+            toolName: "search_history",
+            toolArgs: { query: `session ${session}`, limit: 20 },
+          });
+      } else if (step === 2) {
+        role = "tool";
+        content = JSON.stringify({
+          model: m.model,
+          messages: [
+            {
+              role: "tool",
+              tool_call_id: "call_search_history",
+              content: JSON.stringify({ hits: 3, preview: "Found matching turns" }),
+            },
+          ],
+        });
+      } else {
+        role = "assistant";
+        content =
+          "{}\n---\n" +
+          codexAssistantTurn({
+            reasoning: "Search returned three hits; summarize for the user.",
+            text: `Found **3** matching turns for session ${session}. Open **Data** and search \`${session}\`.`,
+          });
+      }
+    } else if (step === 0) {
+      role = "user";
+      content = claudeUserTurn(`How do I inspect conversation history for session ${session}?`);
+    } else if (step === 1) {
+      role = "assistant";
+      // First Claude hop in odd sessions uses Bash so terminal rendering is visible.
+      if (session % 2 === 1) {
+        content =
+          claudeUserTurn(`How do I inspect conversation history for session ${session}?`) +
+          "\n---\n" +
+          claudeAssistantTurn({
+            thinking: "Check the local store with a quick shell listing first.",
+            text: "I'll inspect the Rivet data directory.",
+            toolName: "Bash",
+            toolInput: { command: "ls -la ~/Library/Application\\ Support/Rivet | head" },
+          });
+      } else {
+        content =
+          claudeUserTurn(`How do I inspect conversation history for session ${session}?`) +
+          "\n---\n" +
+          claudeAssistantTurn({
+            thinking: "Need local history — use semantic_search if vectorization is on.",
+            text: "I'll look through your captured conversations.",
+            toolName: "semantic_search",
+            toolInput: { query: `session ${session}`, limit: 10 },
+          });
+      }
+    } else if (step === 2) {
+      role = "user";
+      if (session % 2 === 1) {
+        content = claudeToolResultTurn(
+          "toolu_Bash",
+          JSON.stringify(
+            {
+              stdout:
+                "total 24\ndrwxr-xr-x  8 user  staff   256 Nov  8 07:02 .\ndrwxr-xr-x  12 user  staff   384 Nov  8 07:02 ..\ndrwxr-xr-x  4 user  staff   128 Nov  8 07:02 meta\n-rw-r--r--  1 user  staff  1024 Nov  8 07:02 config.json",
+              stderr: "",
+              exit_code: 0,
+            },
+            null,
+            2,
+          ),
+        );
+      } else {
+        content = claudeToolResultTurn(
+          "toolu_semantic_search",
+          JSON.stringify({ mode: "vector", results: [{ title: `Session ${session}` }] }, null, 2),
+        );
+      }
+    } else {
+      role = "assistant";
+      content =
+        "{}\n---\n" +
+        claudeAssistantTurn({
+          thinking: "Tool returned a hit — explain how to open it in the Data pane.",
+          text: `Session ${session} is in **Data**. Use list search (vector when enabled) or search inside the thread for tool calls and thinking.`,
+        });
+    }
+    // Older steps first within a session so transcripts read top→bottom like T3.
+    const stepInSession = i % 4;
     rows.push({
       id: uuid(i + 1),
-      ts: hoursAgo(i * 0.12),
+      ts: hoursAgo(sessionIndex * 0.5 + (3 - stepInSession) * 0.08),
       provider: m.provider,
       model: m.model,
       role,
-      content: fail
-        ? `rate_limit_error: ${m.provider} quota exhausted for window`
-        : `Mock ${role} turn about Rivet traffic event #${i + 1}`,
+      content,
       tokens_in: fail ? 0 : 400 + (i % 7) * 90,
       tokens_out: fail ? 0 : 120 + (i % 5) * 40,
       status_code: fail ? 429 : 200,
       account_label: m.account,
       latency_ms: fail ? 80 : 450 + (i % 9) * 60,
+      session_id: `mock-session-${sessionIndex}`,
+      project_id: i % 8 === 0 ? "rivet" : null,
     });
   }
   return rows;

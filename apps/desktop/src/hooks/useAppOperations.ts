@@ -1,36 +1,36 @@
 import { Effect } from "effect";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { WikiInfo } from "../components/WikiBoard";
 import { Rivet, rivetErrorMessage, runApp } from "../effect";
 import { pickRivetbag } from "../tauriUtils";
-import type { Page, Status, TrafficEvent } from "../types";
+import type { ConversationSummary, SearchMode, Status, TrafficEvent } from "../types";
 
 export function useAppOperations(opts: {
   ensureSession: () => Promise<void>;
   refresh: () => Promise<void>;
   refreshWiki: () => Promise<void>;
   setTrafficRows: (rows: TrafficEvent[]) => void;
+  setConversations: (rows: ConversationSummary[]) => void;
+  setSearchModeLabel: (label: string | null) => void;
   setBusy: (v: boolean) => void;
   setStatusAction: (v: string | null) => void;
   setError: (v: string | null | ((prev: string | null) => string | null)) => void;
-  setPage: (page: Page) => void;
   status: Status | null;
   wiki: WikiInfo | null;
-  importPath: string;
-  setImportPath: (v: string) => void;
+  onDataMutated?: () => void;
 }) {
   const {
     refresh,
     refreshWiki,
     setTrafficRows,
+    setConversations,
+    setSearchModeLabel,
     setBusy,
     setStatusAction,
     setError,
-    setPage,
     status,
     wiki,
-    importPath,
-    setImportPath,
+    onDataMutated,
   } = opts;
 
   const [proxyLog, setProxyLog] = useState("");
@@ -38,6 +38,8 @@ export function useAppOperations(opts: {
   const [bagNote, setBagNote] = useState<string | null>(null);
   const [bagPath, setBagPath] = useState<string | null>(null);
   const [embedModel, setEmbedModel] = useState("");
+  const [listSearching, setListSearching] = useState(false);
+  const searchGen = useRef(0);
   const [wikiModel, setWikiModel] = useState("");
 
   const loadLogs = useCallback(async () => {
@@ -113,16 +115,6 @@ export function useAppOperations(opts: {
     [setError],
   );
 
-  const pickImport = useCallback(async () => {
-    const path = await pickRivetbag();
-    if (path) {
-      setImportPath(path);
-      setPage("export");
-    } else if (!importPath) {
-      setError("File picker unavailable — paste an absolute .rivetbag path");
-    }
-  }, [importPath, setImportPath, setPage, setError]);
-
   const exportBag = useCallback(async () => {
     setBusy(true);
     try {
@@ -138,16 +130,18 @@ export function useAppOperations(opts: {
         `Exported ${body.event_count} events → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
       );
       await refresh();
+      onDataMutated?.();
     } catch (err) {
       setError(rivetErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [refresh, setBusy, setError]);
+  }, [refresh, onDataMutated, setBusy, setError]);
 
   const importBag = useCallback(async () => {
-    if (!importPath.trim()) {
-      setError("Paste an absolute path to a .rivetbag file");
+    const path = await pickRivetbag();
+    if (!path) {
+      setError("File picker unavailable — choose a .rivetbag to import");
       return;
     }
     setBusy(true);
@@ -155,18 +149,19 @@ export function useAppOperations(opts: {
       const body = await runApp(
         Effect.gen(function* () {
           yield* Rivet.requireBackend;
-          return yield* Rivet.importBag(importPath.trim());
+          return yield* Rivet.importBag(path);
         }),
       );
       if (body.error) throw new Error(body.error);
       setBagNote(`Imported ${body.event_count} events from ${body.path}`);
       await refresh();
+      onDataMutated?.();
     } catch (err) {
       setError(rivetErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [importPath, refresh, setBusy, setError]);
+  }, [refresh, onDataMutated, setBusy, setError]);
 
   const searchTraffic = useCallback(
     async (trafficQuery: string) => {
@@ -186,6 +181,92 @@ export function useAppOperations(opts: {
       }
     },
     [setTrafficRows, setBusy, setError],
+  );
+
+  const loadConversations = useCallback(async () => {
+    const gen = ++searchGen.current;
+    setListSearching(true);
+    try {
+      const rows = await runApp(
+        Effect.gen(function* () {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.listConversations(100);
+        }),
+      );
+      if (gen !== searchGen.current) return;
+      setConversations(rows);
+      setSearchModeLabel(null);
+    } catch (err) {
+      if (gen !== searchGen.current) return;
+      setError(rivetErrorMessage(err));
+    } finally {
+      if (gen === searchGen.current) setListSearching(false);
+    }
+  }, [setConversations, setSearchModeLabel, setError]);
+
+  const searchConversations = useCallback(
+    async (query: string, mode: SearchMode) => {
+      const gen = ++searchGen.current;
+      setListSearching(true);
+      try {
+        if (!query.trim()) {
+          const rows = await runApp(
+            Effect.gen(function* () {
+              yield* Rivet.requireBackend;
+              return yield* Rivet.listConversations(100);
+            }),
+          );
+          if (gen !== searchGen.current) return;
+          setConversations(rows);
+          setSearchModeLabel(null);
+          return;
+        }
+        const body = await runApp(
+          Effect.gen(function* () {
+            yield* Rivet.requireBackend;
+            return yield* Rivet.searchConversations(query, mode);
+          }),
+        );
+        if (gen !== searchGen.current) return;
+        // Keep prior rows visible until this response lands (leading UI).
+        setConversations(body.results);
+        setSearchModeLabel(
+          body.mode === "vector"
+            ? "vector"
+            : body.mode === "keyword_fallback"
+              ? "keyword fallback"
+              : body.mode === "keyword"
+                ? "keyword"
+                : null,
+        );
+      } catch (err) {
+        if (gen !== searchGen.current) return;
+        setError(rivetErrorMessage(err));
+      } finally {
+        if (gen === searchGen.current) setListSearching(false);
+      }
+    },
+    [setConversations, setSearchModeLabel, setError],
+  );
+
+  const loadConversationEvents = useCallback(
+    async (id: string): Promise<TrafficEvent[]> => {
+      setBusy(true);
+      try {
+        return await runApp(
+          Effect.gen(function* () {
+            yield* Rivet.requireBackend;
+            return yield* Rivet.getConversationEvents(id);
+          }),
+        );
+      } catch (err) {
+        setError(rivetErrorMessage(err));
+        return [];
+      } finally {
+        setBusy(false);
+      }
+    },
+    [setBusy, setError],
   );
 
   const openWiki = useCallback(async () => {
@@ -287,21 +368,27 @@ export function useAppOperations(opts: {
     setWikiModel(wikiModelName);
   }, []);
 
+  const clearBagNote = useCallback(() => setBagNote(null), []);
+
   return {
     proxyLog,
     chLog,
     bagNote,
+    clearBagNote,
     bagPath,
     embedModel,
     wikiModel,
     setWikiModel,
+    listSearching,
     loadLogs,
     proxyAction,
     copyText,
-    pickImport,
     exportBag,
     importBag,
     searchTraffic,
+    loadConversations,
+    searchConversations,
+    loadConversationEvents,
     openWiki,
     revealExport,
     saveIntelligence,
