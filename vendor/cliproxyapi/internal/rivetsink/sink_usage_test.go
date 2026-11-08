@@ -81,6 +81,9 @@ func TestGeminiThoughtsTokenCount(t *testing.T) {
 	if meta.TokensOut != 320 {
 		t.Fatalf("TokensOut=%d want 320 (20+300 thoughts)", meta.TokensOut)
 	}
+	if meta.ThinkingTokens != 300 {
+		t.Fatalf("ThinkingTokens=%d want 300", meta.ThinkingTokens)
+	}
 }
 
 func TestInferProviderAccountRouteBeatsModel(t *testing.T) {
@@ -248,6 +251,166 @@ func TestSpillBodyWritesRelativeRef(t *testing.T) {
 	}
 	if string(raw) != "full body payload" {
 		t.Fatalf("blob=%q", raw)
+	}
+}
+
+func TestInferAPIFormatAndErrorsAndMedia(t *testing.T) {
+	t.Parallel()
+	if got := inferAPIFormat("/v1/messages", nil); got != "anthropic_messages" {
+		t.Fatalf("path format=%q", got)
+	}
+	if got := inferAPIFormat("/v1/responses", nil); got != "openai_responses" {
+		t.Fatalf("responses format=%q", got)
+	}
+	if got := requestPathFromURL("http://127.0.0.1:18317/v1/chat/completions?x=1"); got != "/v1/chat/completions" {
+		t.Fatalf("path=%q", got)
+	}
+	meta := parsedMeta{}
+	extractBodySignals(
+		[]byte(`{"messages":[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png"}},{"type":"thinking","thinking":"hmm"}]}]}`),
+		[]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"slow down"}}`),
+		&meta,
+	)
+	if !meta.HasThinking {
+		t.Fatal("expected HasThinking")
+	}
+	if meta.MediaCount < 1 {
+		t.Fatalf("MediaCount=%d", meta.MediaCount)
+	}
+	if meta.ErrorType != "rate_limit_error" {
+		t.Fatalf("ErrorType=%q", meta.ErrorType)
+	}
+	if meta.ErrorMessage != "slow down" {
+		t.Fatalf("ErrorMessage=%q", meta.ErrorMessage)
+	}
+	auth := authIDFromAPIRequest([]byte("=== API REQUEST 1 ===\nAuth: provider=claude, auth_id=alice.json, type=oauth\nBody:\n{}\n"))
+	if auth != "alice.json" {
+		t.Fatalf("auth=%q", auth)
+	}
+}
+
+func TestApplyUsageKeepsCacheAndThinkingBreakdown(t *testing.T) {
+	t.Parallel()
+	meta := parsedMeta{}
+	applyUsage(&meta, "claude", map[string]any{
+		"usage": map[string]any{
+			"input_tokens":                float64(100),
+			"cache_read_input_tokens":     float64(40),
+			"cache_creation_input_tokens": float64(10),
+			"output_tokens":               float64(5),
+		},
+	})
+	if meta.TokensIn != 150 {
+		t.Fatalf("TokensIn=%d want 150", meta.TokensIn)
+	}
+	if meta.CacheReadTokens != 40 || meta.CacheCreationTokens != 10 {
+		t.Fatalf("cache read=%d create=%d", meta.CacheReadTokens, meta.CacheCreationTokens)
+	}
+	applyUsage(&meta, "codex", map[string]any{
+		"usage": map[string]any{
+			"prompt_tokens":     float64(200),
+			"completion_tokens": float64(30),
+			"completion_tokens_details": map[string]any{
+				"reasoning_tokens": float64(12),
+			},
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": float64(55),
+			},
+		},
+	})
+	if meta.ThinkingTokens != 12 {
+		t.Fatalf("ThinkingTokens=%d want 12", meta.ThinkingTokens)
+	}
+	if meta.CacheReadTokens != 55 {
+		t.Fatalf("CacheReadTokens=%d want 55 (openai cached)", meta.CacheReadTokens)
+	}
+}
+
+func TestExtractGitTaskToolsAndUpstream(t *testing.T) {
+	t.Parallel()
+	hdr := map[string][]string{
+		"X-Claude-Code-Task-Id": {"task-9"},
+		"X-Turn-Id":             {"turn-3"},
+	}
+	req := []byte(`{
+		"model":"claude-sonnet-4-5",
+		"git_state":{"cwd":"/repo","branch":"feat/x","repo_root":"/repo"},
+		"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"Bash","id":"1"}]}]
+	}`)
+	resp := []byte(`{"stop_reason":"tool_use","content":[{"type":"tool_use","name":"Read"}]}`)
+	m := parseMeta("claude", hdr, req, resp)
+	if m.GitBranch != "feat/x" {
+		t.Fatalf("GitBranch=%q", m.GitBranch)
+	}
+	if m.GitRepo != "/repo" {
+		t.Fatalf("GitRepo=%q", m.GitRepo)
+	}
+	if m.TaskID != "task-9" || m.TurnID != "turn-3" {
+		t.Fatalf("task=%q turn=%q", m.TaskID, m.TurnID)
+	}
+	if m.StopReason != "tool_use" {
+		t.Fatalf("StopReason=%q", m.StopReason)
+	}
+	if m.ToolNames != "Bash,Read" && m.ToolNames != "Read,Bash" {
+		// order follows walk order: req then resp
+		if !(strings.Contains(m.ToolNames, "Bash") && strings.Contains(m.ToolNames, "Read")) {
+			t.Fatalf("ToolNames=%q", m.ToolNames)
+		}
+	}
+	attempts, host := upstreamAttemptMeta([]byte(
+		"=== API REQUEST 1 ===\nUpstream URL: https://api.anthropic.com/v1/messages\nAuth: provider=claude, auth_id=a.json\nBody:\n{}\n" +
+			"=== API REQUEST 2 ===\nUpstream URL: https://aiplatform.googleapis.com/v1/x\nAuth: provider=vertex, auth_id=b.json\n",
+	))
+	if attempts != 2 {
+		t.Fatalf("attempts=%d want 2", attempts)
+	}
+	if host != "aiplatform.googleapis.com" {
+		t.Fatalf("host=%q", host)
+	}
+}
+
+func TestExtractAgentContextClaudeCode(t *testing.T) {
+	t.Parallel()
+	hdr := map[string][]string{
+		"X-Claude-Code-Session-Id":     {"sess-1"},
+		"X-Claude-Code-Agent-Id":       {"agent-abc"},
+		"X-Claude-Code-Parent-Agent-Id": {"agent-parent"},
+		"X-Claude-Code-Request-Class":  {"subagent"},
+		"X-Claude-Code-Agent-Type":     {"Explore"},
+	}
+	m := parseMeta("claude", hdr, []byte(`{"model":"claude-sonnet-4-5","messages":[]}`), nil)
+	if m.SessionID != "sess-1" {
+		t.Fatalf("SessionID=%q", m.SessionID)
+	}
+	if m.AgentID != "agent-abc" {
+		t.Fatalf("AgentID=%q", m.AgentID)
+	}
+	if m.ParentAgentID != "agent-parent" {
+		t.Fatalf("ParentAgentID=%q", m.ParentAgentID)
+	}
+	if m.RequestClass != "subagent" {
+		t.Fatalf("RequestClass=%q", m.RequestClass)
+	}
+	if m.AgentType != "Explore" {
+		t.Fatalf("AgentType=%q", m.AgentType)
+	}
+}
+
+func TestExtractAgentContextOpenCodeParentSession(t *testing.T) {
+	t.Parallel()
+	hdr := map[string][]string{
+		"X-Session-Id":        {"child-sess"},
+		"X-Parent-Session-Id": {"parent-sess"},
+	}
+	m := parseMeta("other", hdr, []byte(`{"model":"x"}`), nil)
+	if m.SessionID != "child-sess" {
+		t.Fatalf("SessionID=%q", m.SessionID)
+	}
+	if m.ParentSessionID != "parent-sess" {
+		t.Fatalf("ParentSessionID=%q", m.ParentSessionID)
+	}
+	if m.RequestClass != "subagent" {
+		t.Fatalf("RequestClass=%q want subagent", m.RequestClass)
 	}
 }
 

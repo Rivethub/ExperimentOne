@@ -8,6 +8,8 @@ export type UseWikiResult = {
   wiki: WikiInfo | null;
   refreshWiki: () => Promise<void>;
   loadWikiPage: (wikiPage: WikiPageCard) => Promise<string>;
+  listArchives: (projectId: string, slug: string) => Promise<string[]>;
+  loadArchive: (projectId: string, slug: string, file: string) => Promise<string>;
 };
 
 function wikiPagesUnchanged(prev: WikiInfo, next: WikiInfo): boolean {
@@ -54,6 +56,17 @@ export function useWiki(opts: { page: string; ensureSession: () => Promise<void>
     [],
   );
 
+  const listArchives = useCallback(
+    (projectId: string, slug: string) => runApp(Rivet.loadWikiArchiveList(slug, projectId)),
+    [],
+  );
+
+  const loadArchive = useCallback(
+    (projectId: string, slug: string, file: string) =>
+      runApp(Rivet.loadWikiArchiveContent(slug, file, projectId)),
+    [],
+  );
+
   useEffect(() => {
     if (page !== "wiki") {
       return () => {
@@ -69,5 +82,5 @@ export function useWiki(opts: { page: string; ensureSession: () => Promise<void>
     };
   }, [page, refreshWiki]);
 
-  return { wiki, refreshWiki, loadWikiPage };
+  return { wiki, refreshWiki, loadWikiPage, listArchives, loadArchive };
 }

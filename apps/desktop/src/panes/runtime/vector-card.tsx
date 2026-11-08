@@ -20,6 +20,10 @@ export function RuntimeVectorCard({ status }: { status: Status | null }): React.
       statusClass={on ? (styles.ok ?? "") : ""}
     >
       <RuntimeKv label="Embeddings" value={fmt(status?.workers?.embeddings ?? 0)} />
+      <RuntimeKv
+        label="Queue"
+        value={`${fmt(status?.workers?.queue?.pending ?? 0)} pending · ${fmt(status?.workers?.queue?.running ?? 0)} running`}
+      />
       <RuntimeKv label="Last run" value={formatRelativeIso(cursor)} title={cursor} />
       <RuntimeKv label="Model" value={model} />
     </RuntimePaneCard>

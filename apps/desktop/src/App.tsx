@@ -1,6 +1,13 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { MultiAccountWarnModal } from "./components/MultiAccountWarnModal";
-import { useAccounts, useAppOperations, useQuotaDerived, useRivetData, useWiki } from "./hooks";
+import {
+  useAccounts,
+  useAppOperations,
+  useQuotaDerived,
+  useRivetData,
+  useTopics,
+  useWiki,
+} from "./hooks";
 import { MockDevBar } from "./mock";
 import {
   AppSidebar,
@@ -10,9 +17,15 @@ import {
   QuotaPane,
   RuntimePane,
   SettingsPane,
+  TopicsPane,
   WikiPane,
+  type TopicCard,
+  type TopicKnowledge,
 } from "./panes";
+import { topicArchiveSlug, topicWikiPageId } from "./components/wiki-board-logic";
 import { pageSubtitle, pageTitle } from "./lib/page-meta";
+import { runApp } from "./effect";
+import * as Rivet from "./effect/rivet";
 import {
   AccountDetailSheet,
   OnboardingOverlay,
@@ -50,6 +63,7 @@ export default function App() {
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [conversationMessages, setConversationMessages] = useState<TrafficEvent[]>([]);
   const [threadQuery, setThreadQuery] = useState("");
+  const [selectedTopicSlug, setSelectedTopicSlug] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [statusAction, setStatusAction] = useState<string | null>(null);
@@ -73,6 +87,7 @@ export default function App() {
   });
 
   const wikiHook = useWiki({ page, ensureSession: rivet.ensureSession });
+  const topicsHook = useTopics({ page, ensureSession: rivet.ensureSession });
 
   const ops = useAppOperations({
     ensureSession: rivet.ensureSession,
@@ -134,6 +149,43 @@ export default function App() {
   }, [page, loadLogs]);
 
   const vectorSearchEnabled = !!rivet.status?.capabilities.vector_search;
+
+  const loadTopicKnowledge = useCallback(
+    async (topic: TopicCard): Promise<TopicKnowledge> => {
+      const projectId = topic.project_id?.trim() || wikiHook.wiki?.project_id || "default";
+      const pageId = topicWikiPageId(projectId, topic.slug, topic.kind);
+      const archiveSlug = topicArchiveSlug(topic.slug, topic.kind);
+      let body: string | null = null;
+      if (pageId) {
+        try {
+          body = await runApp(
+            Rivet.loadWikiPageContent({
+              id: pageId,
+              project_id: projectId,
+              title: topic.title,
+              path: "",
+              relative_path: "",
+              folder: "",
+              updated_at: topic.updated_at,
+              preview: "",
+            }),
+          );
+        } catch {
+          body = null;
+        }
+      }
+      let archives: string[] = [];
+      if (archiveSlug) {
+        try {
+          archives = await wikiHook.listArchives(projectId, archiveSlug);
+        } catch {
+          archives = [];
+        }
+      }
+      return { body, archives, archiveSlug, projectId };
+    },
+    [wikiHook.listArchives, wikiHook.wiki?.project_id],
+  );
 
   useEffect(() => {
     if (vectorSearchEnabled || searchMode !== "vector") return;
@@ -304,6 +356,36 @@ export default function App() {
             threadQuery={threadQuery}
             onThreadQueryChange={setThreadQuery}
           />
+          <TopicsPane
+            active={page === "topics"}
+            topics={topicsHook.topics}
+            tidy={topicsHook.tidy}
+            tags={topicsHook.tags}
+            flagged={topicsHook.flagged}
+            busy={busy}
+            selectedSlug={selectedTopicSlug}
+            onSelect={setSelectedTopicSlug}
+            onOpenSession={(sessionId) => {
+              setPage("data");
+              setListQuery(sessionId);
+              void selectConversation(sessionId);
+            }}
+            onFilterData={(query) => {
+              setPage("data");
+              setListQuery(query);
+            }}
+            onTidyDecide={(id, status) => {
+              void topicsHook.decideTidy(id, status);
+            }}
+            onTagDecide={(id, status) => {
+              void topicsHook.decideTag(id, status);
+            }}
+            onFlaggedRetry={(task, jobKey) => {
+              void topicsHook.retryFlagged(task, jobKey);
+            }}
+            loadKnowledge={loadTopicKnowledge}
+            loadArchive={wikiHook.loadArchive}
+          />
           <RuntimePane
             active={page === "runtime"}
             status={rivet.status}
@@ -325,6 +407,8 @@ export default function App() {
             onOpenFolder={() => void ops.openWiki()}
             onEnable={() => openSettings("intelligence")}
             loadPage={wikiHook.loadWikiPage}
+            listArchives={wikiHook.listArchives}
+            loadArchive={wikiHook.loadArchive}
           />
           <SettingsPane
             active={page === "settings"}

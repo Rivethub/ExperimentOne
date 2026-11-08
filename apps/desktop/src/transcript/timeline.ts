@@ -110,6 +110,7 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
     input: unknown,
     output?: unknown,
     isError?: boolean,
+    agent?: TranscriptTurn["agent"],
   ) => {
     if (isShellTool(name, input)) {
       const command = shellCommandFromInput(input);
@@ -125,6 +126,7 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
         output: shell.output,
         exitCode: shell.exitCode,
         isError: isError || shell.isError,
+        agent,
       });
       return;
     }
@@ -137,11 +139,13 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
       input,
       output,
       isError,
+      agent,
     });
   };
 
   for (const turn of turns) {
     const consumed = new Set<number>();
+    const agent = turn.agent;
     for (let i = 0; i < turn.parts.length; i++) {
       if (consumed.has(i)) continue;
       const part = turn.parts[i]!;
@@ -155,13 +159,14 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
             id,
             ts: turn.ts,
             text: part.text,
+            agent,
           });
           break;
         case "system":
-          items.push({ kind: "system", id, ts: turn.ts, text: part.text });
+          items.push({ kind: "system", id, ts: turn.ts, text: part.text, agent });
           break;
         case "thinking":
-          items.push({ kind: "reasoning", id, ts: turn.ts, text: part.text });
+          items.push({ kind: "reasoning", id, ts: turn.ts, text: part.text, agent });
           break;
         case "tool_call": {
           let resultIndex = -1;
@@ -178,12 +183,20 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
               { kind: "tool_result" }
             >;
             consumed.add(resultIndex);
-            pushToolOrCommand(id, turn.ts, part.name, part.input, result.output, result.isError);
+            pushToolOrCommand(
+              id,
+              turn.ts,
+              part.name,
+              part.input,
+              result.output,
+              result.isError,
+              agent,
+            );
           } else if (part.id) {
             pendingCalls.set(part.id, { itemIndex: items.length, name: part.name });
-            pushToolOrCommand(id, turn.ts, part.name, part.input);
+            pushToolOrCommand(id, turn.ts, part.name, part.input, undefined, undefined, agent);
           } else {
-            pushToolOrCommand(id, turn.ts, part.name, part.input);
+            pushToolOrCommand(id, turn.ts, part.name, part.input, undefined, undefined, agent);
           }
           break;
         }
@@ -198,18 +211,28 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
                 output: shell.output,
                 exitCode: shell.exitCode,
                 isError: part.isError || shell.isError,
+                agent: existing.agent ?? agent,
               };
             } else if (existing?.kind === "tool") {
               items[pending.itemIndex] = {
                 ...existing,
                 output: part.output,
                 isError: part.isError,
+                agent: existing.agent ?? agent,
               };
             }
             pendingCalls.delete(part.id);
           } else {
             // Orphan result — show as tool with empty input.
-            pushToolOrCommand(id, turn.ts, part.name ?? "tool", {}, part.output, part.isError);
+            pushToolOrCommand(
+              id,
+              turn.ts,
+              part.name ?? "tool",
+              {},
+              part.output,
+              part.isError,
+              agent,
+            );
           }
           break;
         }

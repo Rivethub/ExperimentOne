@@ -1,4 +1,4 @@
-//! `ClickHouse` traffic store — sole persistence for captured events + embeddings.
+//! `ClickHouse` traffic store — persistence for captured events + embeddings.
 
 use std::collections::HashSet;
 
@@ -35,7 +35,32 @@ CREATE TABLE IF NOT EXISTS traffic_events (
   latency_ms Nullable(UInt64),
   status_code Nullable(UInt16),
   body_ref Nullable(String),
-  capture_quality LowCardinality(Nullable(String))
+  capture_quality LowCardinality(Nullable(String)),
+  agent_id Nullable(String),
+  parent_agent_id Nullable(String),
+  parent_session_id Nullable(String),
+  request_class LowCardinality(Nullable(String)),
+  agent_type Nullable(String),
+  cache_read_tokens UInt32 DEFAULT 0,
+  cache_creation_tokens UInt32 DEFAULT 0,
+  thinking_tokens UInt32 DEFAULT 0,
+  git_branch Nullable(String),
+  git_repo Nullable(String),
+  task_id Nullable(String),
+  turn_id Nullable(String),
+  upstream_host Nullable(String),
+  attempt_count UInt32 DEFAULT 0,
+  stop_reason LowCardinality(Nullable(String)),
+  tool_names Nullable(String),
+  stream_complete Nullable(UInt8),
+  request_path Nullable(String),
+  api_format LowCardinality(Nullable(String)),
+  error_type LowCardinality(Nullable(String)),
+  error_message Nullable(String),
+  auth_id Nullable(String),
+  has_thinking Nullable(UInt8),
+  media_count UInt32 DEFAULT 0,
+  tool_call_count UInt32 DEFAULT 0
 ) ENGINE = MergeTree
 ORDER BY (ts, id);
 ";
@@ -49,6 +74,109 @@ const TRAFFIC_EVENTS_ADD_CWD: &str = r"
 ALTER TABLE traffic_events
   ADD COLUMN IF NOT EXISTS cwd Nullable(String)
 ";
+
+const TRAFFIC_EVENTS_ADD_AGENT_ID: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS agent_id Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_PARENT_AGENT_ID: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS parent_agent_id Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_PARENT_SESSION_ID: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS parent_session_id Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_REQUEST_CLASS: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS request_class LowCardinality(Nullable(String))
+";
+const TRAFFIC_EVENTS_ADD_AGENT_TYPE: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS agent_type Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_CACHE_READ: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS cache_read_tokens UInt32 DEFAULT 0
+";
+const TRAFFIC_EVENTS_ADD_CACHE_CREATE: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS cache_creation_tokens UInt32 DEFAULT 0
+";
+const TRAFFIC_EVENTS_ADD_THINKING: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS thinking_tokens UInt32 DEFAULT 0
+";
+const TRAFFIC_EVENTS_ADD_GIT_BRANCH: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS git_branch Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_GIT_REPO: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS git_repo Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_TASK_ID: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS task_id Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_TURN_ID: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS turn_id Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_UPSTREAM_HOST: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS upstream_host Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_ATTEMPT_COUNT: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS attempt_count UInt32 DEFAULT 0
+";
+const TRAFFIC_EVENTS_ADD_STOP_REASON: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS stop_reason LowCardinality(Nullable(String))
+";
+const TRAFFIC_EVENTS_ADD_TOOL_NAMES: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS tool_names Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_STREAM_COMPLETE: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS stream_complete Nullable(UInt8)
+";
+const TRAFFIC_EVENTS_ADD_REQUEST_PATH: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS request_path Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_API_FORMAT: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS api_format LowCardinality(Nullable(String))
+";
+const TRAFFIC_EVENTS_ADD_ERROR_TYPE: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS error_type LowCardinality(Nullable(String))
+";
+const TRAFFIC_EVENTS_ADD_ERROR_MESSAGE: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS error_message Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_AUTH_ID: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS auth_id Nullable(String)
+";
+const TRAFFIC_EVENTS_ADD_HAS_THINKING: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS has_thinking Nullable(UInt8)
+";
+const TRAFFIC_EVENTS_ADD_MEDIA_COUNT: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS media_count UInt32 DEFAULT 0
+";
+const TRAFFIC_EVENTS_ADD_TOOL_CALL_COUNT: &str = r"
+ALTER TABLE traffic_events
+  ADD COLUMN IF NOT EXISTS tool_call_count UInt32 DEFAULT 0
+";
+
+const TRAFFIC_EVENT_SELECT: &str = "id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality, agent_id, parent_agent_id, parent_session_id, request_class, agent_type, cache_read_tokens, cache_creation_tokens, thinking_tokens, git_branch, git_repo, task_id, turn_id, upstream_host, attempt_count, stop_reason, tool_names, stream_complete, request_path, api_format, error_type, error_message, auth_id, has_thinking, media_count, tool_call_count";
 
 /// Lexical (64-dim) vectors with a `ClickHouse` HNSW `vector_similarity` index.
 pub const EMBEDDINGS_DDL: &str = r"
@@ -175,6 +303,31 @@ impl ClickHouseTrafficStore {
         // Existing installs created before capture_quality / cwd existed.
         self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_CAPTURE_QUALITY).await?;
         self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_CWD).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_AGENT_ID).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_PARENT_AGENT_ID).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_PARENT_SESSION_ID).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_REQUEST_CLASS).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_AGENT_TYPE).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_CACHE_READ).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_CACHE_CREATE).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_THINKING).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_GIT_BRANCH).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_GIT_REPO).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_TASK_ID).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_TURN_ID).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_UPSTREAM_HOST).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_ATTEMPT_COUNT).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_STOP_REASON).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_TOOL_NAMES).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_STREAM_COMPLETE).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_REQUEST_PATH).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_API_FORMAT).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_ERROR_TYPE).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_ERROR_MESSAGE).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_AUTH_ID).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_HAS_THINKING).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_MEDIA_COUNT).await?;
+        self.exec_sql_on(&self.database, TRAFFIC_EVENTS_ADD_TOOL_CALL_COUNT).await?;
         self.exec_sql_on(&self.database, EMBEDDINGS_DDL).await?;
         Ok(())
     }
@@ -395,6 +548,31 @@ impl ClickHouseTrafficStore {
             "status_code": event.status_code,
             "body_ref": event.body_ref,
             "capture_quality": event.capture_quality.map(CaptureQuality::as_str),
+            "agent_id": event.agent_id,
+            "parent_agent_id": event.parent_agent_id,
+            "parent_session_id": event.parent_session_id,
+            "request_class": event.request_class,
+            "agent_type": event.agent_type,
+            "cache_read_tokens": event.cache_read_tokens,
+            "cache_creation_tokens": event.cache_creation_tokens,
+            "thinking_tokens": event.thinking_tokens,
+            "git_branch": event.git_branch,
+            "git_repo": event.git_repo,
+            "task_id": event.task_id,
+            "turn_id": event.turn_id,
+            "upstream_host": event.upstream_host,
+            "attempt_count": event.attempt_count,
+            "stop_reason": event.stop_reason,
+            "tool_names": event.tool_names,
+            "stream_complete": event.stream_complete.map(u8::from),
+            "request_path": event.request_path,
+            "api_format": event.api_format,
+            "error_type": event.error_type,
+            "error_message": event.error_message,
+            "auth_id": event.auth_id,
+            "has_thinking": event.has_thinking.map(u8::from),
+            "media_count": event.media_count,
+            "tool_call_count": event.tool_call_count,
         });
         Ok(serde_json::to_string(&row)?)
     }
@@ -450,6 +628,56 @@ struct ChEventRow {
     body_ref: Option<String>,
     #[serde(default)]
     capture_quality: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    parent_agent_id: Option<String>,
+    #[serde(default)]
+    parent_session_id: Option<String>,
+    #[serde(default)]
+    request_class: Option<String>,
+    #[serde(default)]
+    agent_type: Option<String>,
+    #[serde(default)]
+    cache_read_tokens: u32,
+    #[serde(default)]
+    cache_creation_tokens: u32,
+    #[serde(default)]
+    thinking_tokens: u32,
+    #[serde(default)]
+    git_branch: Option<String>,
+    #[serde(default)]
+    git_repo: Option<String>,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    turn_id: Option<String>,
+    #[serde(default)]
+    upstream_host: Option<String>,
+    #[serde(default)]
+    attempt_count: u32,
+    #[serde(default)]
+    stop_reason: Option<String>,
+    #[serde(default)]
+    tool_names: Option<String>,
+    #[serde(default)]
+    stream_complete: Option<u8>,
+    #[serde(default)]
+    request_path: Option<String>,
+    #[serde(default)]
+    api_format: Option<String>,
+    #[serde(default)]
+    error_type: Option<String>,
+    #[serde(default)]
+    error_message: Option<String>,
+    #[serde(default)]
+    auth_id: Option<String>,
+    #[serde(default)]
+    has_thinking: Option<u8>,
+    #[serde(default)]
+    media_count: u32,
+    #[serde(default)]
+    tool_call_count: u32,
 }
 
 impl ChEventRow {
@@ -482,6 +710,32 @@ impl ChEventRow {
             status_code: self.status_code,
             body_ref: self.body_ref,
             capture_quality,
+            soft_alias: None,
+            agent_id: self.agent_id,
+            parent_agent_id: self.parent_agent_id,
+            parent_session_id: self.parent_session_id,
+            request_class: self.request_class,
+            agent_type: self.agent_type,
+            cache_read_tokens: self.cache_read_tokens,
+            cache_creation_tokens: self.cache_creation_tokens,
+            thinking_tokens: self.thinking_tokens,
+            git_branch: self.git_branch,
+            git_repo: self.git_repo,
+            task_id: self.task_id,
+            turn_id: self.turn_id,
+            upstream_host: self.upstream_host,
+            attempt_count: self.attempt_count,
+            stop_reason: self.stop_reason,
+            tool_names: self.tool_names,
+            stream_complete: self.stream_complete.map(|v| v != 0),
+            request_path: self.request_path,
+            api_format: self.api_format,
+            error_type: self.error_type,
+            error_message: self.error_message,
+            auth_id: self.auth_id,
+            has_thinking: self.has_thinking.map(|v| v != 0),
+            media_count: self.media_count,
+            tool_call_count: self.tool_call_count,
         })
     }
 }
@@ -577,7 +831,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         let limit = limit.clamp(1, 5000);
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events ORDER BY ts DESC LIMIT {limit}"
+                "SELECT {TRAFFIC_EVENT_SELECT} FROM traffic_events ORDER BY ts DESC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)
@@ -591,7 +845,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         }
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(session_id, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
+                "SELECT {TRAFFIC_EVENT_SELECT} FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(session_id, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(tool_names, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(git_branch, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(error_type, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(error_message, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(api_format, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(request_path, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(auth_id, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)
@@ -611,7 +865,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             let eid = Self::escape_literal(event_id);
             let body = self
                 .query_json_rows(&format!(
-                    "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE toString(id) = '{eid}' ORDER BY ts ASC LIMIT {limit}"
+                    "SELECT {TRAFFIC_EVENT_SELECT} FROM traffic_events WHERE toString(id) = '{eid}' ORDER BY ts ASC LIMIT {limit}"
                 ))
                 .await?;
             return Self::parse_events(&body);
@@ -619,7 +873,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         let sid = Self::escape_literal(id);
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE session_id = '{sid}' ORDER BY ts ASC LIMIT {limit}"
+                "SELECT {TRAFFIC_EVENT_SELECT} FROM traffic_events WHERE session_id = '{sid}' ORDER BY ts ASC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)
@@ -636,7 +890,7 @@ impl TrafficStore for ClickHouseTrafficStore {
             .join(",");
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events WHERE toString(id) IN ({list})"
+                "SELECT {TRAFFIC_EVENT_SELECT} FROM traffic_events WHERE toString(id) IN ({list})"
             ))
             .await?;
         Self::parse_events(&body)
@@ -656,7 +910,7 @@ impl TrafficStore for ClickHouseTrafficStore {
     async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
         let body = self
             .query_json_rows(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality FROM traffic_events ORDER BY ts ASC",
+                &format!("SELECT {TRAFFIC_EVENT_SELECT} FROM traffic_events ORDER BY ts ASC"),
             )
             .await?;
         Self::parse_events(&body)
@@ -681,4 +935,5 @@ mod tests {
         assert!(EMBEDDINGS_DDL.contains("vector_similarity('hnsw', 'cosineDistance', 64)"));
         assert!(EMBEDDINGS_DDL.contains("ReplacingMergeTree"));
     }
+
 }

@@ -22,6 +22,13 @@ export function conversationIdFor(ev: TrafficEvent): string {
   return `event:${ev.id}`;
 }
 
+function isSubagentEvent(ev: TrafficEvent): boolean {
+  if (ev.agent_id?.trim()) return true;
+  if (ev.parent_session_id?.trim()) return true;
+  const cls = (ev.request_class ?? "").trim().toLowerCase();
+  return cls === "subagent" || cls === "workflow";
+}
+
 export function conversationsFromEvents(
   events: TrafficEvent[],
   limit = 100,
@@ -33,12 +40,34 @@ export function conversationsFromEvents(
     message_count: number;
     tokens_in: number;
     tokens_out: number;
+    agent_ids: Set<string>;
+    subagent_events: number;
+    cache_read_tokens: number;
+    thinking_tokens: number;
+    tool_names: Set<string>;
+    git_branch: string | null;
+    thinking_events: number;
+    media_count: number;
+    error_events: number;
+    api_format: string | null;
   };
   const byId = new Map<string, Acc>();
   for (const ev of events) {
     const id = conversationIdFor(ev);
     const acc = byId.get(id);
+    const aid = ev.agent_id?.trim();
+    const tools = (ev.tool_names ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const branch = ev.git_branch?.trim() || null;
+    const thinkingHit = ev.has_thinking || (ev.thinking_tokens ?? 0) > 0 ? 1 : 0;
+    const errorHit =
+      (ev.error_type?.trim() ? 1 : 0) || ((ev.status_code ?? 0) >= 400 ? 1 : 0);
+    const apiFormat = ev.api_format?.trim() || null;
     if (!acc) {
+      const agent_ids = new Set<string>();
+      if (aid) agent_ids.add(aid);
       byId.set(id, {
         first: ev,
         last: ev,
@@ -46,12 +75,32 @@ export function conversationsFromEvents(
         message_count: 1,
         tokens_in: ev.tokens_in,
         tokens_out: ev.tokens_out,
+        agent_ids,
+        subagent_events: isSubagentEvent(ev) ? 1 : 0,
+        cache_read_tokens: ev.cache_read_tokens ?? 0,
+        thinking_tokens: ev.thinking_tokens ?? 0,
+        tool_names: new Set(tools),
+        git_branch: branch,
+        thinking_events: thinkingHit,
+        media_count: ev.media_count ?? 0,
+        error_events: errorHit,
+        api_format: apiFormat,
       });
       continue;
     }
     acc.message_count += 1;
     acc.tokens_in += ev.tokens_in;
     acc.tokens_out += ev.tokens_out;
+    acc.cache_read_tokens += ev.cache_read_tokens ?? 0;
+    acc.thinking_tokens += ev.thinking_tokens ?? 0;
+    acc.thinking_events += thinkingHit;
+    acc.media_count += ev.media_count ?? 0;
+    acc.error_events += errorHit;
+    for (const t of tools) acc.tool_names.add(t);
+    if (branch) acc.git_branch = branch;
+    if (apiFormat) acc.api_format = apiFormat;
+    if (isSubagentEvent(ev)) acc.subagent_events += 1;
+    if (aid) acc.agent_ids.add(aid);
     if (ev.ts < acc.first.ts) acc.first = ev;
     if (ev.ts >= acc.last.ts) acc.last = ev;
     const betterTitle =
@@ -88,6 +137,16 @@ export function conversationsFromEvents(
       tokens_in: acc.tokens_in,
       tokens_out: acc.tokens_out,
       capture_quality: acc.last.capture_quality ?? null,
+      agent_ids: [...acc.agent_ids].slice(0, 24),
+      subagent_events: acc.subagent_events,
+      cache_read_tokens: acc.cache_read_tokens || undefined,
+      thinking_tokens: acc.thinking_tokens || undefined,
+      tool_names: [...acc.tool_names].slice(0, 24),
+      git_branch: acc.git_branch,
+      thinking_events: acc.thinking_events || undefined,
+      media_count: acc.media_count || undefined,
+      error_events: acc.error_events || undefined,
+      api_format: acc.api_format,
     };
   });
   out.sort((a, b) => +new Date(b.updated_at) - +new Date(a.updated_at));
@@ -107,22 +166,37 @@ export function filterMessages(events: TrafficEvent[], query: string): TrafficEv
   const needle = query.trim().toLowerCase();
   if (!needle) return events;
   return events.filter((ev) => {
-    const hay =
-      `${ev.content ?? ""} ${ev.model ?? ""} ${ev.role ?? ""} ${ev.account_label ?? ""}`.toLowerCase();
+    const hay = [
+      ev.content ?? "",
+      ev.model ?? "",
+      ev.session_id ?? "",
+      ev.agent_id ?? "",
+      ev.agent_type ?? "",
+      ev.request_class ?? "",
+      ev.tool_names ?? "",
+      ev.git_branch ?? "",
+      ev.task_id ?? "",
+      ev.error_type ?? "",
+      ev.error_message ?? "",
+      ev.api_format ?? "",
+      ev.request_path ?? "",
+      ev.auth_id ?? "",
+    ]
+      .join("\n")
+      .toLowerCase();
     return hay.includes(needle);
   });
 }
 
 export function relativeWhen(iso: string): string {
-  const t = +new Date(iso);
-  if (!Number.isFinite(t)) return "—";
-  const diff = Date.now() - t;
-  const mins = Math.round(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.round(hours / 24);
-  if (days < 14) return `${days}d`;
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
+  if (sec < 60) return `${sec}s`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.round(min / 60);
+  if (hr < 48) return `${hr}h`;
+  const day = Math.round(hr / 24);
+  return `${day}d`;
 }

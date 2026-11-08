@@ -28,6 +28,9 @@ impl RivetPaths {
             self.clickhouse_tmp_dir().as_std_path(),
             self.clickhouse_user_files_dir().as_std_path(),
             self.clickhouse_log_dir().as_std_path(),
+            self.nats_dir().as_std_path(),
+            self.nats_store_dir().as_std_path(),
+            self.nats_log_dir().as_std_path(),
             self.blobs_dir().as_std_path(),
             self.proxy_dir().as_std_path(),
             self.proxy_auth_dir().as_std_path(),
@@ -76,6 +79,22 @@ impl RivetPaths {
 
     pub fn clickhouse_config_file(&self) -> Utf8PathBuf {
         self.clickhouse_dir().join("config.xml")
+    }
+
+    pub fn nats_dir(&self) -> Utf8PathBuf {
+        self.root.join("nats")
+    }
+
+    pub fn nats_store_dir(&self) -> Utf8PathBuf {
+        self.nats_dir().join("jetstream")
+    }
+
+    pub fn nats_log_dir(&self) -> Utf8PathBuf {
+        self.nats_dir().join("logs")
+    }
+
+    pub fn nats_config_file(&self) -> Utf8PathBuf {
+        self.nats_dir().join("nats.conf")
     }
 
     pub fn blobs_dir(&self) -> Utf8PathBuf {
@@ -140,6 +159,10 @@ impl RivetPaths {
 
     pub fn clickhouse_pid_file(&self) -> Utf8PathBuf {
         self.pid_dir().join("clickhouse.pid")
+    }
+
+    pub fn nats_pid_file(&self) -> Utf8PathBuf {
+        self.pid_dir().join("nats.pid")
     }
 
     pub fn rivetd_pid_file(&self) -> Utf8PathBuf {

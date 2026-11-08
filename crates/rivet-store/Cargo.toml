@@ -15,7 +15,9 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+async-nats.workspace = true
 chrono.workspace = true
+futures.workspace = true
 rivet-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -24,3 +26,4 @@ tokio.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 async-trait = "0.1"
+bytes.workspace = true

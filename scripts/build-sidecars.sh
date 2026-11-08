@@ -74,6 +74,12 @@ if ! "$ROOT/scripts/fetch-clickhouse.sh" "$TRIPLE"; then
   echo "WARN: ClickHouse fetch failed for $TRIPLE — rivetd will need RIVET_CLICKHOUSE_URL" >&2
 fi
 
+echo "==> fetching nats-server ($TRIPLE)"
+if ! "$ROOT/scripts/fetch-nats.sh" "$TRIPLE"; then
+  echo "WARN: nats-server fetch failed for $TRIPLE — rivetd will need RIVET_NATS_URL" >&2
+fi
+
 ls -lh "$OUT"/rivetd-"$TRIPLE"* "$OUT"/rivet-proxy-"$TRIPLE"* 2>/dev/null || true
 ls -lh "$OUT"/clickhouse-"$TRIPLE"* 2>/dev/null || true
+ls -lh "$OUT"/nats-server-"$TRIPLE"* 2>/dev/null || true
 echo "OK — sidecars ready for tauri build ($TRIPLE)"

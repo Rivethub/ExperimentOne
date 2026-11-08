@@ -70,6 +70,121 @@ export const getWiki = apiJson<WikiInfo>("GET", "/v1/wiki");
 export const getWikiPage = (id: string): ApiFx<{ content: string }> =>
   apiJson<{ content: string }>("GET", `/v1/wiki/page?${new URLSearchParams({ id })}`);
 
+export type WikiArchiveList = {
+  project_id: string;
+  slug: string;
+  files: string[];
+};
+
+export type WikiArchiveBody = {
+  project_id: string;
+  slug: string;
+  file: string;
+  content: string;
+};
+
+export const listWikiArchives = (
+  slug: string,
+  projectId?: string,
+): ApiFx<WikiArchiveList> => {
+  const params = new URLSearchParams({ slug });
+  if (projectId) params.set("project_id", projectId);
+  return apiJson<WikiArchiveList>("GET", `/v1/wiki/archives?${params}`);
+};
+
+export const getWikiArchive = (
+  slug: string,
+  file: string,
+  projectId?: string,
+): ApiFx<WikiArchiveBody> => {
+  const params = new URLSearchParams({ slug, file });
+  if (projectId) params.set("project_id", projectId);
+  return apiJson<WikiArchiveBody>("GET", `/v1/wiki/archive?${params}`);
+};
+
+export type TopicCard = {
+  slug: string;
+  title: string;
+  project_id?: string;
+  aliases?: string[];
+  tags?: string[];
+  event_ids?: string[];
+  session_ids?: string[];
+  summary?: string | null;
+  curated?: boolean;
+  placement_by?: "heuristic" | "categorizer" | "you";
+  decisions?: string[];
+  startup_context?: string | null;
+  kind?: string;
+  parent_slug?: string | null;
+  updated_at: string;
+};
+
+export const listTopics = (q = "", limit = 100): ApiFx<TopicCard[]> =>
+  apiJson<TopicCard[]>("GET", `/v1/topics?limit=${limit}&q=${encodeURIComponent(q.trim())}`);
+export const getTopic = (slug: string): ApiFx<TopicCard> =>
+  apiJson<TopicCard>("GET", `/v1/topics/item?${new URLSearchParams({ slug })}`);
+export type TidyProposal = {
+  id: string;
+  action: string;
+  from_slug?: string | null;
+  to_slug?: string | null;
+  title?: string | null;
+  reason: string;
+  status: string;
+  created_at: string;
+};
+export const listTidy = (): ApiFx<{ proposals: TidyProposal[] }> =>
+  apiJson<{ proposals: TidyProposal[] }>("GET", "/v1/topics/tidy?pending=true");
+export const decideTidy = (
+  id: string,
+  status: "approved" | "rejected",
+): ApiFx<{ proposal: TidyProposal }> =>
+  apiJson<{ proposal: TidyProposal }>("POST", "/v1/topics/tidy", { id, status });
+
+export type TagSuggestion = {
+  id: string;
+  session_id: string;
+  tag: string;
+  status: string;
+  created_at: string;
+};
+export const listTags = (): ApiFx<{ suggestions: TagSuggestion[] }> =>
+  apiJson<{ suggestions: TagSuggestion[] }>("GET", "/v1/topics/tags");
+export const decideTag = (
+  id: string,
+  status: "accepted" | "rejected",
+): ApiFx<{ suggestion: TagSuggestion }> =>
+  apiJson<{ suggestion: TagSuggestion }>("POST", "/v1/topics/tags", { id, status });
+
+export type FlaggedJob = {
+  job_key: string;
+  task: string;
+  status: string;
+  attempts?: number;
+  last_error?: string | null;
+  updated_at?: string;
+};
+export const listFlagged = (): ApiFx<{ flagged: FlaggedJob[] }> =>
+  apiJson<{ flagged: FlaggedJob[] }>("GET", "/v1/workers/flagged");
+export const retryFlagged = (
+  task: string,
+  job_key: string,
+): ApiFx<{ ok: boolean }> =>
+  apiJson<{ ok: boolean }>("POST", "/v1/workers/flagged", { task, job_key });
+
+export const getMemoryStats = apiJson<Record<string, unknown>>("GET", "/v1/memory/stats");
+export const getMemoryStartup = (
+  topic?: string,
+  q?: string,
+): ApiFx<{ markdown: string }> => {
+  const params = new URLSearchParams();
+  if (topic) params.set("topic", topic);
+  if (q) params.set("q", q);
+  const qs = params.toString();
+  return apiJson<{ markdown: string }>("GET", `/v1/memory/startup${qs ? `?${qs}` : ""}`);
+};
+
 export const proxyAction = (path: "start" | "stop" | "restart"): ApiFx<unknown> =>
   apiJson("POST", `/v1/proxy/${path}`);
 
@@ -163,5 +278,26 @@ export const loadWikiPageContent = (page: WikiPageCard): ApiBackendFx<string> =>
   Effect.gen(function* runLoadWikiPageContent() {
     yield* ensureRivetd;
     const body = yield* getWikiPage(page.id);
+    return body.content;
+  });
+
+export const loadWikiArchiveList = (
+  slug: string,
+  projectId?: string,
+): ApiBackendFx<string[]> =>
+  Effect.gen(function* runLoadWikiArchiveList() {
+    yield* ensureRivetd;
+    const body = yield* listWikiArchives(slug, projectId);
+    return body.files;
+  });
+
+export const loadWikiArchiveContent = (
+  slug: string,
+  file: string,
+  projectId?: string,
+): ApiBackendFx<string> =>
+  Effect.gen(function* runLoadWikiArchiveContent() {
+    yield* ensureRivetd;
+    const body = yield* getWikiArchive(slug, file, projectId);
     return body.content;
   });

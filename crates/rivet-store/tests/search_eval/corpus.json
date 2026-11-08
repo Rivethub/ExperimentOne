@@ -1,0 +1,62 @@
+{
+  "queries": [
+    {
+      "id": "path",
+      "q": "crates/rivet-worker/src/lib.rs",
+      "expect_any": ["e-path"],
+      "mode": "lexical"
+    },
+    {
+      "id": "pr",
+      "q": "PR #4821",
+      "expect_any": ["e-pr"],
+      "mode": "lexical"
+    },
+    {
+      "id": "prose",
+      "q": "oauth pkce redirect",
+      "expect_any": ["e-oauth", "e-auth"],
+      "mode": "hybrid"
+    },
+    {
+      "id": "shared",
+      "q": "compaction summary dag",
+      "expect_any": ["e-compact"],
+      "mode": "hybrid"
+    },
+    {
+      "id": "boosted",
+      "q": "oauth redirect flow",
+      "expect_any": ["e-oauth"],
+      "mode": "boosted"
+    }
+  ],
+  "docs": {
+    "e-path": "error in crates/rivet-worker/src/lib.rs while embedding chunks",
+    "e-pr": "merged PR #4821 fixing soft-to-wire session remap",
+    "e-oauth": "Currently, OAuth uses PKCE redirect with code_verifier.",
+    "e-auth": "OAuth login session wiring and PKCE redirect for Claude device flow",
+    "e-compact": "leaf to branch to root compaction summary DAG",
+    "e-other": "unrelated proxy spool notes"
+  },
+  "keyword_arms": {
+    "path": ["e-path", "e-other"],
+    "pr": ["e-pr", "e-other"],
+    "prose": ["e-oauth", "e-auth", "e-other"],
+    "shared": ["e-other", "e-compact"],
+    "boosted": ["e-auth", "e-oauth", "e-other"]
+  },
+  "vector_arms": {
+    "path": ["e-other"],
+    "pr": ["e-other"],
+    "prose": ["e-auth", "e-oauth"],
+    "shared": ["e-compact"],
+    "boosted": ["e-oauth", "e-auth"]
+  },
+  "summary_ids": ["e-compact"],
+  "boosts": {
+    "e-oauth": 0.35,
+    "e-auth": 0.05,
+    "e-other": 0.0
+  }
+}

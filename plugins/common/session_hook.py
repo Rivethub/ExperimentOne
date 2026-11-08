@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Report or clear harness session → project bindings with Rivet."""
+"""Optional harness metadata for Rivet — never a traffic ingress path.
+
+Live capture is proxy-only (`rivetsink` → `/v1/ingest`). This hook only:
+  - binds session_id → cwd/provider (so ingest can attach project_id)
+  - clears the binding on SessionEnd
+  - on SessionStart, injects budgeted startup memory including workspace
+    SOUL.md / IDENTITY.md / MEMORY.md when present
+
+It does not post tool/thinking/content into Rivet.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +18,21 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+# Well-known workspace identity files (RivetOS-style). First path wins per title.
+_WORKSPACE_FILES: list[tuple[str, str]] = [
+    ("SOUL.md", "soul"),
+    ("IDENTITY.md", "identity"),
+    ("MEMORY.md", "memory"),
+    ("AGENTS.md", "agents"),
+    (".rivet/SOUL.md", "soul"),
+    (".rivet/IDENTITY.md", "identity"),
+    (".rivet/MEMORY.md", "memory"),
+    ("memory/SOUL.md", "soul"),
+    ("memory/IDENTITY.md", "identity"),
+    ("memory/MEMORY.md", "memory"),
+]
 
 
 def _api_base() -> str:
@@ -44,7 +68,7 @@ def _cwd(data: dict) -> str:
         for root in roots:
             if isinstance(root, str) and root.strip():
                 return root.strip()
-    for env_key in ("CLAUDE_PROJECT_DIR", "PWD"):
+    for env_key in ("CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "PWD"):
         value = os.environ.get(env_key, "").strip()
         if value:
             return value
@@ -61,6 +85,21 @@ def _event_name(data: dict) -> str:
 def _is_end(event: str) -> bool:
     normalized = event.replace("_", "").replace("-", "").lower()
     return normalized == "sessionend"
+
+
+def _is_bind_event(event: str) -> bool:
+    """Only session/cwd/prompt heartbeats refresh bindings — never tool/stop hooks."""
+    normalized = event.replace("_", "").replace("-", "").lower()
+    return normalized in {
+        "sessionstart",
+        "cwdchanged",
+        "userpromptsubmit",
+        "beforesubmitprompt",
+    }
+
+
+def _is_session_start(event: str) -> bool:
+    return event.replace("_", "").replace("-", "").lower() == "sessionstart"
 
 
 def _provider(data: dict) -> str:
@@ -112,6 +151,25 @@ def _request(method: str, path: str, payload: dict | None, key: str) -> None:
         return
 
 
+def _read_workspace_files(cwd: str) -> dict[str, str]:
+    """Load SOUL / IDENTITY / MEMORY from the project root (plugin-side)."""
+    root = Path(cwd)
+    out: dict[str, str] = {}
+    for rel, key in _WORKSPACE_FILES:
+        if key in out:
+            continue
+        for candidate in (root / rel, root / rel.lower()):
+            try:
+                text = candidate.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            body = text.strip()
+            if body:
+                out[key] = body
+                break
+    return out
+
+
 def main() -> int:
     data = _load_payload()
     session_id = _session_id(data)
@@ -125,6 +183,11 @@ def main() -> int:
         quoted = urllib.parse.quote(session_id)
         _request("DELETE", f"/v1/harness/session?session_id={quoted}", None, key)
         return 0
+
+    if not _is_bind_event(event):
+        # Tool/stop/thinking hooks must not ingress content — ignore.
+        return 0
+
     cwd = _cwd(data)
     if not cwd:
         return 0
@@ -139,7 +202,93 @@ def main() -> int:
         },
         key,
     )
+    # Optional: inject budgeted startup memory (workspace SOUL/IDENTITY/MEMORY + Rivet recall).
+    if _is_session_start(event):
+        if os.environ.get("RIVET_STARTUP_INJECT", "1").strip() not in {"0", "false", "no"}:
+            memory = _fetch_startup_memory(key, cwd)
+            if memory:
+                _emit_startup_context(memory, _provider(data))
     return 0
+
+
+def _fetch_startup_memory(key: str, cwd: str) -> str:
+    workspace = _read_workspace_files(cwd)
+    # Prefer project folder name as a soft search hint — not the full path.
+    hint = Path(cwd).name if cwd else ""
+    payload = {
+        "cwd": cwd,
+        "q": hint,
+        "limit": 8,
+        "workspace": workspace,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_api_base()}/v1/memory/startup",
+        data=data,
+        headers={
+            "Host": "127.0.0.1",
+            "X-Rivet-Key": key,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        # Fall back to GET with cwd if POST is unavailable.
+        return _fetch_startup_memory_get(key, cwd, hint)
+    if not isinstance(body, dict):
+        return ""
+    markdown = body.get("markdown")
+    if isinstance(markdown, str) and markdown.strip():
+        return markdown.strip()[:6000]
+    return ""
+
+
+def _fetch_startup_memory_get(key: str, cwd: str, hint: str) -> str:
+    params = urllib.parse.urlencode({"cwd": cwd, "q": hint, "limit": "8"})
+    req = urllib.request.Request(
+        f"{_api_base()}/v1/memory/startup?{params}",
+        headers={"Host": "127.0.0.1", "X-Rivet-Key": key},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(body, dict):
+        return ""
+    markdown = body.get("markdown")
+    if isinstance(markdown, str) and markdown.strip():
+        return markdown.strip()[:6000]
+    return ""
+
+
+def _emit_startup_context(markdown: str, provider: str) -> None:
+    """Emit SessionStart context for Claude Code and Cursor (dual field names)."""
+    # Claude Code: hookSpecificOutput.additionalContext (camelCase)
+    # Cursor: top-level additional_context (snake_case); requires valid JSON stdout
+    payload: dict = {
+        "additional_context": markdown,
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": markdown,
+        },
+    }
+    if provider == "cursor":
+        # Cursor sessionStart is fire-and-forget; keep the payload minimal + dual keys.
+        payload = {
+            "additional_context": markdown,
+            "additionalContext": markdown,
+        }
+    try:
+        sys.stdout.write(json.dumps(payload))
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    except OSError:
+        return
 
 
 if __name__ == "__main__":

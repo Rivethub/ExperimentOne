@@ -19,12 +19,19 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rivet_core::{
-    claude_mcp_json, claude_settings_json, codex_config_toml, conversations_from_events,
-    harness_user_ready, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
-    project_id_from_cwd, provider_catalog, resolve_project_root, Capabilities, ConversationSummary,
-    ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
+    age_days_since, assemble_startup_memory_with_workspace, claude_mcp_json,
+    load_workspace_memory, WorkspaceMemorySection,
+    claude_settings_json, codex_config_toml, conversations_from_events, harness_user_ready,
+    hydrate_event_content, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
+    normalize_event_turns, project_id_from_cwd, provider_catalog, recency_boost,
+    resolve_project_root, Capabilities, ConversationSummary, ProviderKind, RivetConfig, RivetPaths,
+    TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
 };
-use rivet_store::{ClickHouseTrafficStore, MetaStore, SessionBinding, TrafficStore, WikiPageMeta};
+use rivet_store::{
+    fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseTrafficStore,
+    JobStatus, MetaStore, NatsJobStore, QueueStats, SessionBinding, TopicMeta, TrafficStore,
+    WikiPageMeta, WorkerRole,
+};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -57,6 +64,8 @@ pub struct ApiState {
     pub store: Arc<dyn TrafficStore>,
     /// `ClickHouse` client used for HNSW vector search / embedding counts.
     pub ch: Arc<ClickHouseTrafficStore>,
+    /// NATS `JetStream` job plane.
+    pub jobs: Arc<NatsJobStore>,
     pub control: Arc<dyn ControlApi>,
     pub paths: RivetPaths,
     pub meta: Arc<MetaStore>,
@@ -107,6 +116,9 @@ pub struct WorkersStatus {
     pub wiki_pages: u64,
     pub vectorize_cursor: Option<String>,
     pub wiki_cursor: Option<String>,
+    /// Role this process claims (`RIVET_WORKER_ROLE`).
+    pub role: String,
+    pub queue: QueueStats,
 }
 
 #[allow(clippy::struct_excessive_bools)] // Desktop onboarding checklist flags map to UI steps.
@@ -408,6 +420,21 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/quota/history", get(quota_history))
         .route("/v1/wiki", get(wiki_info))
         .route("/v1/wiki/page", get(wiki_page))
+        .route("/v1/wiki/archives", get(wiki_archives))
+        .route("/v1/wiki/archive", get(wiki_archive_file))
+        .route("/v1/topics", get(topics_list).post(topic_curate))
+        .route("/v1/topics/item", get(topic_get))
+        .route("/v1/topics/tidy", get(tidy_list).post(tidy_decide))
+        .route("/v1/topics/tags", get(tags_list).post(tags_decide))
+        .route(
+            "/v1/memory/startup",
+            get(memory_startup).post(memory_startup_post),
+        )
+        .route("/v1/workers/flagged", get(workers_flagged).post(workers_flagged_retry))
+        .route("/v1/summaries", get(summaries_list))
+        .route("/v1/traffic/full", get(traffic_get_full))
+        .route("/v1/conversations/browse", get(conversation_browse))
+        .route("/v1/memory/stats", get(memory_stats))
         .route("/v1/harness/claude.env", get(claude_env))
         .route("/v1/harness/codex.toml", get(codex_toml))
         .route("/v1/harness/mcp.json", get(mcp_json))
@@ -430,6 +457,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/import", post(import_bag))
         .route("/v1/ingest/local", post(ingest_local))
         .route("/v1/workers/tick", post(workers_tick))
+        .route("/v1/workers/queue", get(workers_queue))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_api_key));
 
     public.merge(protected).layer(localhost_cors()).with_state(state)
@@ -438,41 +466,71 @@ pub fn router(state: ApiState) -> Router {
 async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     let usage = state.store.usage_totals().await.unwrap_or_default();
     let proxy_running = state.control.proxy_running();
-    let cfg = state.config.read().await;
-    let key = &cfg.proxy_access_key;
-    let hint = if key.len() > 12 {
-        format!("{}…{}", &key[..8], &key[key.len() - 4..])
-    } else {
-        "***".into()
+    let (
+        proxy_port,
+        proxy_base_url,
+        mcp_url,
+        access_key_hint,
+        capabilities,
+        embedding_model,
+        wiki_model,
+        wiki_project_id,
+        cfg_for_migrate,
+    ) = {
+        let cfg = state.config.read().await;
+        let key = &cfg.proxy_access_key;
+        let hint = if key.len() > 12 {
+            format!("{}…{}", &key[..8], &key[key.len() - 4..])
+        } else {
+            "***".into()
+        };
+        (
+            cfg.proxy_port,
+            cfg.proxy_base_url(),
+            cfg.mcp_url(),
+            hint,
+            cfg.capabilities,
+            cfg.embedding_model.clone(),
+            cfg.wiki_model.clone(),
+            cfg.wiki_project_id.clone(),
+            cfg.clone(),
+        )
     };
     let account_count = state.control.list_accounts().map_or(0, |a| a.len() as u64);
     let mut warnings = Vec::new();
-    if !proxy_running && !localhost_port_free(cfg.proxy_port) {
+    if !proxy_running && !localhost_port_free(proxy_port) {
         warnings.push(format!(
-            "Proxy port {} is already in use by another process — stop it or change proxy_port in config.json",
-            cfg.proxy_port
+            "Proxy port {proxy_port} is already in use by another process — stop it or change proxy_port in config.json"
         ));
     }
     // Strip leftover ANTHROPIC_AUTH_TOKEN from earlier Rivet installs so Claude
     // Code keeps claude.ai connectors enabled.
     let isolated_claude = state.paths.harness_claude_dir().join("settings.json");
-    let _ = migrate_claude_connector_auth(&cfg, Some(isolated_claude.as_std_path()));
+    let _ = migrate_claude_connector_auth(&cfg_for_migrate, Some(isolated_claude.as_std_path()));
     let harness_ready = harness_user_ready()
         || state.paths.harness_claude_dir().join("settings.json").exists()
         || state.paths.harness_codex_dir().join("config.toml").exists();
+    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    let queue = state.jobs.queue_stats().await.unwrap_or(QueueStats {
+        pending: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        dead: 0,
+    });
     Json(StatusResponse {
         ok: true,
         proxy_running,
-        proxy_base_url: cfg.proxy_base_url(),
-        mcp_url: cfg.mcp_url(),
-        access_key_hint: hint,
-        capabilities: cfg.capabilities,
+        proxy_base_url,
+        mcp_url,
+        access_key_hint,
+        capabilities,
         usage,
         account_count,
         traffic_backend: state.traffic_backend,
         wiki_dir: state.paths.wiki_dir().to_string(),
-        embedding_model: cfg.embedding_model.clone(),
-        wiki_model: cfg.wiki_model.clone(),
+        embedding_model,
+        wiki_model,
         warnings,
         onboarding: OnboardingStatus {
             proxy_running,
@@ -481,12 +539,14 @@ async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             harness_ready,
         },
         workers: WorkersStatus {
-            vector_search: cfg.capabilities.vector_search,
-            wiki: cfg.capabilities.wiki,
-            embeddings: state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0),
-            wiki_pages: state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
+            vector_search: capabilities.vector_search,
+            wiki: capabilities.wiki,
+            embeddings,
+            wiki_pages: state.meta.wiki_page_count(&wiki_project_id).unwrap_or(0),
             vectorize_cursor: state.meta.job_cursor("vectorize").ok().flatten(),
             wiki_cursor: state.meta.job_cursor("wiki").ok().flatten(),
+            role: WorkerRole::from_env().as_str().to_string(),
+            queue,
         },
     })
 }
@@ -579,7 +639,7 @@ async fn search_traffic(
 struct ConversationQuery {
     limit: Option<u32>,
     q: Option<String>,
-    /// `keyword` (default) or `vector`.
+    /// `keyword` (default), `vector` / `semantic`, or `hybrid`.
     mode: Option<String>,
     id: Option<String>,
 }
@@ -617,6 +677,19 @@ async fn conversation_events(
         .conversation_events(&id, limit)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Soft→wire: also pull events still keyed by the soft fingerprint.
+    if let Ok(aliases) = state.meta.soft_aliases_for_wire(id.trim()) {
+        for soft in aliases {
+            if let Ok(more) = state.store.conversation_events(&soft, limit).await {
+                events.extend(more);
+            }
+        }
+        events.sort_by_key(|e| e.ts);
+        events.dedup_by_key(|e| e.id);
+        if events.len() > limit as usize {
+            events.truncate(limit as usize);
+        }
+    }
     // Expand spilled full bodies so the transcript UI is not limited to the preview.
     rivet_core::hydrate_events(&state.paths, &mut events);
     Ok(Json(events))
@@ -640,6 +713,19 @@ async fn search_conversations(
     let vector_on = state.config.read().await.capabilities.vector_search;
     let mode = q.mode.as_deref().unwrap_or("keyword");
     let want_vector = matches!(mode, "vector" | "semantic");
+    let want_hybrid = matches!(mode, "hybrid" | "rrf");
+
+    if want_hybrid {
+        if !vector_on {
+            return Err(StatusCode::NOT_FOUND);
+        }
+        match hybrid_conversation_search(&state, &query, limit).await {
+            Ok((mode, results)) => {
+                return Ok(Json(ConversationSearchResponse { mode, results }));
+            },
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
 
     if want_vector {
         if !vector_on {
@@ -717,6 +803,115 @@ async fn semantic_conversation_search(
         }
     }
     Ok(("vector", conversations_from_events(&expanded, limit.max(1))))
+}
+
+async fn hybrid_conversation_search(
+    state: &ApiState,
+    query: &str,
+    limit: u32,
+) -> Result<(&'static str, Vec<ConversationSummary>), String> {
+    let fetch = hybrid_fetch_limit(limit);
+    let keyword = state
+        .store
+        .search_keyword(query, fetch)
+        .await
+        .map_err(|e| e.to_string())?;
+    let keyword_ids: Vec<String> = keyword.iter().map(|e| e.id.to_string()).collect();
+    // Prefer lexical when the query looks like a path / id.
+    if prefer_lexical_query(query) && !keyword_ids.is_empty() {
+        return Ok((
+            "hybrid_lexical",
+            conversations_from_events(&keyword, limit.max(1)),
+        ));
+    }
+    let query_vec = lexical_embed(query);
+    let hits = state
+        .ch
+        .search_embeddings(LEXICAL_SPACE, &query_vec, fetch)
+        .await
+        .map_err(|e| e.to_string())?;
+    let vector_ids: Vec<String> = hits
+        .into_iter()
+        .filter(|h| 1.0 - h.distance > 0.05)
+        .map(|h| strip_chunk_suffix(&h.event_id))
+        .collect();
+    if keyword_ids.is_empty() && vector_ids.is_empty() {
+        let results =
+            state.store.search_conversations(query, limit).await.map_err(|e| e.to_string())?;
+        return Ok(("keyword_fallback", results));
+    }
+    // Summary lineage: treat summary event_ids as summary-sourced for RRF bonus.
+    let summary_ids: Vec<String> = state
+        .meta
+        .list_summaries()
+        .unwrap_or_default()
+        .into_iter()
+        .flat_map(|s| s.event_ids)
+        .collect();
+    let mut boosts = HashMap::new();
+    let access = state
+        .meta
+        .access_counts_for(
+            &keyword_ids
+                .iter()
+                .chain(vector_ids.iter())
+                .cloned()
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_default();
+    for ev in &keyword {
+        let age = age_days_since(ev.ts);
+        let n = access.get(&ev.id.to_string()).copied().unwrap_or(0);
+        boosts.insert(ev.id.to_string(), recency_boost(age, n, 0.2));
+    }
+    let fused_ids =
+        fuse_event_id_arms_boosted(&keyword_ids, &vector_ids, &summary_ids, &boosts, limit.saturating_mul(4));
+    for id in &fused_ids {
+        let _ = state.meta.bump_access(id);
+    }
+    let found = state.store.get_by_ids(&fused_ids).await.map_err(|e| e.to_string())?;
+    let mut by_id = HashMap::new();
+    for event in &found {
+        by_id.insert(event.id.to_string(), event);
+    }
+    let mut ordered = Vec::new();
+    for id in &fused_ids {
+        if let Some(event) = by_id.remove(id) {
+            ordered.push(event.clone());
+        }
+    }
+    // Auto-expand: walk summary DAG lineage for fused hits (siblings + child events).
+    let seed_ids: Vec<String> = ordered.iter().map(|e| e.id.to_string()).collect();
+    if let Ok(extra) = state.meta.expand_events_via_lineage(&seed_ids, 24) {
+        let missing: Vec<String> = extra
+            .into_iter()
+            .filter(|id| !fused_ids.iter().any(|f| f == id))
+            .collect();
+        if !missing.is_empty() {
+            if let Ok(more) = state.store.get_by_ids(&missing).await {
+                ordered.extend(more);
+            }
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut expanded = Vec::new();
+    for ev in &ordered {
+        let cid = ev.conversation_id();
+        if !seen.insert(cid.clone()) {
+            continue;
+        }
+        let session = state.store.conversation_events(&cid, 200).await.unwrap_or_default();
+        if session.is_empty() {
+            expanded.push(ev.clone());
+        } else {
+            expanded.extend(session);
+        }
+    }
+    Ok(("hybrid", conversations_from_events(&expanded, limit.max(1))))
+}
+
+fn strip_chunk_suffix(event_id: &str) -> String {
+    event_id.split("#c").next().unwrap_or(event_id).to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -1330,6 +1525,30 @@ struct WikiPageQuery {
     path: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct WikiArchiveQuery {
+    /// Topic slug (e.g. `oauth-pkce`) under the wiki project.
+    slug: String,
+    /// Optional archive filename (`2026-01.md`). When set, returns file body.
+    file: Option<String>,
+    project_id: Option<String>,
+}
+
+#[derive(Serialize)]
+struct WikiArchiveList {
+    project_id: String,
+    slug: String,
+    files: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct WikiArchiveBody {
+    project_id: String,
+    slug: String,
+    file: String,
+    content: String,
+}
+
 fn wiki_relative_path(project: &str, stored: &str) -> String {
     let prefix = format!("wiki/{project}/");
     stored
@@ -1458,6 +1677,76 @@ async fn wiki_page(
     }))
 }
 
+async fn wiki_archives(
+    State(state): State<ApiState>,
+    Query(q): Query<WikiArchiveQuery>,
+) -> Result<Json<WikiArchiveList>, (StatusCode, Json<ErrBody>)> {
+    let project = match q.project_id.clone() {
+        Some(p) => p,
+        None => state.config.read().await.wiki_project_id.clone(),
+    };
+    let slug = q.slug.trim().trim_start_matches('/').to_string();
+    if slug.is_empty() || slug.contains("..") || slug.contains('/') {
+        return Err(err_response("invalid archive slug".into()));
+    }
+    let dir = state.paths.wiki_dir().join(&project).join("archive").join(&slug);
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir.as_std_path()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if std::path::Path::new(&name)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+            {
+                files.push(name);
+            }
+        }
+    }
+    files.sort();
+    files.reverse();
+    Ok(Json(WikiArchiveList { project_id: project, slug, files }))
+}
+
+async fn wiki_archive_file(
+    State(state): State<ApiState>,
+    Query(q): Query<WikiArchiveQuery>,
+) -> Result<Json<WikiArchiveBody>, (StatusCode, Json<ErrBody>)> {
+    let Some(file) = q.file.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
+        return Err(err_response("archive file required".into()));
+    };
+    if file.contains("..")
+        || file.contains('/')
+        || !std::path::Path::new(file)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+    {
+        return Err(err_response("invalid archive file".into()));
+    }
+    let project = match q.project_id.clone() {
+        Some(p) => p,
+        None => state.config.read().await.wiki_project_id.clone(),
+    };
+    let slug = q.slug.trim().to_string();
+    if slug.is_empty() || slug.contains("..") || slug.contains('/') {
+        return Err(err_response("invalid archive slug".into()));
+    }
+    let abs = state
+        .paths
+        .wiki_dir()
+        .join(&project)
+        .join("archive")
+        .join(&slug)
+        .join(file);
+    let content =
+        std::fs::read_to_string(abs.as_std_path()).map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(WikiArchiveBody {
+        project_id: project,
+        slug,
+        file: file.to_string(),
+        content,
+    }))
+}
+
 async fn workers_tick(
     State(state): State<ApiState>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
@@ -1465,11 +1754,506 @@ async fn workers_tick(
         return Err(err_response("workers unavailable".into()));
     };
     workers.tick_once().await.map_err(|e| err_response(e.to_string()))?;
-    let cfg = state.config.read().await;
+    let wiki_project_id = state.config.read().await.wiki_project_id.clone();
+    let queue = state.jobs.queue_stats().await.unwrap_or(QueueStats {
+        pending: 0,
+        running: 0,
+        done: 0,
+        failed: 0,
+        dead: 0,
+    });
     Ok(Json(serde_json::json!({
         "ok": true,
         "embeddings": state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0),
-        "wiki_pages": state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
+        "wiki_pages": state.meta.wiki_page_count(&wiki_project_id).unwrap_or(0),
+        "topics": state.meta.list_topics().map_or(0, |t| t.len()),
+        "summaries": state.meta.list_summaries().map_or(0, |s| s.len()),
+        "queue": queue,
+        "role": WorkerRole::from_env().as_str(),
+    })))
+}
+
+async fn workers_queue(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let queue = state.jobs.queue_stats().await.map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "role": WorkerRole::from_env().as_str(),
+        "queue": queue,
+        "tasks": {
+            "embed": WorkerRole::Embed.tasks(),
+            "compact": WorkerRole::Compact.tasks(),
+            "wiki": WorkerRole::Wiki.tasks(),
+        },
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+struct TopicQuery {
+    q: Option<String>,
+    slug: Option<String>,
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TopicCurateRequest {
+    slug: String,
+    title: Option<String>,
+    summary: Option<String>,
+    aliases: Option<Vec<String>>,
+    tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EventIdQuery {
+    id: String,
+}
+
+async fn topics_list(
+    State(state): State<ApiState>,
+    Query(q): Query<TopicQuery>,
+) -> Result<Json<Vec<TopicMeta>>, (StatusCode, Json<ErrBody>)> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let query = q.q.unwrap_or_default();
+    state
+        .meta
+        .search_topics(&query, limit)
+        .map(Json)
+        .map_err(|e| err_response(e.to_string()))
+}
+
+async fn topic_get(
+    State(state): State<ApiState>,
+    Query(q): Query<TopicQuery>,
+) -> Result<Json<TopicMeta>, (StatusCode, Json<ErrBody>)> {
+    let slug = q.slug.or(q.q).unwrap_or_default();
+    state
+        .meta
+        .get_topic(&slug)
+        .map_err(|e| err_response(e.to_string()))?
+        .map(Json)
+        .ok_or_else(|| {
+            (StatusCode::NOT_FOUND, Json(ErrBody { error: "topic not found".into() }))
+        })
+}
+
+async fn topic_curate(
+    State(state): State<ApiState>,
+    Json(body): Json<TopicCurateRequest>,
+) -> Result<Json<TopicMeta>, (StatusCode, Json<ErrBody>)> {
+    state
+        .meta
+        .mark_topic_curated(
+            &body.slug,
+            body.title,
+            body.summary,
+            body.aliases,
+            body.tags,
+        )
+        .map_err(|e| err_response(e.to_string()))?
+        .map(Json)
+        .ok_or_else(|| {
+            (StatusCode::NOT_FOUND, Json(ErrBody { error: "topic not found".into() }))
+        })
+}
+
+async fn summaries_list(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let rows = state.meta.list_summaries().map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "summaries": rows })))
+}
+
+#[derive(Debug, Deserialize)]
+struct TidyQuery {
+    pending: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TidyDecideRequest {
+    id: String,
+    /// `approved` | `rejected`
+    status: String,
+}
+
+async fn tidy_list(
+    State(state): State<ApiState>,
+    Query(q): Query<TidyQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let pending_only = q.pending.unwrap_or(true);
+    let proposals = state
+        .meta
+        .list_tidy_proposals(pending_only)
+        .map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "proposals": proposals })))
+}
+
+async fn tidy_decide(
+    State(state): State<ApiState>,
+    Json(body): Json<TidyDecideRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let status = body.status.trim();
+    if !matches!(status, "approved" | "rejected") {
+        return Err(err_response("status must be approved or rejected".into()));
+    }
+    let row = if status == "approved" {
+        state
+            .meta
+            .apply_tidy_proposal(&body.id)
+            .map_err(|e| err_response(e.to_string()))?
+    } else {
+        state
+            .meta
+            .set_tidy_status(&body.id, status)
+            .map_err(|e| err_response(e.to_string()))?
+    };
+    let Some(row) = row else {
+        return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "proposal not found".into() })));
+    };
+    Ok(Json(serde_json::json!({ "proposal": row })))
+}
+
+#[derive(Debug, Deserialize)]
+struct TagDecideRequest {
+    id: String,
+    /// `accepted` | `rejected`
+    status: String,
+}
+
+async fn tags_list(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let suggestions = state
+        .meta
+        .list_tag_suggestions(true)
+        .map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "suggestions": suggestions })))
+}
+
+async fn tags_decide(
+    State(state): State<ApiState>,
+    Json(body): Json<TagDecideRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let status = body.status.trim();
+    if !matches!(status, "accepted" | "rejected") {
+        return Err(err_response("status must be accepted or rejected".into()));
+    }
+    let Some(row) = state
+        .meta
+        .set_tag_status(&body.id, status)
+        .map_err(|e| err_response(e.to_string()))?
+    else {
+        return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "tag not found".into() })));
+    };
+    if status == "accepted" {
+        // Attach tag to any topic that already lists this session.
+        if let Ok(topics) = state.meta.list_topics() {
+            for mut topic in topics {
+                if topic.session_ids.iter().any(|s| s == &row.session_id)
+                    && !topic.tags.iter().any(|t| t == &row.tag)
+                {
+                    topic.tags.push(row.tag.clone());
+                    topic.updated_at = Utc::now().to_rfc3339();
+                    let _ = state.meta.upsert_topic(&topic);
+                }
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({ "suggestion": row })))
+}
+
+#[derive(Debug, Deserialize)]
+struct FlaggedRetryRequest {
+    task: String,
+    job_key: String,
+}
+
+async fn workers_flagged(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let jobs = state
+        .jobs
+        .list_jobs_by_status(JobStatus::Dead, 50)
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "flagged": jobs })))
+}
+
+async fn workers_flagged_retry(
+    State(state): State<ApiState>,
+    Json(body): Json<FlaggedRetryRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let dead = state
+        .jobs
+        .list_jobs_by_status(JobStatus::Dead, 200)
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    let Some(mut job) = dead
+        .into_iter()
+        .find(|j| j.task == body.task && j.job_key == body.job_key)
+    else {
+        return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "job not found".into() })));
+    };
+    job.status = JobStatus::Pending;
+    job.attempts = 0;
+    job.last_error = None;
+    job.worker_id = None;
+    job.lease_until = None;
+    job.run_at = Utc::now();
+    job.updated_at = Utc::now();
+    state.jobs.enqueue_job(&job).await.map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({ "ok": true, "job": job })))
+}
+
+#[derive(Debug, Deserialize)]
+struct StartupQuery {
+    topic: Option<String>,
+    q: Option<String>,
+    limit: Option<u32>,
+    /// Project root — when set, load SOUL.md / IDENTITY.md / MEMORY.md.
+    cwd: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct StartupWorkspaceBody {
+    #[serde(default)]
+    soul: Option<String>,
+    #[serde(default)]
+    identity: Option<String>,
+    #[serde(default)]
+    memory: Option<String>,
+    #[serde(default)]
+    agents: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct StartupPostBody {
+    #[serde(default)]
+    topic: Option<String>,
+    #[serde(default)]
+    q: Option<String>,
+    #[serde(default)]
+    limit: Option<u32>,
+    #[serde(default)]
+    cwd: Option<String>,
+    #[serde(default)]
+    workspace: Option<StartupWorkspaceBody>,
+}
+
+async fn memory_startup(
+    State(state): State<ApiState>,
+    Query(q): Query<StartupQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    build_memory_startup(
+        &state,
+        q.topic.as_deref(),
+        q.q.as_deref(),
+        q.limit,
+        q.cwd.as_deref(),
+        None,
+    )
+    .await
+}
+
+async fn memory_startup_post(
+    State(state): State<ApiState>,
+    Query(q): Query<StartupQuery>,
+    body: Option<Json<StartupPostBody>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let topic = body.topic.or(q.topic);
+    let query = body.q.or(q.q);
+    let limit = body.limit.or(q.limit);
+    let cwd = body.cwd.or(q.cwd);
+    build_memory_startup(
+        &state,
+        topic.as_deref(),
+        query.as_deref(),
+        limit,
+        cwd.as_deref(),
+        body.workspace.as_ref(),
+    )
+    .await
+}
+
+async fn build_memory_startup(
+    state: &ApiState,
+    topic_slug: Option<&str>,
+    query: Option<&str>,
+    limit: Option<u32>,
+    cwd: Option<&str>,
+    workspace_body: Option<&StartupWorkspaceBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let topic = topic_slug
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(|slug| state.meta.get_topic(slug).ok().flatten());
+    let topic_title = topic.as_ref().map(|t| t.title.clone());
+    let topic_page = topic.as_ref().and_then(|t| {
+        t.startup_context
+            .clone()
+            .or_else(|| t.summary.clone())
+            .or_else(|| {
+                (!t.decisions.is_empty()).then(|| {
+                    t.decisions.iter().map(|d| format!("- {d}")).collect::<Vec<_>>().join("\n")
+                })
+            })
+    });
+    let mut workspace = Vec::new();
+    if let Some(cwd) = cwd.map(str::trim).filter(|s| !s.is_empty()) {
+        workspace.extend(load_workspace_memory(std::path::Path::new(cwd)));
+    }
+    if let Some(ws) = workspace_body {
+        for (title, value) in [
+            ("Soul", ws.soul.as_deref()),
+            ("Identity", ws.identity.as_deref()),
+            ("Memory", ws.memory.as_deref()),
+            ("Agents", ws.agents.as_deref()),
+        ] {
+            let Some(body) = value.map(str::trim).filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            if workspace.iter().any(|s| s.title == title) {
+                continue;
+            }
+            workspace.push(WorkspaceMemorySection {
+                title: title.to_string(),
+                body: body.to_string(),
+            });
+        }
+    }
+    let recent = state.store.recent(40).await.unwrap_or_default();
+    let recent_lines: Vec<String> = recent
+        .iter()
+        .take(12)
+        .map(|e| {
+            format!(
+                "{} · {}",
+                e.session_id.as_deref().unwrap_or("-"),
+                e.content.as_deref().unwrap_or("").chars().take(100).collect::<String>()
+            )
+        })
+        .collect();
+    let mut hit_lines = Vec::new();
+    if let Some(query) = query.map(str::trim).filter(|s| !s.is_empty()) {
+        let limit = limit.unwrap_or(8).min(20);
+        if state.config.read().await.capabilities.vector_search {
+            if let Ok((_, convs)) = hybrid_conversation_search(state, query, limit).await {
+                for c in convs {
+                    let preview = c.preview.as_deref().unwrap_or(c.title.as_str());
+                    hit_lines.push(format!(
+                        "{} · {}",
+                        c.id,
+                        preview.chars().take(120).collect::<String>()
+                    ));
+                }
+            }
+        } else if let Ok(events) = state.store.search_keyword(query, limit).await {
+            for e in events {
+                hit_lines.push(
+                    e.content.as_deref().unwrap_or("").chars().take(120).collect::<String>(),
+                );
+            }
+        }
+    }
+    let markdown = assemble_startup_memory_with_workspace(
+        topic_title.as_deref(),
+        topic_page.as_deref(),
+        &workspace,
+        &recent_lines,
+        &hit_lines,
+    );
+    Ok(Json(serde_json::json!({
+        "markdown": markdown,
+        "topic": topic,
+        "workspace_sections": workspace.iter().map(|s| s.title.clone()).collect::<Vec<_>>(),
+    })))
+}
+
+async fn traffic_get_full(
+    State(state): State<ApiState>,
+    Query(q): Query<EventIdQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let id = q.id.trim();
+    if id.is_empty() {
+        return Err(err_response("id required".into()));
+    }
+    let mut events = state
+        .store
+        .get_by_ids(&[id.to_string()])
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    let Some(mut event) = events.pop() else {
+        return Err((StatusCode::NOT_FOUND, Json(ErrBody { error: "event not found".into() })));
+    };
+    hydrate_event_content(&state.paths, &mut event);
+    let turns = normalize_event_turns(&event);
+    Ok(Json(serde_json::json!({
+        "event": event,
+        "turns": turns,
+        "hydrated": event.body_ref.is_some(),
+    })))
+}
+
+async fn conversation_browse(
+    State(state): State<ApiState>,
+    Query(q): Query<ConversationQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let id = q.id.unwrap_or_default();
+    if id.trim().is_empty() {
+        return Err(err_response("id required".into()));
+    }
+    let limit = q.limit.unwrap_or(200).min(2000);
+    let mut events = state
+        .store
+        .conversation_events(&id, limit)
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    rivet_core::hydrate_events(&state.paths, &mut events);
+    let enrichments = state.meta.list_enrichments(&id, 200).unwrap_or_default();
+    let summary = state.meta.get_summary_for_session(&id).ok().flatten();
+    let turns: Vec<_> = events.iter().flat_map(normalize_event_turns).collect();
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "events": events,
+        "turns": turns,
+        "enrichments": enrichments,
+        "summary": summary,
+    })))
+}
+
+async fn memory_stats(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let usage = state.store.usage_totals().await.map_err(|e| err_response(e.to_string()))?;
+    let recent = state.store.recent(200).await.unwrap_or_default();
+    let soft = recent
+        .iter()
+        .filter(|e| {
+            e.capture_quality == Some(rivet_core::CaptureQuality::Soft)
+                || e.session_id.as_deref().is_some_and(|s| s.starts_with("soft:"))
+        })
+        .count();
+    let wire = recent.len().saturating_sub(soft);
+    let topics = state.meta.list_topics().map_or(0, |t| t.len());
+    let summaries = state.meta.list_summaries().map_or(0, |s| s.len());
+    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    Ok(Json(serde_json::json!({
+        "events": usage.events,
+        "tokens_in": usage.tokens_in,
+        "tokens_out": usage.tokens_out,
+        "recent_wire": wire,
+        "recent_soft": soft,
+        "topics": topics,
+        "summaries": summaries,
+        "embeddings": embeddings,
+        "cursors": {
+            "vectorize": state.meta.job_cursor("vectorize").ok().flatten(),
+            "wiki": state.meta.job_cursor("wiki").ok().flatten(),
+            "topics": state.meta.job_cursor("topics").ok().flatten(),
+            "classify": state.meta.job_cursor("classify").ok().flatten(),
+            "compact": state.meta.job_cursor("compact").ok().flatten(),
+        }
     })))
 }
 

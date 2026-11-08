@@ -164,6 +164,8 @@ enum TrafficCmd {
 #[derive(Subcommand, Debug)]
 enum WorkersCmd {
     Tick,
+    /// Show NATS `JetStream` job queue counters.
+    Queue,
 }
 
 #[derive(Subcommand, Debug)]
@@ -326,6 +328,10 @@ async fn run() -> Result<()> {
         Commands::Workers { action } => match action {
             WorkersCmd::Tick => {
                 let v = client.post_value("/v1/workers/tick", None).await?;
+                print_value(&v, cli.json);
+            },
+            WorkersCmd::Queue => {
+                let v = client.get_value("/v1/workers/queue").await?;
                 print_value(&v, cli.json);
             },
         },

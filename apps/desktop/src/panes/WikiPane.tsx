@@ -10,6 +10,8 @@ export type WikiPaneProps = {
   onOpenFolder: () => void;
   onEnable: () => void;
   loadPage: (page: WikiPageCard) => Promise<string>;
+  listArchives?: (projectId: string, slug: string) => Promise<string[]>;
+  loadArchive?: (projectId: string, slug: string, file: string) => Promise<string>;
 };
 
 export function WikiPane({
@@ -20,6 +22,8 @@ export function WikiPane({
   onOpenFolder,
   onEnable,
   loadPage,
+  listArchives,
+  loadArchive,
 }: WikiPaneProps): React.ReactElement {
   return (
     <div
@@ -34,6 +38,8 @@ export function WikiPane({
         onOpenFolder={onOpenFolder}
         onEnable={onEnable}
         loadPage={loadPage}
+        listArchives={listArchives}
+        loadArchive={loadArchive}
       />
     </div>
   );

@@ -4,7 +4,38 @@ import remarkGfm from "remark-gfm";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 import { reasoningPreview } from "./timeline";
-import type { TimelineItem } from "./types";
+import type { AgentContext, TimelineItem } from "./types";
+
+function shortAgentId(id: string): string {
+  const t = id.trim();
+  if (t.length <= 12) return t;
+  return `${t.slice(0, 6)}…${t.slice(-4)}`;
+}
+
+function AgentBadge({ agent }: { agent?: AgentContext }) {
+  if (!agent?.agent_id && !agent?.request_class && !agent?.agent_type) return null;
+  const label =
+    agent.agent_type?.trim() ||
+    (agent.request_class && agent.request_class !== "main"
+      ? agent.request_class
+      : agent.agent_id
+        ? "subagent"
+        : null);
+  if (!label) return null;
+  const tip = [
+    agent.agent_id ? `agent ${agent.agent_id}` : null,
+    agent.parent_agent_id ? `parent ${agent.parent_agent_id}` : null,
+    agent.request_class ? `class ${agent.request_class}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <span className={styles.t3AgentBadge} title={tip || undefined}>
+      {label}
+      {agent.agent_id ? ` · ${shortAgentId(agent.agent_id)}` : ""}
+    </span>
+  );
+}
 
 function formatJson(value: unknown): string {
   if (typeof value === "string") {
@@ -125,6 +156,7 @@ function WrenchIcon() {
 function UserMessage({ item }: { item: Extract<TimelineItem, { kind: "user_message" }> }) {
   return (
     <div className={styles.t3User}>
+      <AgentBadge agent={item.agent} />
       <MarkdownBody text={item.text} />
     </div>
   );
@@ -137,6 +169,7 @@ function AssistantMessage({
 }) {
   return (
     <div className={styles.t3Assistant}>
+      <AgentBadge agent={item.agent} />
       <MarkdownBody text={item.text} />
     </div>
   );
@@ -148,6 +181,7 @@ function ReasoningItem({ item }: { item: Extract<TimelineItem, { kind: "reasonin
     <WorkRow
       icon={<BrainIcon />}
       label={open ? "Thought" : reasoningPreview(item.text)}
+      meta={<AgentBadge agent={item.agent} />}
       open={open}
       onToggle={() => setOpen((v) => !v)}
       tone="think"
@@ -168,11 +202,14 @@ function CommandItem({ item }: { item: Extract<TimelineItem, { kind: "command_ex
       icon={<TerminalIcon />}
       label={<span className={styles.t3CmdLabel}>{short}</span>}
       meta={
-        item.exitCode != null ? (
-          <span className={item.isError ? styles.t3Bad : styles.t3Ok}>exit {item.exitCode}</span>
-        ) : item.isError ? (
-          <span className={styles.t3Bad}>failed</span>
-        ) : null
+        <>
+          <AgentBadge agent={item.agent} />
+          {item.exitCode != null ? (
+            <span className={item.isError ? styles.t3Bad : styles.t3Ok}>exit {item.exitCode}</span>
+          ) : item.isError ? (
+            <span className={styles.t3Bad}>failed</span>
+          ) : null}
+        </>
       }
       open={open}
       onToggle={() => setOpen((v) => !v)}
@@ -192,7 +229,12 @@ function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
     <WorkRow
       icon={<WrenchIcon />}
       label={item.title}
-      meta={item.isError ? <span className={styles.t3Bad}>error</span> : null}
+      meta={
+        <>
+          <AgentBadge agent={item.agent} />
+          {item.isError ? <span className={styles.t3Bad}>error</span> : null}
+        </>
+      }
       open={open}
       onToggle={() => setOpen((v) => !v)}
       tone={item.isError ? "error" : "tool"}

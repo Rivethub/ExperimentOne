@@ -2,6 +2,7 @@
 
 mod clickhouse;
 mod control_ipc;
+mod nats;
 mod pids;
 mod proxy;
 
@@ -12,12 +13,13 @@ use anyhow::{Context, Result};
 use rivet_api::ApiState;
 use rivet_ingest::IngestState;
 use rivet_mcp::McpState;
-use rivet_store::{ClickHouseTrafficStore, LocalStores};
+use rivet_store::{ClickHouseTrafficStore, LocalStores, NatsJobStore};
 use rivet_worker::WorkerPool;
 use tokio::sync::RwLock;
 use tracing::info;
 
 pub use clickhouse::ClickHouseSupervisor;
+pub use nats::NatsSupervisor;
 pub use proxy::ProxySupervisor;
 
 #[derive(Debug)]
@@ -27,6 +29,7 @@ pub struct Runtime {
     pub stores: LocalStores,
     pub proxy: Arc<ProxySupervisor>,
     pub clickhouse: Arc<ClickHouseSupervisor>,
+    pub nats: Arc<NatsSupervisor>,
     /// Held for process lifetime so a second rivetd cannot claim the instance.
     _instance_lock: rivet_core::pids::InstanceLock,
 }
@@ -62,7 +65,16 @@ impl Runtime {
         let stores = LocalStores::open(&paths)?;
         let proxy = Arc::new(ProxySupervisor::new(paths.clone(), config.clone())?);
         let clickhouse = Arc::new(ClickHouseSupervisor::new(paths.clone(), config.clone())?);
-        Ok(Self { paths, config, stores, proxy, clickhouse, _instance_lock: instance_lock })
+        let nats = Arc::new(NatsSupervisor::new(paths.clone(), config.clone())?);
+        Ok(Self {
+            paths,
+            config,
+            stores,
+            proxy,
+            clickhouse,
+            nats,
+            _instance_lock: instance_lock,
+        })
     }
 
     pub async fn run(self) -> Result<()> {
@@ -79,6 +91,37 @@ impl Runtime {
             Err(err) => {
                 tracing::warn!(?err, "proxy not started (start from UI when binary is ready)");
             },
+        }
+
+        let mut nats_url = NatsJobStore::from_env_url();
+        match self.nats.start_if_available() {
+            Ok(true) => {
+                let url = self.nats.client_url();
+                info!(%url, "nats sidecar ready");
+                if nats_url.is_none() {
+                    nats_url = Some(url.clone());
+                    std::env::set_var("RIVET_NATS_URL", &url);
+                }
+            },
+            Ok(false) => {
+                if nats_url.is_none() {
+                    anyhow::bail!(
+                        "NATS required: sidecar binary missing and RIVET_NATS_URL unset"
+                    );
+                }
+                info!("bundled nats skipped — using RIVET_NATS_URL");
+            },
+            Err(err) => {
+                if nats_url.is_none() {
+                    return Err(err).context("NATS sidecar failed and no RIVET_NATS_URL");
+                }
+                tracing::warn!(?err, "bundled nats failed — using RIVET_NATS_URL");
+            },
+        }
+        let nats_url = nats_url.expect("nats url checked above");
+        let jobs = Arc::new(NatsJobStore::connect(&nats_url).await.context("NATS job store")?);
+        if let Err(err) = jobs.ensure_schema().await {
+            tracing::warn!(?err, "nats ensure_schema failed (will retry on enqueue)");
         }
 
         let mut clickhouse_url = ClickHouseTrafficStore::from_env_url();
@@ -133,6 +176,7 @@ impl Runtime {
         let worker = Arc::new(WorkerPool::new(
             store.clone(),
             ch.clone(),
+            jobs.clone(),
             meta.clone(),
             self.paths.clone(),
             config.clone(),
@@ -143,6 +187,7 @@ impl Runtime {
             config: config.clone(),
             store: store.clone(),
             ch: ch.clone(),
+            jobs: jobs.clone(),
             control: self.proxy.clone(),
             paths: self.paths.clone(),
             meta: meta.clone(),
@@ -155,10 +200,22 @@ impl Runtime {
             store: store.clone(),
             ingest_key: self.config.proxy_access_key.clone(),
             meta: Some(meta.clone()),
+            jobs: Some(jobs.clone()),
         };
 
-        let mcp_state = McpState { store: store.clone(), ch: ch.clone(), config: config.clone() };
+        let mcp_state = McpState {
+            store: store.clone(),
+            ch: ch.clone(),
+            config: config.clone(),
+            meta: meta.clone(),
+            paths: self.paths.clone(),
+        };
 
+        let worker_role = rivet_store::WorkerRole::from_env();
+        info!(
+            role = worker_role.as_str(),
+            "spawning role-isolated NATS job workers (set RIVET_WORKER_ROLE=embed|compact|wiki for Helm splits)"
+        );
         let _worker_handles = worker.spawn();
 
         // Keep the proxy up if the user/boot asked for it.
@@ -189,6 +246,7 @@ impl Runtime {
 
         let proxy = self.proxy.clone();
         let clickhouse = self.clickhouse.clone();
+        let nats = self.nats.clone();
         let mut api_shutdown_rx = shutdown_rx;
         let shutdown = async move {
             tokio::select! {
@@ -217,6 +275,7 @@ impl Runtime {
         };
         let _ = proxy.stop();
         let _ = clickhouse.stop();
+        let _ = nats.stop();
         // Best-effort cleanup of the unix control socket.
         #[cfg(unix)]
         {

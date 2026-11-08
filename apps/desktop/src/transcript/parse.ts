@@ -491,6 +491,16 @@ export function turnFromTrafficEvent(ev: TrafficEvent): TranscriptTurn {
     displayRole = "tool";
   }
 
+  const agent =
+    ev.agent_id || ev.parent_agent_id || ev.request_class || ev.agent_type
+      ? {
+          agent_id: ev.agent_id,
+          parent_agent_id: ev.parent_agent_id,
+          request_class: ev.request_class,
+          agent_type: ev.agent_type,
+        }
+      : undefined;
+
   return {
     id: ev.id,
     role: displayRole,
@@ -498,6 +508,7 @@ export function turnFromTrafficEvent(ev: TrafficEvent): TranscriptTurn {
     ts: ev.ts,
     statusCode: ev.status_code,
     parts,
+    agent,
   };
 }
 

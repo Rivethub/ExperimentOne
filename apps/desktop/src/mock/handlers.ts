@@ -121,6 +121,158 @@ export async function handleApiRequest(
     return ok({ ok: true, refresh: { mock: true }, quota: currentQuota(s) });
   }
 
+  // Topics / memory
+  if (m === "GET" && base === "/v1/topics") {
+    const needle = (q.get("q") ?? "").trim().toLowerCase();
+    const topics = [
+      {
+        slug: "authentication",
+        title: "authentication",
+        project_id: "default",
+        aliases: [],
+        tags: ["security"],
+        event_ids: s.traffic.slice(0, 3).map((e) => e.id),
+        session_ids: [...new Set(s.traffic.map((e) => e.session_id).filter(Boolean))].slice(0, 3),
+        summary: "Mock topic clustered from demo traffic.",
+        curated: false,
+        kind: "work",
+        parent_slug: null,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        slug: "oauth-pkce",
+        title: "OAuth PKCE",
+        project_id: "default",
+        aliases: [],
+        tags: ["auth"],
+        event_ids: [],
+        session_ids: [],
+        summary: "Nested under authentication.",
+        curated: false,
+        kind: "work",
+        parent_slug: "authentication",
+        updated_at: new Date().toISOString(),
+      },
+      {
+        slug: "clickhouse",
+        title: "clickhouse",
+        project_id: "default",
+        aliases: ["analytics"],
+        tags: [],
+        event_ids: s.traffic.slice(0, 2).map((e) => e.id),
+        session_ids: [],
+        summary: "Storage and ingest discussions.",
+        curated: true,
+        kind: "work",
+        parent_slug: null,
+        updated_at: new Date().toISOString(),
+      },
+    ].filter((t) => {
+      if (!needle) return true;
+      return (
+        t.slug.includes(needle) ||
+        t.title.includes(needle) ||
+        t.summary.toLowerCase().includes(needle)
+      );
+    });
+    return ok(topics);
+  }
+  if (m === "GET" && base === "/v1/topics/tidy") {
+    return ok({
+      proposals: [
+        {
+          id: "tidy-1",
+          action: "merge",
+          from_slug: "auth-oauth",
+          to_slug: "oauth-pkce",
+          title: null,
+          reason: "Same workstream under two slugs",
+          status: "pending",
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+  }
+  if (m === "POST" && base === "/v1/topics/tidy") {
+    return ok({
+      proposal: {
+        id: "tidy-1",
+        action: "merge",
+        from_slug: "auth-oauth",
+        to_slug: "oauth-pkce",
+        title: null,
+        reason: "Same workstream under two slugs",
+        status: "approved",
+        created_at: new Date().toISOString(),
+      },
+    });
+  }
+  if (m === "GET" && base === "/v1/topics/tags") {
+    return ok({
+      suggestions: [
+        {
+          id: "tag-1",
+          session_id: "demo-session-0",
+          tag: "topic:auth",
+          status: "suggested",
+          created_at: new Date().toISOString(),
+        },
+      ],
+    });
+  }
+  if (m === "POST" && base === "/v1/topics/tags") {
+    return ok({
+      suggestion: {
+        id: "tag-1",
+        session_id: "demo-session-0",
+        tag: "topic:auth",
+        status: "accepted",
+        created_at: new Date().toISOString(),
+      },
+    });
+  }
+  if (m === "GET" && base === "/v1/workers/flagged") {
+    return ok({
+      flagged: [
+        {
+          job_key: "embed-event:dead-1",
+          task: "embed-event",
+          status: "dead",
+          attempts: 5,
+          last_error: "mock: embed timeout",
+          updated_at: new Date().toISOString(),
+        },
+      ],
+    });
+  }
+  if (m === "POST" && base === "/v1/workers/flagged") {
+    return ok({ ok: true });
+  }
+  if (m === "GET" && base === "/v1/topics/item") {
+    const slug = (q.get("slug") ?? q.get("q") ?? "").trim();
+    if (!slug) return err("slug required", 400);
+    return ok({
+      slug,
+      title: slug,
+      project_id: "default",
+      aliases: [],
+      tags: [],
+      event_ids: [],
+      session_ids: [],
+      summary: `Mock topic ${slug}`,
+      curated: false,
+      updated_at: new Date().toISOString(),
+    });
+  }
+  if (m === "GET" && base === "/v1/memory/stats") {
+    return ok({
+      events: s.traffic.length,
+      topics: 2,
+      summaries: 0,
+      embeddings: Math.min(s.traffic.length, 12),
+    });
+  }
+
   // Traffic / conversations
   if (m === "GET" && base === "/v1/traffic/recent") {
     const limit = Number(q.get("limit") ?? "200") || 200;
@@ -306,6 +458,23 @@ export async function handleApiRequest(
     const id = q.get("id") ?? "";
     const bodyText = s.wikiBodies[id] ?? `# Missing\n\nNo mock body for \`${id}\`.\n`;
     return ok({ id, markdown: bodyText, content: bodyText });
+  }
+  if (m === "GET" && base === "/v1/wiki/archives") {
+    const slug = q.get("slug") ?? "";
+    const project = q.get("project_id") ?? s.wiki.project_id;
+    const files = s.wikiArchives?.[`${project}/${slug}`] ?? s.wikiArchives?.[slug] ?? [];
+    return ok({ project_id: project, slug, files });
+  }
+  if (m === "GET" && base === "/v1/wiki/archive") {
+    const slug = q.get("slug") ?? "";
+    const file = q.get("file") ?? "";
+    const project = q.get("project_id") ?? s.wiki.project_id;
+    const key = `${project}/${slug}/${file}`;
+    const content =
+      s.wikiArchiveBodies?.[key] ??
+      s.wikiArchiveBodies?.[`${slug}/${file}`] ??
+      `# Archive · ${slug} · ${file}\n\nMock overflow segment.\n`;
+    return ok({ project_id: project, slug, file, content });
   }
 
   // Harness
