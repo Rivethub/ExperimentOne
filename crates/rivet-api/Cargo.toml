@@ -9,6 +9,7 @@ description = "Local control API for the Rivet desktop app"
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
+reqwest.workspace = true
 rivet-core.workspace = true
 rivet-export.workspace = true
 rivet-store.workspace = true

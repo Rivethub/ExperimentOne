@@ -1074,6 +1074,7 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "reqwest",
  "rivet-core",
  "rivet-export",
  "rivet-store",

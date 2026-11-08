@@ -22,7 +22,8 @@ server:
 
 management:
   allow-remote: false
-  secret-key: ""
+  # Enables /v0|/v8 management credential + quota APIs for Rivet (not the HTML panel).
+  secret-key: "{mgmt_key}"
   disable-control-panel: true
 
 access:
@@ -42,6 +43,11 @@ observability:
 "#,
         port = config.proxy_port,
         access_key = config.proxy_access_key,
+        mgmt_key = if config.management_secret.trim().is_empty() {
+            &config.proxy_access_key
+        } else {
+            &config.management_secret
+        },
         auth_dir = auth_dir.as_str(),
     )
 }

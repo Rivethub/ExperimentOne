@@ -24,6 +24,9 @@ pub struct RivetConfig {
     pub clickhouse_native_port: u16,
     /// Access key harnesses send to the proxy (not a provider credential).
     pub proxy_access_key: String,
+    /// Localhost management API key for CLIProxyAPI credential/quota endpoints.
+    #[serde(default)]
+    pub management_secret: String,
     pub capabilities: Capabilities,
     /// Optional model id routed via the local proxy for embeddings.
     #[serde(default)]
@@ -42,6 +45,7 @@ fn default_wiki_project() -> String {
 
 impl Default for RivetConfig {
     fn default() -> Self {
+        let key = generate_access_key();
         Self {
             // 18317 avoids common Docker / local stacks on 8317.
             proxy_port: 18317,
@@ -49,7 +53,8 @@ impl Default for RivetConfig {
             mcp_port: 8742,
             clickhouse_http_port: 8123,
             clickhouse_native_port: 9000,
-            proxy_access_key: generate_access_key(),
+            proxy_access_key: key.clone(),
+            management_secret: key,
             capabilities: Capabilities {
                 mcp: true,
                 // Lexical vectors + structured wiki run locally without models.
@@ -71,12 +76,21 @@ impl RivetConfig {
         if file.exists() {
             let raw = std::fs::read_to_string(file.as_std_path())?;
             let mut cfg: Self = serde_json::from_str(&raw)?;
+            cfg.ensure_management_secret();
             cfg.sync_capabilities_from_models();
+            cfg.save(paths)?;
             Ok(cfg)
         } else {
             let cfg = Self::default();
             cfg.save(paths)?;
             Ok(cfg)
+        }
+    }
+
+    /// Management API stays localhost-only; reuse the harness key when unset.
+    pub fn ensure_management_secret(&mut self) {
+        if self.management_secret.trim().is_empty() {
+            self.management_secret = self.proxy_access_key.clone();
         }
     }
 

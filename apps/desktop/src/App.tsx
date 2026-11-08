@@ -68,6 +68,41 @@ type Account = {
   reset_hint: string;
 };
 
+type QuotaAccount = {
+  id: string;
+  provider: string;
+  label: string;
+  email?: string | null;
+  remaining_pct?: number | null;
+  reset_at?: string | null;
+  cooldown_seconds?: number | null;
+  supports_quota: boolean;
+  loaded: boolean;
+  status: string;
+};
+
+type ProviderQuota = {
+  provider: string;
+  account_count: number;
+  remaining_pct: number;
+  capacity_pct: number;
+  pool_empty: string;
+  first_empty: string;
+  next_reset: string;
+  burn_last_horizon: string;
+  burn_pct_per_hour: number;
+};
+
+type QuotaSnapshot = {
+  source: string;
+  observed_at: string;
+  credentials_total: number;
+  credentials_loaded: number;
+  providers: ProviderQuota[];
+  accounts: QuotaAccount[];
+  note: string;
+};
+
 type LoginStatus = {
   active: boolean;
   provider: string | null;
@@ -188,6 +223,8 @@ function seriesFromEvents(
   horizon: "1h" | "3h" | "6h",
   mode: MetricMode,
   points = 24,
+  liveRemainingPct?: number | null,
+  liveCapacityPct?: number | null,
 ): Series {
   const filtered = events
     .filter((e) => providerKey(e.provider) === provider && inHorizon(e, horizon))
@@ -211,30 +248,43 @@ function seriesFromEvents(
 
   const totalTokens = tokensPerBucket.reduce((a, b) => a + b, 0);
   const burnPerHour = hours > 0 ? totalTokens / hours : totalTokens;
-  // Soft pool assumption for remaining % until live provider quota APIs exist.
-  const assumedPool = Math.max(80_000, totalTokens * 2.2 + 40_000);
+  const capacity = Math.max(100, liveCapacityPct ?? 100);
+  // Tokens assumed for the full pool so burn maps into % of capacity.
+  const assumedPool = Math.max(80_000 * (capacity / 100), totalTokens * 2.2 + 40_000);
+  const endRemaining =
+    liveRemainingPct != null && Number.isFinite(liveRemainingPct)
+      ? Math.max(0, liveRemainingPct)
+      : null;
 
-  let remainingCursor = 100;
-  const remaining: number[] = [];
   const burnSeries: number[] = [];
   const drainSeries: number[] = [];
-  let prevRemaining = 100;
-
-  for (let i = 0; i < points; i++) {
-    const burn = tokensPerBucket[i];
-    burnSeries.push(burn);
-    remainingCursor = Math.max(
-      0,
-      Number((remainingCursor - (burn / assumedPool) * 100).toFixed(2)),
+  const remaining: number[] = [];
+  let remainingCursor = endRemaining ?? capacity;
+  // Walk backward from live remaining so the chart ends on the real watermark.
+  const burnPctPerBucket = tokensPerBucket.map((tok) => (tok / assumedPool) * 100);
+  for (let i = points - 1; i >= 0; i--) {
+    remaining[i] = Number(remainingCursor.toFixed(2));
+    remainingCursor = Math.min(
+      capacity,
+      remainingCursor + burnPctPerBucket[i],
     );
-    remaining.push(remainingCursor);
-    drainSeries.push(Number(Math.max(0, prevRemaining - remainingCursor).toFixed(2)));
-    prevRemaining = remainingCursor;
+  }
+  let prev = remaining[0] ?? capacity;
+  for (let i = 0; i < points; i++) {
+    burnSeries.push(tokensPerBucket[i]);
+    const cur = remaining[i] ?? capacity;
+    drainSeries.push(Number(Math.max(0, prev - cur).toFixed(2)));
+    prev = cur;
   }
 
   const maxBurn = Math.max(1, ...burnSeries);
   const normalize = (vals: number[], max: number) =>
     vals.map((v) => Number(((v / max) * 100).toFixed(1)));
+
+  // Chart Y is always 0–100 of capacity for remaining; scale absolute % down.
+  const remainingChart = remaining.map((v) =>
+    Number(Math.min(100, (v / capacity) * 100).toFixed(2)),
+  );
 
   let recorded: number[];
   let headline: number;
@@ -250,28 +300,32 @@ function seriesFromEvents(
     headline = Number(drainSeries.reduce((a, b) => a + b, 0).toFixed(1));
     headlineUnit = "% pts";
   } else {
-    recorded = remaining;
-    headline = Number((remaining.at(-1) ?? 100).toFixed(0));
-    headlineUnit = "% left";
+    recorded = remainingChart;
+    headline = Number((remaining.at(-1) ?? capacity).toFixed(0));
+    headlineUnit = `% / ${Math.round(capacity)}`;
   }
 
   const last = recorded[recorded.length - 1] ?? 40;
+  const burnPctPerHour = assumedPool > 0 ? (burnPerHour / assumedPool) * 100 : 0;
   const projected = recorded.map((_, i) => {
     if (i < points - 6) return recorded[i];
     const t = (i - (points - 6)) / 6;
     if (mode === "remaining") {
-      return Math.max(0, Number((last * (1 - t * 0.55)).toFixed(1)));
+      const projectedAbs = Math.max(
+        0,
+        (remaining.at(-1) ?? 0) - burnPctPerHour * t * (hours / 6) * 6,
+      );
+      return Number(Math.min(100, (projectedAbs / capacity) * 100).toFixed(1));
     }
     return Math.max(0, Number((last * (1 - t * 0.25)).toFixed(1)));
   });
 
   let emptyAt = "—";
-  if (mode === "remaining" && burnPerHour > 0) {
-    const leftTokens = (assumedPool * (remaining.at(-1) ?? 0)) / 100;
-    const hoursLeft = leftTokens / burnPerHour;
+  if (mode === "remaining" && burnPctPerHour > 0.01) {
+    const hoursLeft = (remaining.at(-1) ?? 0) / burnPctPerHour;
     if (hoursLeft < 1) emptyAt = `~${Math.round(hoursLeft * 60)}m`;
     else emptyAt = `~${hoursLeft.toFixed(1)}h`;
-  } else if (filtered.length === 0) {
+  } else if (filtered.length === 0 && endRemaining == null) {
     emptyAt = "Sign in to track";
   } else {
     emptyAt = "Steady";
@@ -286,6 +340,15 @@ function seriesFromEvents(
     burnLabel: `${fmt(Math.round(burnPerHour))} tok/h`,
     eventsInWindow: filtered.length,
   };
+}
+
+function fmtPct(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return `${n.toFixed(n >= 10 ? 0 : 1)}%`;
+}
+
+function accountDisplay(a: QuotaAccount) {
+  return a.email || a.label || a.id;
 }
 
 function QuotaChart({
@@ -395,6 +458,133 @@ function trunc(s: string | null | undefined, n = 120) {
   return t.length > n ? `${t.slice(0, n)}…` : t;
 }
 
+function QuotaProviderCard({
+  name,
+  ico,
+  icoClass,
+  color,
+  count,
+  metricMode,
+  series,
+  pq,
+  accounts,
+  horizon,
+}: {
+  name: string;
+  ico: string;
+  icoClass: string;
+  color: string;
+  count: number;
+  metricMode: MetricMode;
+  series: Series;
+  pq: ProviderQuota | null;
+  accounts: QuotaAccount[];
+  horizon: string;
+}) {
+  const capacity = pq?.capacity_pct ?? count * 100;
+  const remaining = pq?.remaining_pct ?? series.headline;
+  const headline =
+    metricMode === "remaining" && pq
+      ? Number(remaining.toFixed(0))
+      : series.headline;
+  const unit =
+    metricMode === "remaining"
+      ? count > 0
+        ? `% / ${Math.round(capacity || count * 100)}`
+        : "% left"
+      : series.headlineUnit;
+  const poolEmpty = pq?.pool_empty && pq.pool_empty !== "—" ? pq.pool_empty : series.emptyAt;
+  const firstEmpty = pq?.first_empty ?? "—";
+  const nextReset = pq?.next_reset ?? "— pending live quota";
+  const burn = pq?.burn_last_horizon ?? series.burnLabel;
+
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div className="card-title">
+          <div className={`provider-ico ${icoClass}`}>{ico}</div>
+          <div>
+            <h2>{name}</h2>
+            <div className="meta">
+              {count} account{count === 1 ? "" : "s"}
+              {capacity > 0 ? ` · pool ${Math.round(capacity)}%` : ""} · {metricMode}
+            </div>
+          </div>
+        </div>
+        <div className="pool-stat" title="Sum of remaining % across loaded accounts vs capacity">
+          <div className={`big ${icoClass}`}>
+            {headline}
+            <span className="unit">{unit}</span>
+          </div>
+          <div className="cap">
+            {pq ? "live + traffic burn" : "from captured traffic"}
+          </div>
+        </div>
+      </div>
+      <div className="stat-row">
+        <div className="item" title="Estimated time until the pooled remaining hits zero at the current burn">
+          <div className="k">Pool empty</div>
+          <div className="v">{poolEmpty}</div>
+        </div>
+        <div className="item" title="Account expected to hit empty first under shared burn">
+          <div className="k">First empty</div>
+          <div className="v">{firstEmpty}</div>
+        </div>
+        <div className="item" title="Soonest provider reset / refill signal">
+          <div className="k">Next reset</div>
+          <div className="v">{nextReset}</div>
+        </div>
+        <div className="item" title={`Burn over the last ${horizon} of captured traffic`}>
+          <div className="k">Burn (last {horizon})</div>
+          <div className="v">{burn}</div>
+        </div>
+      </div>
+      <QuotaChart recorded={series.recorded} projected={series.projected} color={color} />
+      <div className="quota-accounts">
+        {accounts.length === 0 ? (
+          <div className="quota-account empty-row">No credentials yet — sign in under Accounts.</div>
+        ) : (
+          accounts.map((a) => {
+            const rem = a.remaining_pct;
+            const empty = rem != null && rem <= 0.5;
+            return (
+              <div
+                key={a.id}
+                className={`quota-account ${empty ? "is-empty" : ""} ${a.loaded ? "" : "is-down"}`}
+                title={
+                  a.cooldown_seconds
+                    ? `Cooldown ${a.cooldown_seconds}s · ${a.status}`
+                    : a.status
+                }
+              >
+                <div className="qa-main">
+                  <span className={`qa-dot ${empty ? "empty" : a.loaded ? "ok" : "down"}`} />
+                  <span className="qa-email">{accountDisplay(a)}</span>
+                  {!a.loaded && <span className="qa-tag">unavailable</span>}
+                  {empty && <span className="qa-tag empty">empty</span>}
+                </div>
+                <div className="qa-meta">
+                  <span title="Remaining quota for this credential">{fmtPct(rem ?? null)}</span>
+                  <span className="qa-sep">·</span>
+                  <span title="Next reset">
+                    {a.reset_at
+                      ? new Date(a.reset_at).toLocaleString(undefined, {
+                          weekday: "short",
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [page, setPage] = useState<Page>("quota");
   const [filter, setFilter] = useState<ProviderFilter>("all");
@@ -402,6 +592,7 @@ export default function App() {
   const [metricMode, setMetricMode] = useState<MetricMode>("remaining");
   const [status, setStatus] = useState<Status | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [quota, setQuota] = useState<QuotaSnapshot | null>(null);
   const [recent, setRecent] = useState<TrafficEvent[]>([]);
   const [trafficQuery, setTrafficQuery] = useState("");
   const [trafficRows, setTrafficRows] = useState<TrafficEvent[]>([]);
@@ -424,10 +615,11 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     try {
-      const [statusRes, accountsRes, recentRes] = await Promise.all([
+      const [statusRes, accountsRes, recentRes, quotaRes] = await Promise.all([
         fetch(`${API}/v1/status`),
         fetch(`${API}/v1/accounts`),
         fetch(`${API}/v1/traffic/recent?limit=200`),
+        fetch(`${API}/v1/quota`),
       ]);
       if (!statusRes.ok) throw new Error(`status ${statusRes.status}`);
       const st: Status = await statusRes.json();
@@ -435,6 +627,7 @@ export default function App() {
       setEmbedModel(st.embedding_model ?? "");
       setWikiModel(st.wiki_model ?? "");
       if (accountsRes.ok) setAccounts(await accountsRes.json());
+      if (quotaRes.ok) setQuota(await quotaRes.json());
       if (recentRes.ok) {
         const rows: TrafficEvent[] = await recentRes.json();
         setRecent(rows);
@@ -449,6 +642,21 @@ export default function App() {
       );
     }
   }, [trafficQuery]);
+
+  async function refreshCredentials() {
+    setBusy(true);
+    try {
+      const res = await fetch(`${API}/v1/quota/refresh`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? `refresh failed (${res.status})`);
+      if (body.quota) setQuota(body.quota);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const refreshLogin = useCallback(async () => {
     try {
@@ -496,18 +704,49 @@ export default function App() {
   }, [login?.active, refreshLogin]);
 
   const counts = useMemo(() => {
-    const claude = accounts.filter((a) => providerKey(a.provider) === "claude").length;
-    const codex = accounts.filter((a) => providerKey(a.provider) === "codex").length;
-    return { all: accounts.length, claude, codex };
-  }, [accounts]);
+    const source = quota?.accounts?.length ? quota.accounts : accounts;
+    const claude = source.filter((a) => providerKey(a.provider) === "claude").length;
+    const codex = source.filter((a) => providerKey(a.provider) === "codex").length;
+    return { all: source.length, claude, codex };
+  }, [accounts, quota]);
+
+  const providerQuota = useCallback(
+    (provider: "claude" | "codex") =>
+      quota?.providers?.find((p) => providerKey(p.provider) === provider) ?? null,
+    [quota],
+  );
+
+  const accountsFor = useCallback(
+    (provider: "claude" | "codex") =>
+      (quota?.accounts ?? []).filter((a) => providerKey(a.provider) === provider),
+    [quota],
+  );
 
   const claudeSeries = useMemo(
-    () => seriesFromEvents(recent, "claude", horizon, metricMode),
-    [recent, horizon, metricMode],
+    () =>
+      seriesFromEvents(
+        recent,
+        "claude",
+        horizon,
+        metricMode,
+        24,
+        providerQuota("claude")?.remaining_pct,
+        providerQuota("claude")?.capacity_pct,
+      ),
+    [recent, horizon, metricMode, providerQuota],
   );
   const codexSeries = useMemo(
-    () => seriesFromEvents(recent, "codex", horizon, metricMode),
-    [recent, horizon, metricMode],
+    () =>
+      seriesFromEvents(
+        recent,
+        "codex",
+        horizon,
+        metricMode,
+        24,
+        providerQuota("codex")?.remaining_pct,
+        providerQuota("codex")?.capacity_pct,
+      ),
+    [recent, horizon, metricMode, providerQuota],
   );
 
   async function proxyAction(path: "start" | "stop") {
@@ -719,7 +958,9 @@ export default function App() {
 
   const subtitle =
     page === "quota"
-      ? `${status?.account_count ?? accounts.length} credentials · proxy ${status?.proxy_running ? "running" : "stopped"}`
+      ? `${quota?.credentials_loaded ?? status?.account_count ?? accounts.length} credentials · ${
+          quota?.source === "management" ? "live quota" : "local estimates"
+        } · proxy ${status?.proxy_running ? "running" : "stopped"}`
       : page === "traffic"
         ? `${fmt(status?.usage.events ?? recent.length)} captured events`
         : page === "runtime"
@@ -914,9 +1155,14 @@ export default function App() {
               Refresh
             </button>
             {page === "quota" && (
-              <button className="btn primary" disabled={busy} onClick={() => setPage("accounts")}>
-                Manage credentials
-              </button>
+              <>
+                <button className="btn" disabled={busy} onClick={() => void refreshCredentials()}>
+                  Refresh credentials
+                </button>
+                <button className="btn primary" disabled={busy} onClick={() => setPage("accounts")}>
+                  Manage credentials
+                </button>
+              </>
             )}
             {page === "wiki" && (
               <button className="btn primary" onClick={openWiki}>
@@ -1034,6 +1280,13 @@ export default function App() {
                       key={id}
                       className={metricMode === id ? "active" : ""}
                       onClick={() => setMetricMode(id)}
+                      title={
+                        id === "remaining"
+                          ? "Pool remaining across loaded accounts"
+                          : id === "drain"
+                            ? "How fast remaining % is falling"
+                            : "Token burn from captured traffic"
+                      }
                     >
                       {label}
                     </button>
@@ -1050,134 +1303,42 @@ export default function App() {
                     </button>
                   ))}
                 </div>
-                <span className="empty">
-                  Local capture · {horizon} window · estimates until live quota APIs
+                <span className="empty" title={quota?.note}>
+                  {quota?.source === "management"
+                    ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · ${horizon} burn`
+                    : `Local fallback · ${horizon} window · refresh after proxy is up`}
                 </span>
-              </div>
-
-              <div className="metric-grid">
-                <div className="metric">
-                  <div className="label">Proxy</div>
-                  <div className="value">
-                    <span
-                      className={`status-dot ${status?.proxy_running ? "on" : "off"}`}
-                    />
-                    {status?.proxy_running ? "Live" : "Down"}
-                  </div>
-                  <div className="hint">{status?.proxy_base_url ?? "—"}</div>
-                </div>
-                <div className="metric">
-                  <div className="label">Events</div>
-                  <div className="value">{fmt(status?.usage.events ?? 0)}</div>
-                  <div className="hint">{status?.traffic_backend ?? "sqlite"}</div>
-                </div>
-                <div className="metric">
-                  <div className="label">Tokens in</div>
-                  <div className="value">{fmt(status?.usage.tokens_in ?? 0)}</div>
-                  <div className="hint">captured via rivetsink</div>
-                </div>
-                <div className="metric">
-                  <div className="label">Tokens out</div>
-                  <div className="value">{fmt(status?.usage.tokens_out ?? 0)}</div>
-                  <div className="hint">
-                    MCP {status?.capabilities.mcp ? "on" : "off"}
-                  </div>
-                </div>
               </div>
 
               <div className="stack">
                 {showClaude && (
-                  <section className="card">
-                    <div className="card-head">
-                      <div className="card-title">
-                        <div className="provider-ico claude">C</div>
-                        <div>
-                          <h2>Claude</h2>
-                          <div className="meta">
-                            {counts.claude} account{counts.claude === 1 ? "" : "s"} · local{" "}
-                            {metricMode}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="pool-stat">
-                        <div className="big claude">
-                          {claudeSeries.headline}
-                          <span className="unit">{claudeSeries.headlineUnit}</span>
-                        </div>
-                        <div className="cap">from captured traffic</div>
-                      </div>
-                    </div>
-                    <div className="stat-row">
-                      <div className="item">
-                        <div className="k">Pool empty</div>
-                        <div className="v">{claudeSeries.emptyAt}</div>
-                      </div>
-                      <div className="item">
-                        <div className="k">Traffic events</div>
-                        <div className="v">{claudeSeries.eventsInWindow} in {horizon}</div>
-                      </div>
-                      <div className="item">
-                        <div className="k">Burn</div>
-                        <div className="v">{claudeSeries.burnLabel}</div>
-                      </div>
-                      <div className="item">
-                        <div className="k">Source</div>
-                        <div className="v">local rivetsink</div>
-                      </div>
-                    </div>
-                    <QuotaChart
-                      recorded={claudeSeries.recorded}
-                      projected={claudeSeries.projected}
-                      color="#f97316"
-                    />
-                  </section>
+                  <QuotaProviderCard
+                    name="Claude"
+                    ico="C"
+                    icoClass="claude"
+                    color="#f97316"
+                    count={counts.claude}
+                    metricMode={metricMode}
+                    series={claudeSeries}
+                    pq={providerQuota("claude")}
+                    accounts={accountsFor("claude")}
+                    horizon={horizon}
+                  />
                 )}
 
                 {showCodex && (
-                  <section className="card">
-                    <div className="card-head">
-                      <div className="card-title">
-                        <div className="provider-ico codex">X</div>
-                        <div>
-                          <h2>Codex</h2>
-                          <div className="meta">
-                            {counts.codex} account{counts.codex === 1 ? "" : "s"} · local{" "}
-                            {metricMode}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="pool-stat">
-                        <div className="big codex">
-                          {codexSeries.headline}
-                          <span className="unit">{codexSeries.headlineUnit}</span>
-                        </div>
-                        <div className="cap">from captured traffic</div>
-                      </div>
-                    </div>
-                    <div className="stat-row">
-                      <div className="item">
-                        <div className="k">Pool empty</div>
-                        <div className="v">{codexSeries.emptyAt}</div>
-                      </div>
-                      <div className="item">
-                        <div className="k">Traffic events</div>
-                        <div className="v">{codexSeries.eventsInWindow} in {horizon}</div>
-                      </div>
-                      <div className="item">
-                        <div className="k">Burn</div>
-                        <div className="v">{codexSeries.burnLabel}</div>
-                      </div>
-                      <div className="item">
-                        <div className="k">Source</div>
-                        <div className="v">local rivetsink</div>
-                      </div>
-                    </div>
-                    <QuotaChart
-                      recorded={codexSeries.recorded}
-                      projected={codexSeries.projected}
-                      color="#60a5fa"
-                    />
-                  </section>
+                  <QuotaProviderCard
+                    name="Codex"
+                    ico="X"
+                    icoClass="codex"
+                    color="#60a5fa"
+                    count={counts.codex}
+                    metricMode={metricMode}
+                    series={codexSeries}
+                    pq={providerQuota("codex")}
+                    accounts={accountsFor("codex")}
+                    horizon={horizon}
+                  />
                 )}
               </div>
             </>
