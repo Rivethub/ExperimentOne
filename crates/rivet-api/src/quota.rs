@@ -557,14 +557,7 @@ fn cooldown_reset(items: Option<&Vec<CooldownItem>>) -> Option<String> {
 }
 
 fn normalize_provider(raw: &str) -> String {
-    let s = raw.to_ascii_lowercase();
-    if s.contains("claude") || s == "anthropic" {
-        "claude".into()
-    } else if s.contains("codex") || s.contains("openai") {
-        "codex".into()
-    } else {
-        s
-    }
+    rivet_core::normalize_provider_id(raw)
 }
 
 fn format_horizon(hours: f64) -> String {

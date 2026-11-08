@@ -6,6 +6,7 @@
 mod config;
 mod embed;
 mod paths;
+mod providers;
 mod proxy_config;
 mod redact;
 mod traffic;
@@ -13,6 +14,10 @@ mod traffic;
 pub use config::{localhost_port_free, Capabilities, RivetConfig};
 pub use embed::{cosine, lexical_embed};
 pub use paths::RivetPaths;
+pub use providers::{
+    find_provider, login_flag_for, normalize_provider_id, provider_catalog, LoginKind,
+    ProviderCatalogEntry,
+};
 pub use proxy_config::{
     claude_mcp_json, claude_settings_json, codex_config_toml, render_proxy_config,
     write_proxy_config,

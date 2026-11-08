@@ -15,8 +15,9 @@ use axum::{
 };
 use chrono::{Duration, Utc};
 use rivet_core::{
-    claude_mcp_json, claude_settings_json, codex_config_toml, localhost_port_free, Capabilities,
-    ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, UsageTotals,
+    claude_mcp_json, claude_settings_json, codex_config_toml, localhost_port_free,
+    provider_catalog, Capabilities, ProviderKind, RivetConfig, RivetPaths, TrafficEvent,
+    TrafficRole, UsageTotals,
 };
 use rivet_store::{MetaStore, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,7 @@ pub trait ControlApi: Send + Sync {
     fn list_accounts(&self) -> Result<Vec<AccountInfo>, String>;
     fn remove_account(&self, id: &str) -> Result<(), String>;
     fn write_harness(&self, target: &str) -> Result<HarnessWriteResponse, String>;
+    fn import_vertex(&self, path: &str) -> Result<LoginStartResponse, String>;
 }
 
 #[derive(Clone)]
@@ -182,11 +184,13 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/harness/write", post(harness_write))
         .route("/v1/proxy/start", post(proxy_start))
         .route("/v1/proxy/stop", post(proxy_stop))
+        .route("/v1/providers", get(list_providers))
         .route("/v1/accounts", get(accounts))
         .route("/v1/accounts/{id}", delete(account_delete))
         .route("/v1/accounts/login", post(login_start))
         .route("/v1/accounts/login/status", get(login_status))
         .route("/v1/accounts/login/cancel", post(login_cancel))
+        .route("/v1/accounts/import/vertex", post(import_vertex))
         .route("/v1/quota", get(quota_snapshot))
         .route("/v1/quota/refresh", post(quota_refresh))
         .route("/v1/export", post(export_bag))
@@ -606,13 +610,8 @@ async fn burn_by_provider(state: &ApiState) -> HashMap<String, f64> {
         if ev.ts < earliest {
             earliest = ev.ts;
         }
-        let provider = match ev.provider {
-            ProviderKind::Claude => "claude",
-            ProviderKind::Codex | ProviderKind::OpenAi => "codex",
-            ProviderKind::Gemini => "gemini",
-            ProviderKind::Other => "other",
-        };
-        *out.entry(provider.into()).or_default() += (ev.tokens_in + ev.tokens_out) as f64;
+        let provider = rivet_core::normalize_provider_id(ev.provider.as_str());
+        *out.entry(provider).or_default() += (ev.tokens_in + ev.tokens_out) as f64;
     }
     let hours = ((Utc::now() - earliest).num_seconds().max(1) as f64 / 3600.0).max(0.25);
     for v in out.values_mut() {
@@ -636,6 +635,13 @@ async fn account_delete(
     Ok(Json(serde_json::json!({ "ok": true, "id": id })))
 }
 
+async fn list_providers() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "providers": provider_catalog(),
+        "note": "Mirrors CLIProxyAPI / prox OAuth + Vertex import catalog.",
+    }))
+}
+
 async fn login_start(
     State(state): State<ApiState>,
     Json(body): Json<LoginRequest>,
@@ -643,6 +649,22 @@ async fn login_start(
     state
         .control
         .login_start(&body.provider)
+        .map(Json)
+        .map_err(err_response)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VertexImportRequest {
+    pub path: String,
+}
+
+async fn import_vertex(
+    State(state): State<ApiState>,
+    Json(body): Json<VertexImportRequest>,
+) -> Result<Json<LoginStartResponse>, (StatusCode, Json<ErrBody>)> {
+    state
+        .control
+        .import_vertex(&body.path)
         .map(Json)
         .map_err(err_response)
 }

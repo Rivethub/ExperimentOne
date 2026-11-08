@@ -192,7 +192,26 @@ impl WorkerPool {
         readme.push_str("- [Models](models.md)\n");
         readme.push_str("- [Sessions](sessions.md)\n");
         readme.push_str("- [Topics](topics/index.md)\n");
-        readme.push_str("- [Claude](providers/claude.md) · [Codex](providers/codex.md)\n");
+        {
+            let mut provider_links = Vec::new();
+            let mut seen = std::collections::BTreeSet::new();
+            for e in &recent {
+                let key = rivet_core::normalize_provider_id(&provider_key(e));
+                if key == "other" || !seen.insert(key.clone()) {
+                    continue;
+                }
+                provider_links.push(format!(
+                    "[{}](providers/{}.md)",
+                    key,
+                    slugify(&key)
+                ));
+            }
+            if provider_links.is_empty() {
+                readme.push_str("- Providers: _none yet_\n");
+            } else {
+                readme.push_str(&format!("- {}\n", provider_links.join(" · ")));
+            }
+        }
         if cfg.wiki_model.is_some() {
             readme.push_str("- [LLM overview](overview-llm.md)\n");
         }
@@ -276,24 +295,23 @@ impl WorkerPool {
             &topics_index,
         )?;
 
-        // --- Providers ---
-        for (name, filter) in [
-            ("claude", "claude"),
-            ("codex", "codex"),
-        ] {
-            let events: Vec<&TrafficEvent> = recent
-                .iter()
-                .filter(|e| provider_key(e).contains(filter))
-                .collect();
+        // --- Providers (any prox-supported id seen in traffic) ---
+        let mut by_provider: BTreeMap<String, Vec<&TrafficEvent>> = BTreeMap::new();
+        for e in &recent {
+            let key = rivet_core::normalize_provider_id(&provider_key(e));
+            by_provider.entry(key).or_default().push(e);
+        }
+        for (name, events) in &by_provider {
+            let slug = slugify(name);
             let mut body = format!("# {name}\n\n_{} recent events_\n\n", events.len());
             for e in events.iter().take(40) {
                 body.push_str(&format!("- {}\n", format_event_line(e)));
             }
             self.write_wiki_page(
                 project,
-                &format!("providers/{name}"),
+                &format!("providers/{slug}"),
                 &format!("{name} traffic"),
-                &format!("providers/{name}.md"),
+                &format!("providers/{slug}.md"),
                 &body,
             )?;
         }

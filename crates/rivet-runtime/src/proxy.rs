@@ -228,12 +228,18 @@ impl ProxySupervisor {
     }
 
     pub fn start_login(&self, provider: &str) -> Result<LoginStartResponse> {
-        let provider = provider.to_ascii_lowercase();
-        let flag = match provider.as_str() {
-            "claude" => "-claude-login",
-            "codex" => "-codex-device-login",
-            other => bail!("unsupported provider '{other}' (use claude or codex)"),
-        };
+        let entry = rivet_core::find_provider(provider).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unsupported provider '{provider}' — see GET /v1/providers for the prox catalog"
+            )
+        })?;
+        let flag = entry.login_flag.as_deref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "provider '{}' uses file import, not OAuth login — use POST /v1/accounts/import/vertex",
+                entry.id
+            )
+        })?;
+        let provider = entry.id.clone();
 
         {
             let mut login = self.login.lock().expect("login lock");
@@ -247,7 +253,7 @@ impl ProxySupervisor {
 
         let bin = Self::resolve_binary()?;
         let mut cmd = self.base_command(&bin)?;
-        cmd.arg(flag)
+        cmd.arg(format!("-{flag}"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -274,28 +280,13 @@ impl ProxySupervisor {
 
         {
             let mut buf = output.lock().expect("output lock");
-            match provider.as_str() {
-                "claude" => buf.push_str(
-                    "Starting Claude OAuth login…\nA browser window should open. If not, copy the URL from the log below.\n",
-                ),
-                "codex" => buf.push_str(
-                    "Starting Codex device login…\nWatch for the device URL and code below.\n",
-                ),
-                _ => {}
-            }
+            buf.push_str(&format!(
+                "Starting {} login…\n{}\n",
+                entry.label, entry.hint
+            ));
         }
 
-        let hint = match provider.as_str() {
-            "claude" => Some(
-                "Complete sign-in in the browser. Headless/SSH: use SSH tunnel docs for the OAuth callback port."
-                    .into(),
-            ),
-            "codex" => Some(
-                "Open https://auth.openai.com/codex/device and enter the device code shown in the log."
-                    .into(),
-            ),
-            _ => None,
-        };
+        let hint = Some(entry.hint.clone());
 
         *self.login.lock().expect("login lock") = Some(LoginSession {
             provider: provider.clone(),
@@ -309,6 +300,72 @@ impl ProxySupervisor {
             provider,
             message: "Login process started — watch the live log.".into(),
             hint,
+        })
+    }
+
+    /// Import a Vertex service-account JSON via the proxy CLI (`-vertex-import`).
+    pub fn import_vertex(&self, path: &str) -> Result<LoginStartResponse> {
+        let path = path.trim();
+        if path.is_empty() {
+            bail!("path is required");
+        }
+        let p = std::path::Path::new(path);
+        if !p.is_file() {
+            bail!("vertex key file not found: {path}");
+        }
+
+        {
+            let mut login = self.login.lock().expect("login lock");
+            if let Some(session) = login.as_mut() {
+                if session.child.try_wait().ok().flatten().is_none() {
+                    bail!("a login flow is already running ({})", session.provider);
+                }
+            }
+            *login = None;
+        }
+
+        let bin = Self::resolve_binary()?;
+        let mut cmd = self.base_command(&bin)?;
+        cmd.arg("-vertex-import")
+            .arg(path)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("spawn vertex import {}", bin.display()))?;
+        let output = Arc::new(Mutex::new(String::new()));
+        let done = Arc::new(Mutex::new(false));
+        let success = Arc::new(Mutex::new(false));
+        if let Some(stdout) = child.stdout.take() {
+            spawn_reader(stdout, output.clone());
+        }
+        if let Some(stderr) = child.stderr.take() {
+            spawn_reader(stderr, output.clone());
+        }
+        {
+            let mut buf = output.lock().expect("output lock");
+            buf.push_str(&format!("Importing Vertex service account from {path}…\n"));
+        }
+
+        *self.login.lock().expect("login lock") = Some(LoginSession {
+            provider: "vertex".into(),
+            child,
+            output,
+            done,
+            success,
+        });
+
+        Ok(LoginStartResponse {
+            provider: "vertex".into(),
+            message: "Vertex import started — watch the live log.".into(),
+            hint: Some("Service-account JSON is copied into the proxy auth dir; never exported.".into()),
         })
     }
 
@@ -377,12 +434,12 @@ impl ProxySupervisor {
             let raw = std::fs::read_to_string(&path).unwrap_or_default();
             let meta: serde_json::Value =
                 serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
-            let provider = meta
-                .get("type")
-                .or_else(|| meta.get("provider"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown")
-                .to_string();
+            let provider = rivet_core::normalize_provider_id(
+                meta.get("type")
+                    .or_else(|| meta.get("provider"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("other"),
+            );
             let label = meta
                 .get("email")
                 .or_else(|| meta.get("label"))
@@ -467,6 +524,10 @@ impl ControlApi for ProxySupervisor {
 
     fn login_start(&self, provider: &str) -> Result<LoginStartResponse, String> {
         self.start_login(provider).map_err(|e| e.to_string())
+    }
+
+    fn import_vertex(&self, path: &str) -> Result<LoginStartResponse, String> {
+        ProxySupervisor::import_vertex(self, path).map_err(|e| e.to_string())
     }
 
     fn login_status(&self) -> LoginStatusResponse {
