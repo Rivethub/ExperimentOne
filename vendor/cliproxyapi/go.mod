@@ -18,7 +18,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/klauspost/compress v1.20.3
 	github.com/libp2p/zeroconf/v2 v2.2.0
-	github.com/miekg/dns v1.1.43
+	github.com/miekg/dns v1.1.73
 	github.com/minio/minio-go/v7 v7.0.66
 	github.com/pion/ice/v4 v4.4.8
 	github.com/pion/interceptor v0.1.51
