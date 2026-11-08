@@ -1,8 +1,7 @@
 //! Minimal HTTP MCP-shaped tools for agents.
 //!
-//! Full MCP stdio transport can be layered later; this endpoint is enough for
-//! local harness wiring. Keyword search always works; semantic search uses
-//! stored embeddings (lexical or proxy) when vector_search is on.
+//! Keyword search always works. Semantic search is always registered and gated
+//! by the live `capabilities.vector_search` flag (no rivetd restart needed).
 
 use std::sync::Arc;
 
@@ -12,16 +11,17 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use rivet_core::{cosine, lexical_embed};
+use rivet_core::{cosine, lexical_embed, RivetConfig};
 use rivet_store::{MetaStore, TrafficStore};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 
 #[derive(Clone)]
 pub struct McpState {
     pub store: Arc<dyn TrafficStore>,
     pub meta: Arc<MetaStore>,
-    pub vector_search: bool,
+    pub config: Arc<RwLock<RivetConfig>>,
 }
 
 #[derive(Deserialize)]
@@ -48,14 +48,13 @@ pub struct ToolDescriptor {
 }
 
 pub fn router(state: McpState) -> Router {
-    let mut r = Router::new()
+    Router::new()
         .route("/mcp", get(manifest))
         .route("/mcp/tools", get(tools))
-        .route("/mcp/tools/search_history", post(search_history));
-    if state.vector_search {
-        r = r.route("/mcp/tools/semantic_search", post(semantic_search));
-    }
-    r.layer(CorsLayer::permissive()).with_state(state)
+        .route("/mcp/tools/search_history", post(search_history))
+        .route("/mcp/tools/semantic_search", post(semantic_search))
+        .layer(CorsLayer::permissive())
+        .with_state(state)
 }
 
 async fn manifest() -> Json<serde_json::Value> {
@@ -71,7 +70,7 @@ async fn tools(State(state): State<McpState>) -> Json<Vec<ToolDescriptor>> {
         name: "search_history",
         description: "Keyword search over captured prompts and completions",
     }];
-    if state.vector_search {
+    if state.config.read().await.capabilities.vector_search {
         tools.push(ToolDescriptor {
             name: "semantic_search",
             description: "Vector / lexical semantic search over history",
@@ -99,7 +98,7 @@ async fn semantic_search(
     State(state): State<McpState>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, axum::http::StatusCode> {
-    if !state.vector_search {
+    if !state.config.read().await.capabilities.vector_search {
         return Err(axum::http::StatusCode::NOT_FOUND);
     }
 

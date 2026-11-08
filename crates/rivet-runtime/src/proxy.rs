@@ -21,6 +21,8 @@ pub struct ProxySupervisor {
     config: RivetConfig,
     child: Mutex<Option<Child>>,
     running: Mutex<bool>,
+    /// User/boot wants the proxy up — watchdog restarts if the child dies.
+    want_running: Mutex<bool>,
     login: Mutex<Option<LoginSession>>,
 }
 
@@ -40,8 +42,26 @@ impl ProxySupervisor {
             config,
             child: Mutex::new(None),
             running: Mutex::new(false),
+            want_running: Mutex::new(false),
             login: Mutex::new(None),
         })
+    }
+
+    pub fn want_running(&self) -> bool {
+        *self.want_running.lock().expect("want_running lock")
+    }
+
+    /// If the proxy was supposed to stay up but exited, start it again.
+    pub fn ensure_desired(&self) -> Result<bool> {
+        if !self.want_running() {
+            return Ok(false);
+        }
+        if self.is_running() {
+            return Ok(false);
+        }
+        warn!("proxy sidecar missing while desired — restarting");
+        self.start()?;
+        Ok(true)
     }
 
     pub fn config(&self) -> &RivetConfig {
@@ -159,6 +179,7 @@ impl ProxySupervisor {
         info!(path = %bin.display(), pid = child.id(), "proxy sidecar started");
         *child_slot = Some(child);
         *self.running.lock().expect("running lock") = true;
+        *self.want_running.lock().expect("want_running lock") = true;
 
         // Brief readiness wait; fail if the child exits before the port opens
         // (common when the configured proxy port is already bound).
@@ -195,6 +216,7 @@ impl ProxySupervisor {
             info!("proxy stop requested but no child handle");
         }
         *self.running.lock().expect("running lock") = false;
+        *self.want_running.lock().expect("want_running lock") = false;
         Ok(())
     }
 

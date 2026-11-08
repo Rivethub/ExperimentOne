@@ -188,6 +188,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/import", post(import_bag))
         .route("/v1/wiki", get(wiki_info))
         .route("/v1/workers/tick", post(workers_tick))
+        .route("/v1/logs/{kind}", get(tail_logs))
         .layer(CorsLayer::permissive())
         .with_state(state)
 }
@@ -643,6 +644,87 @@ async fn workers_tick(
         "embeddings": state.meta.embedding_count().unwrap_or(0),
         "wiki_pages": state.meta.wiki_page_count(&cfg.wiki_project_id).unwrap_or(0),
     })))
+}
+
+#[derive(Debug, Deserialize)]
+struct LogQuery {
+    lines: Option<usize>,
+}
+
+#[derive(Serialize)]
+struct LogTail {
+    kind: String,
+    path: String,
+    text: String,
+}
+
+async fn tail_logs(
+    State(state): State<ApiState>,
+    Path(kind): Path<String>,
+    Query(q): Query<LogQuery>,
+) -> Result<Json<LogTail>, (StatusCode, Json<ErrBody>)> {
+    let lines = q.lines.unwrap_or(120).clamp(20, 500);
+    let path = match kind.as_str() {
+        "proxy" => newest_log_file(state.paths.proxy_logs_dir().as_std_path(), "main.log"),
+        "clickhouse" => {
+            let dir = state.paths.clickhouse_log_dir();
+            let preferred = dir.join("clickhouse.log");
+            if preferred.exists() {
+                preferred.as_std_path().to_path_buf()
+            } else {
+                newest_log_file(dir.as_std_path(), "clickhouse.err.log")
+            }
+        }
+        other => {
+            return Err(err_response(format!(
+                "unknown log kind '{other}' (use proxy or clickhouse)"
+            )));
+        }
+    };
+    let text = tail_file(&path, lines).unwrap_or_else(|e| format!("(could not read log: {e})"));
+    Ok(Json(LogTail {
+        kind,
+        path: path.display().to_string(),
+        text,
+    }))
+}
+
+fn newest_log_file(dir: &std::path::Path, fallback_name: &str) -> PathBuf {
+    let fallback = dir.join(fallback_name);
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return fallback;
+    };
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("log") {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+        match &best {
+            None => best = Some((modified, path)),
+            Some((t, _)) if modified > *t => best = Some((modified, path)),
+            _ => {}
+        }
+    }
+    best.map(|(_, p)| p).unwrap_or(fallback)
+}
+
+fn tail_file(path: &std::path::Path, max_lines: usize) -> std::io::Result<String> {
+    if !path.exists() {
+        return Ok(format!("(no log yet at {})", path.display()));
+    }
+    let raw = std::fs::read_to_string(path)?;
+    let collected: Vec<&str> = raw.lines().rev().take(max_lines).collect();
+    let mut out = String::new();
+    for line in collected.into_iter().rev() {
+        out.push_str(line);
+        out.push('\n');
+    }
+    Ok(out)
 }
 
 fn err_response(msg: String) -> (StatusCode, Json<ErrBody>) {
