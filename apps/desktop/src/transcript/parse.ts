@@ -48,10 +48,20 @@ function tryParseJson(raw: string | null | undefined): unknown {
   }
 }
 
-function pushText(parts: TranscriptPart[], text: string, kind: "text" | "system" | "thinking" = "text") {
+function pushText(
+  parts: TranscriptPart[],
+  text: string,
+  kind: "text" | "system" | "thinking" = "text",
+) {
   const t = text.replace(/\r\n/g, "\n").trim();
   if (!t) return;
-  parts.push(kind === "text" ? { kind: "text", text: t } : kind === "system" ? { kind: "system", text: t } : { kind: "thinking", text: t });
+  parts.push(
+    kind === "text"
+      ? { kind: "text", text: t }
+      : kind === "system"
+        ? { kind: "system", text: t }
+        : { kind: "thinking", text: t },
+  );
 }
 
 function parseClaudeBlocks(blocks: unknown, parts: TranscriptPart[]) {
@@ -222,7 +232,10 @@ function parseGeminiParts(partsIn: unknown, out: TranscriptPart[]) {
 }
 
 function parseSseAssistant(raw: string, parts: TranscriptPart[]) {
-  const blocks = new Map<number, { type: string; text: string; id?: string; name?: string; input?: string }>();
+  const blocks = new Map<
+    number,
+    { type: string; text: string; id?: string; name?: string; input?: string }
+  >();
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("data:")) continue;
@@ -246,7 +259,8 @@ function parseSseAssistant(raw: string, parts: TranscriptPart[]) {
       const cur = blocks.get(index) ?? { type: "text", text: "" };
       if (typeof delta.thinking === "string") cur.text += delta.thinking;
       if (typeof delta.text === "string") cur.text += delta.text;
-      if (typeof delta.partial_json === "string") cur.input = (cur.input ?? "") + delta.partial_json;
+      if (typeof delta.partial_json === "string")
+        cur.input = (cur.input ?? "") + delta.partial_json;
       blocks.set(index, cur);
     } else if (type === "response.reasoning_text.delta" || type === "response.output_text.delta") {
       const cur = blocks.get(index) ?? {
@@ -331,7 +345,11 @@ function lastMessageOfRole(messages: unknown[], role: string): Record<string, un
   return null;
 }
 
-function partsFromRequestForRole(request: unknown, role: TranscriptRole, raw: string): TranscriptPart[] {
+function partsFromRequestForRole(
+  request: unknown,
+  role: TranscriptRole,
+  raw: string,
+): TranscriptPart[] {
   const parts: TranscriptPart[] = [];
   const obj = asRecord(request);
   if (!obj) {
@@ -383,7 +401,10 @@ function partsFromRequestForRole(request: unknown, role: TranscriptRole, raw: st
       const it = asRecord(input[i]);
       const type = asString(it?.type);
       if (role === "user" && (type === "message" || type === "input_text")) break;
-      if (role === "assistant" && (type === "message" || type === "reasoning" || type === "function_call")) {
+      if (
+        role === "assistant" &&
+        (type === "message" || type === "reasoning" || type === "function_call")
+      ) {
         // keep collecting adjacent assistant artifacts then stop at user
         const prev = asRecord(input[i - 1]);
         if (prev && asString(prev.type) === "message" && asString(prev.role) === "user") break;
@@ -466,11 +487,7 @@ export function turnFromTrafficEvent(ev: TrafficEvent): TranscriptTurn {
 
   // Promote pure tool_result turns.
   let displayRole = role;
-  if (
-    displayRole === "user" &&
-    parts.length > 0 &&
-    parts.every((p) => p.kind === "tool_result")
-  ) {
+  if (displayRole === "user" && parts.length > 0 && parts.every((p) => p.kind === "tool_result")) {
     displayRole = "tool";
   }
 

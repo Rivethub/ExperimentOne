@@ -101,14 +101,12 @@ export function messageTextFor(ev: TrafficEvent): string {
   return bodies.request;
 }
 
-export function filterMessages(
-  events: TrafficEvent[],
-  query: string,
-): TrafficEvent[] {
+export function filterMessages(events: TrafficEvent[], query: string): TrafficEvent[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return events;
   return events.filter((ev) => {
-    const hay = `${ev.content ?? ""} ${ev.model ?? ""} ${ev.role ?? ""} ${ev.account_label ?? ""}`.toLowerCase();
+    const hay =
+      `${ev.content ?? ""} ${ev.model ?? ""} ${ev.role ?? ""} ${ev.account_label ?? ""}`.toLowerCase();
     return hay.includes(needle);
   });
 }

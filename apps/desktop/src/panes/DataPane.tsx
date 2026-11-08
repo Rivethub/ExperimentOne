@@ -9,11 +9,7 @@ import {
   type CatalogProvider,
 } from "../providerUtils";
 import { LimitRecoveryBanner, type LimitHitInfo } from "../quota";
-import {
-  filterTimeline,
-  timelineFromTrafficEvents,
-  TranscriptView,
-} from "../transcript";
+import { filterTimeline, timelineFromTrafficEvents, TranscriptView } from "../transcript";
 import type { ConversationSummary, SearchMode, TrafficEvent } from "../types";
 import { Button, Empty, Input, Panel, Pill } from "../ui";
 import { cx } from "../styles/cx";
@@ -193,11 +189,7 @@ export function DataPane({
           <div className={styles.dataListPane}>
             <div className={styles.dataSearchBar}>
               {vectorSearchEnabled ? (
-                <div
-                  className={styles.searchSegment}
-                  role="radiogroup"
-                  aria-label="Search mode"
-                >
+                <div className={styles.searchSegment} role="radiogroup" aria-label="Search mode">
                   {SEARCH_MODES.map(([id, label]) => (
                     <button
                       key={id}

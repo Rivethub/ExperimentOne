@@ -167,8 +167,7 @@ export async function handleApiRequest(
         `${ev.content ?? ""} ${ev.model ?? ""} ${ev.account_label ?? ""} ${ev.provider} ${ev.session_id ?? ""}`.toLowerCase();
       return hay.includes(needle);
     });
-    const used =
-      mode === "vector" ? "vector" : "keyword";
+    const used = mode === "vector" ? "vector" : "keyword";
     // Mock has no real embeddings — keyword match labeled by requested mode.
     return ok({
       mode: used === "vector" ? "vector" : "keyword",

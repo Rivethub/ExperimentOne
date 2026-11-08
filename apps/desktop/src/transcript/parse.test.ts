@@ -30,9 +30,7 @@ describe("turnFromTrafficEvent", () => {
         { type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "pwd" } },
       ],
     });
-    const turn = turnFromTrafficEvent(
-      ev({ role: "assistant", content: `${req}\n---\n${resp}` }),
-    );
+    const turn = turnFromTrafficEvent(ev({ role: "assistant", content: `${req}\n---\n${resp}` }));
     expect(turn.parts.map((p) => p.kind)).toEqual(["thinking", "text", "tool_call"]);
     expect(turn.parts[0]).toMatchObject({ kind: "thinking", text: "Need shell access." });
     expect(turn.parts[2]).toMatchObject({ kind: "tool_call", name: "Bash" });
@@ -66,14 +64,16 @@ describe("turnFromTrafficEvent", () => {
               {
                 id: "call_1",
                 type: "function",
-                function: { name: "get_weather", arguments: "{\"city\":\"Paris\"}" },
+                function: { name: "get_weather", arguments: '{"city":"Paris"}' },
               },
             ],
           },
         },
       ],
     });
-    const turn = turnFromTrafficEvent(ev({ role: "assistant", provider: "codex", content: `{}\n---\n${resp}` }));
+    const turn = turnFromTrafficEvent(
+      ev({ role: "assistant", provider: "codex", content: `{}\n---\n${resp}` }),
+    );
     expect(turn.parts.map((p) => p.kind)).toEqual(["thinking", "text", "tool_call"]);
     expect(turn.parts[2]).toMatchObject({
       kind: "tool_call",
@@ -86,8 +86,6 @@ describe("turnFromTrafficEvent", () => {
     const turn = turnFromTrafficEvent(
       ev({ role: "user", content: "How do I inspect conversation history?" }),
     );
-    expect(turn.parts).toEqual([
-      { kind: "text", text: "How do I inspect conversation history?" },
-    ]);
+    expect(turn.parts).toEqual([{ kind: "text", text: "How do I inspect conversation history?" }]);
   });
 });

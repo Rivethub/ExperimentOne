@@ -147,9 +147,7 @@ export default function App() {
   }, [page, deferredListQuery, deferredSearchMode, searchConversations]);
 
   const listPending =
-    listQuery !== deferredListQuery ||
-    searchMode !== deferredSearchMode ||
-    listSearching;
+    listQuery !== deferredListQuery || searchMode !== deferredSearchMode || listSearching;
 
   const selectConversation = useCallback(
     async (id: string | null) => {
