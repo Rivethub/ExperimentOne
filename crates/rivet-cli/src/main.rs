@@ -345,14 +345,7 @@ async fn run() -> Result<()> {
             print_value(&v, cli.json);
         },
         Commands::Ingest { action } => match action {
-            IngestCmd::Local {
-                source,
-                claude_root,
-                codex_root,
-                cursor_root,
-                dry_run,
-                limit,
-            } => {
+            IngestCmd::Local { source, claude_root, codex_root, cursor_root, dry_run, limit } => {
                 let sources = match source.trim().to_ascii_lowercase().as_str() {
                     "all" | "" => json!([]),
                     "claude" | "claude-code" => json!(["claude"]),

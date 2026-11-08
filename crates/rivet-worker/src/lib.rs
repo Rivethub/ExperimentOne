@@ -480,11 +480,7 @@ fn format_event_line(event: &TrafficEvent) -> String {
     let provider = provider_key(event);
     let model = event.model.as_deref().unwrap_or("-");
     // Prefer explicit project_id; otherwise surface cwd so later classifiers have a signal.
-    let place = event
-        .project_id
-        .as_deref()
-        .or(event.cwd.as_deref())
-        .unwrap_or("-");
+    let place = event.project_id.as_deref().or(event.cwd.as_deref()).unwrap_or("-");
     format!(
         "`{}` · {} · `{}` · {} · {}/{} tok · {}",
         event.ts.format("%Y-%m-%d %H:%M"),

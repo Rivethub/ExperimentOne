@@ -92,10 +92,9 @@ pub async fn ingest_local(
             break;
         }
         let root = match source {
-            LocalSource::Claude => opts
-                .claude_root
-                .clone()
-                .unwrap_or_else(default_claude_projects_root),
+            LocalSource::Claude => {
+                opts.claude_root.clone().unwrap_or_else(default_claude_projects_root)
+            },
             LocalSource::Codex => {
                 opts.codex_root.clone().unwrap_or_else(default_codex_sessions_root)
             },
@@ -237,9 +236,9 @@ fn collect_cursor_transcripts(root: &Path, visit: &mut dyn FnMut(&Path)) -> Resu
             if path.extension().and_then(|s| s.to_str()) != Some("jsonl") {
                 continue;
             }
-            let is_transcript = path.components().any(|c| {
-                c.as_os_str().to_str().is_some_and(|s| s == "agent-transcripts")
-            });
+            let is_transcript = path
+                .components()
+                .any(|c| c.as_os_str().to_str().is_some_and(|s| s == "agent-transcripts"));
             if is_transcript {
                 visit(&path);
             }
@@ -345,9 +344,8 @@ fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
     let session_id = cursor_session_id(path);
     // Hard evidence: Cursor's project slug under ~/.cursor/projects/<slug>/ (as-is, not decoded).
     let project_id = cursor_project_key_from_path(path);
-    let file_mtime = fs::metadata(path).ok().and_then(|m| m.modified().ok()).map(|t| {
-        DateTime::<Utc>::from(t)
-    });
+    let file_mtime =
+        fs::metadata(path).ok().and_then(|m| m.modified().ok()).map(|t| DateTime::<Utc>::from(t));
     let mut out = Vec::new();
     for (idx, line) in reader.lines().enumerate() {
         if out.len() >= limit {
@@ -376,9 +374,7 @@ fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
         if content.trim().is_empty() {
             continue;
         }
-        let ts = extract_timestamp_from_text(&content)
-            .or(file_mtime)
-            .unwrap_or_else(Utc::now)
+        let ts = extract_timestamp_from_text(&content).or(file_mtime).unwrap_or_else(Utc::now)
             + chrono::Duration::milliseconds(idx as i64);
         let id = stable_id(&format!("cursor:{session_id}:{idx}:{role_str}"));
         out.push(TrafficEvent {
@@ -413,7 +409,8 @@ fn cursor_session_id(path: &Path) -> String {
             return name.to_string();
         }
         if name == "subagents" {
-            if let Some(agent) = parent.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str())
+            if let Some(agent) =
+                parent.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str())
             {
                 return format!("{agent}/{stem}");
             }
@@ -498,11 +495,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                     .map(|s| s.to_string())
                     .or(session_id);
                 // Capture cwd as a signal; workers classify project later.
-                cwd = payload
-                    .get("cwd")
-                    .and_then(|x| x.as_str())
-                    .map(|s| s.to_string())
-                    .or(cwd);
+                cwd = payload.get("cwd").and_then(|x| x.as_str()).map(|s| s.to_string()).or(cwd);
                 if let Some(m) = payload.get("model_provider").and_then(|x| x.as_str()) {
                     let _ = m; // provider is always Codex for these files
                 }
@@ -717,7 +710,8 @@ fn content_to_text(content: &Value) -> Option<String> {
                     match ty {
                         "tool_use" => {
                             let name = item.get("name").and_then(|x| x.as_str()).unwrap_or("tool");
-                            let input = item.get("input").map(|x| x.to_string()).unwrap_or_default();
+                            let input =
+                                item.get("input").map(|x| x.to_string()).unwrap_or_default();
                             parts.push(format!("tool_use {name}\n{input}"));
                         },
                         "tool_result" => {
@@ -843,17 +837,11 @@ mod tests {
     #[test]
     fn harness_project_key_is_folder_under_projects() {
         let claude = PathBuf::from("/home/u/.claude/projects/-Users-u-code/sess.jsonl");
-        assert_eq!(
-            claude_project_key_from_path(&claude).as_deref(),
-            Some("-Users-u-code")
-        );
+        assert_eq!(claude_project_key_from_path(&claude).as_deref(), Some("-Users-u-code"));
         let cursor = PathBuf::from(
             "/home/u/.cursor/projects/Users-u-code/agent-transcripts/agent-1/t.jsonl",
         );
-        assert_eq!(
-            cursor_project_key_from_path(&cursor).as_deref(),
-            Some("Users-u-code")
-        );
+        assert_eq!(cursor_project_key_from_path(&cursor).as_deref(), Some("Users-u-code"));
         // Must not invent a project from a random path or by decoding slugs into cwd-like paths.
         assert!(harness_project_key_from_path(Path::new("/tmp/sess.jsonl")).is_none());
     }

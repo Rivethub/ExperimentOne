@@ -1129,10 +1129,13 @@ async fn export_bag(
     state.paths.ensure().map_err(|e| err_response(e.to_string()))?;
     let name = format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"));
     let path = state.paths.exports_dir().join(&name);
-    let manifest =
-        rivet_export::export_bag_with_paths(state.store.clone(), path.as_std_path(), Some(&state.paths))
-            .await
-            .map_err(|e| err_response(e.to_string()))?;
+    let manifest = rivet_export::export_bag_with_paths(
+        state.store.clone(),
+        path.as_std_path(),
+        Some(&state.paths),
+    )
+    .await
+    .map_err(|e| err_response(e.to_string()))?;
     Ok(Json(ExportResponse {
         path: path.to_string(),
         event_count: manifest.event_count,
