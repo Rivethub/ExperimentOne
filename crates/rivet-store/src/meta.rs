@@ -141,19 +141,19 @@ impl MetaStore {
             anyhow::bail!("session_id required");
         }
         let mut next = binding;
-        next.session_id = session_id.clone();
+        next.session_id.clone_from(&session_id);
         if let Some(prev) = file.by_session.get(&session_id) {
             if next.project_id.is_none() {
-                next.project_id = prev.project_id.clone();
+                next.project_id.clone_from(&prev.project_id);
             }
             if next.cwd.is_none() {
-                next.cwd = prev.cwd.clone();
+                next.cwd.clone_from(&prev.cwd);
             }
             if next.provider.is_none() {
-                next.provider = prev.provider.clone();
+                next.provider.clone_from(&prev.provider);
             }
             if next.source.is_none() {
-                next.source = prev.source.clone();
+                next.source.clone_from(&prev.source);
             }
         }
         file.by_session.insert(session_id, next.clone());

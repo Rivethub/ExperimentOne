@@ -1158,14 +1158,10 @@ async fn harness_session(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| resolve_project_root(s))
+        .map(resolve_project_root)
         .filter(|s| !s.is_empty());
-    let mut project_id = body
-        .project_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string);
+    let mut project_id =
+        body.project_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
     if project_id.is_none() {
         if let Some(ref cwd) = cwd {
             project_id = project_id_from_cwd(cwd);
@@ -1182,11 +1178,7 @@ async fn harness_session(
         source: body.source.filter(|s| !s.trim().is_empty()).or_else(|| Some("plugin".into())),
         updated_at: Utc::now().to_rfc3339(),
     };
-    state
-        .meta
-        .upsert_session_binding(binding)
-        .map(Json)
-        .map_err(|e| err_response(e.to_string()))
+    state.meta.upsert_session_binding(binding).map(Json).map_err(|e| err_response(e.to_string()))
 }
 
 async fn harness_session_get(
@@ -1215,10 +1207,8 @@ async fn harness_session_delete(
     if session_id.is_empty() {
         return Err(err_response("session_id required".into()));
     }
-    let removed = state
-        .meta
-        .delete_session_binding(session_id)
-        .map_err(|e| err_response(e.to_string()))?;
+    let removed =
+        state.meta.delete_session_binding(session_id).map_err(|e| err_response(e.to_string()))?;
     Ok(Json(serde_json::json!({
         "ok": true,
         "session_id": session_id,

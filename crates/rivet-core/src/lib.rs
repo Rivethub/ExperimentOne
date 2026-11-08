@@ -8,11 +8,11 @@ mod config;
 pub mod control_ipc;
 mod embed;
 mod harness;
-mod project_id;
 mod http_guard;
 mod paths;
 pub mod pids;
 pub mod platform;
+mod project_id;
 mod providers;
 mod proxy_config;
 mod redact;
@@ -26,12 +26,12 @@ pub use harness::{
     harness_target_for_provider, harness_user_ready, install_harness, install_harness_plugins,
     migrate_claude_connector_auth, HarnessInstallMode, HarnessInstallResult,
 };
-pub use project_id::{encode_path_project_id, project_id_from_cwd, resolve_project_root};
 pub use http_guard::{host_is_loopback, origin_allowed};
 pub use paths::RivetPaths;
 pub use platform::{
     exe_name, exe_suffix, resolve_sidecar, sidecar_file_name, target_triple, which_bin,
 };
+pub use project_id::{encode_path_project_id, project_id_from_cwd, resolve_project_root};
 pub use providers::{
     find_provider, login_flag_for, login_flag_for_method, normalize_provider_id, provider_catalog,
     LoginKind, ProviderCatalogEntry,

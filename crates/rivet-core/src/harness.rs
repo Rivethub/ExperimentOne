@@ -90,7 +90,7 @@ pub fn install_harness(
         ("codex", HarnessInstallMode::Isolated) => {
             install_codex_isolated(config, isolated_codex_dir, plugins_dest)
         },
-        ("cursor", HarnessInstallMode::User) | ("cursor", HarnessInstallMode::Isolated) => {
+        ("cursor", HarnessInstallMode::User | HarnessInstallMode::Isolated) => {
             install_cursor_user(config, plugins_dest)
         },
         (other, _) => bail!("unknown harness target '{other}' (expected claude, codex, or cursor)"),
@@ -138,7 +138,8 @@ fn find_bundled_plugins_dir() -> Option<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            for cand in [parent.join("plugins"), parent.join("../plugins"), parent.join("../../plugins")]
+            for cand in
+                [parent.join("plugins"), parent.join("../plugins"), parent.join("../../plugins")]
             {
                 if cand.join(".claude-plugin").join("marketplace.json").is_file() {
                     return Some(cand.canonicalize().unwrap_or(cand));
@@ -297,10 +298,10 @@ fn write_codex_hooks(codex_home: &Path, plugins_dest: &Path) -> Result<()> {
     let hooks = json!({
         "hooks": {
             "SessionStart": [{
-                "hooks": [{ "type": "command", "command": cmd.clone(), "timeout": 15 }]
+                "hooks": [{ "type": "command", "command": &cmd, "timeout": 15 }]
             }],
             "UserPromptSubmit": [{
-                "hooks": [{ "type": "command", "command": cmd.clone(), "timeout": 15 }]
+                "hooks": [{ "type": "command", "command": &cmd, "timeout": 15 }]
             }],
             "SessionEnd": [{
                 "hooks": [{ "type": "command", "command": cmd, "timeout": 3 }]
@@ -344,10 +345,7 @@ pub fn cursor_user_hooks_path() -> Result<PathBuf> {
 }
 
 fn merge_cursor_hooks(existing: &str, plugins_dest: &Path) -> Result<String> {
-    let script = plugins_dest
-        .join("rivet-cursor")
-        .join("scripts")
-        .join("report-session.sh");
+    let script = plugins_dest.join("rivet-cursor").join("scripts").join("report-session.sh");
     if !script.is_file() {
         bail!("cursor plugin script missing at {}", script.display());
     }
@@ -484,10 +482,7 @@ pub fn merge_claude_settings(
 
         // Forward-compatible: ignored until Claude Code ships customHeadersHelper
         // (anthropics/claude-code#97949). Then wire headers carry hard project ids.
-        let helper = plugins_dest
-            .join("rivet")
-            .join("scripts")
-            .join("custom-headers-helper.sh");
+        let helper = plugins_dest.join("rivet").join("scripts").join("custom-headers-helper.sh");
         if helper.is_file() {
             let helper_path = helper.canonicalize().unwrap_or(helper).display().to_string();
             obj.insert("customHeadersHelper".into(), Value::String(helper_path));
@@ -669,8 +664,14 @@ mod tests {
         fs::write(&script, "#!/bin/sh\n").unwrap();
         let out = merge_cursor_hooks(r#"{"version":1,"hooks":{}}"#, &plugins).unwrap();
         let v: Value = serde_json::from_str(&out).unwrap();
-        assert!(v["hooks"]["sessionStart"][0]["command"].as_str().unwrap().contains("report-session.sh"));
-        assert!(v["hooks"]["sessionEnd"][0]["command"].as_str().unwrap().contains("report-session.sh"));
+        assert!(v["hooks"]["sessionStart"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("report-session.sh"));
+        assert!(v["hooks"]["sessionEnd"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains("report-session.sh"));
         let _ = fs::remove_dir_all(&plugins);
     }
 

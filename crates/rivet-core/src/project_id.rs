@@ -1,8 +1,9 @@
 //! Stable project identifiers derived from working directories.
 
-/// Claude Code encodes absolute paths under `~/.claude/projects/` by replacing
-/// path separators with `-` (and keeping a leading `-` for Unix roots). Rivet uses
-/// the same encoding so wire capture, local import, and the harness plugin agree.
+/// Encode a path the way Claude Code does under `~/.claude/projects/`.
+///
+/// Absolute path separators become `-` (with a leading `-` for Unix roots). Rivet
+/// uses the same encoding so wire capture, local import, and the harness plugin agree.
 pub fn encode_path_project_id(path: &str) -> String {
     let trimmed = path.trim().trim_end_matches(['/', '\\']);
     if trimmed.is_empty() || trimmed == "." {
@@ -65,10 +66,7 @@ mod tests {
 
     #[test]
     fn encodes_unix_paths_like_claude() {
-        assert_eq!(
-            encode_path_project_id("/Users/me/Code/Rivet"),
-            "-Users-me-Code-Rivet"
-        );
+        assert_eq!(encode_path_project_id("/Users/me/Code/Rivet"), "-Users-me-Code-Rivet");
         assert_eq!(encode_path_project_id("/tmp/"), "-tmp");
     }
 
