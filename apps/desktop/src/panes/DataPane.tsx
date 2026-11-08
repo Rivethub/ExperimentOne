@@ -74,6 +74,9 @@ function ConversationRow({
         <Pill style={{ background: `${color}22`, color }}>
           {providerChipLabel(providerKey(c.provider), catalog)}
         </Pill>
+        {c.capture_quality && c.capture_quality !== "wire" ? (
+          <Pill tone={c.capture_quality === "soft" ? "warn" : "default"}>{c.capture_quality}</Pill>
+        ) : null}
         <span className="font-mono text-xs">{c.model ?? "—"}</span>
         <span className="text-muted-foreground">
           {c.message_count} msg · {fmt(c.tokens_in)}/{fmt(c.tokens_out)}
@@ -266,7 +269,11 @@ export function DataPane({
                   <span className="text-muted-foreground">
                     {providerChipLabel(providerKey(selected.provider), catalog)}
                     {selected.model ? ` · ${selected.model}` : ""}
-                    {selected.project_id ? ` · ${selected.project_id}` : ""}
+                    {selected.project_id
+                      ? ` · ${selected.project_id}`
+                      : selected.cwd
+                        ? ` · ${selected.cwd}`
+                        : ""}
                   </span>
                 </div>
                 <Button

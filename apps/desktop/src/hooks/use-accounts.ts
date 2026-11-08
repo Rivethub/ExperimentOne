@@ -1,6 +1,7 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
 import type { MultiAccountWarnState } from "../components/MultiAccountWarnModal";
 import { rivetErrorMessage } from "../effect";
+import type { HarnessInstallTarget } from "../lib/format-utils";
 import { notify } from "../lib/notify";
 import { providerKey } from "../lib/provider-utils";
 import type { Account, HarnessWrite, LoginStatus, SettingsTab } from "../lib/types";
@@ -35,7 +36,8 @@ export type UseAccountsResult = {
   beginAddAccount: () => void;
   cancelLogin: () => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
-  writeHarness: (target: "claude" | "codex", mode?: "user" | "isolated") => Promise<void>;
+  writeHarness: (target: HarnessInstallTarget, mode?: "user" | "isolated") => Promise<void>;
+  writeAllHarnesses: () => Promise<void>;
   loadClaude: () => Promise<void>;
   loadCodex: () => Promise<void>;
   loadMcp: () => Promise<void>;
@@ -153,6 +155,7 @@ export function useAccounts(opts: AccountsOpts): UseAccountsResult {
     cancelLogin: loginApi.cancelLogin,
     removeAccount,
     writeHarness: harnessApi.writeHarness,
+    writeAllHarnesses: harnessApi.writeAllHarnesses,
     loadClaude: harnessApi.loadClaude,
     loadCodex: harnessApi.loadCodex,
     loadMcp: harnessApi.loadMcp,

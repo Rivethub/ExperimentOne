@@ -1,0 +1,6 @@
+{
+  "name": "rivet",
+  "version": "0.1.0",
+  "description": "Report Codex sessions to Rivet for hard project_id assignment and enable Rivet MCP",
+  "hooks": "./hooks/hooks.json"
+}

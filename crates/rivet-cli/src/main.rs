@@ -120,6 +120,11 @@ enum Commands {
     Export,
     /// Import a .rivetbag traffic package.
     Import { path: String },
+    /// Ingest local harness transcripts already on disk (Claude Code / Codex).
+    Ingest {
+        #[command(subcommand)]
+        action: IngestCmd,
+    },
     /// Tail proxy or ClickHouse logs.
     Logs { kind: String },
     /// Print localhost session bootstrap (api key). Use sparingly.
@@ -164,6 +169,31 @@ enum WorkersCmd {
 #[derive(Subcommand, Debug)]
 enum ConfigCmd {
     Get,
+}
+
+#[derive(Subcommand, Debug)]
+enum IngestCmd {
+    /// Scan local harness transcripts (Claude / Codex / Cursor) and ingest turns.
+    Local {
+        /// `all` (default), `claude`, `codex`, or `cursor`.
+        #[arg(long, default_value = "all")]
+        source: String,
+        /// Override Claude projects root (default: ~/.claude/projects).
+        #[arg(long)]
+        claude_root: Option<String>,
+        /// Override Codex sessions root (default: ~/.codex/sessions).
+        #[arg(long)]
+        codex_root: Option<String>,
+        /// Override Cursor projects root (default: ~/.cursor/projects).
+        #[arg(long)]
+        cursor_root: Option<String>,
+        /// Parse and report without writing to the store.
+        #[arg(long)]
+        dry_run: bool,
+        /// Cap parsed events (useful for smoke tests).
+        #[arg(long)]
+        limit: Option<usize>,
+    },
 }
 
 #[tokio::main]
@@ -313,6 +343,41 @@ async fn run() -> Result<()> {
             let body = json!({ "path": path });
             let v = client.post_value("/v1/import", Some(body)).await?;
             print_value(&v, cli.json);
+        },
+        Commands::Ingest { action } => match action {
+            IngestCmd::Local { source, claude_root, codex_root, cursor_root, dry_run, limit } => {
+                let sources = match source.trim().to_ascii_lowercase().as_str() {
+                    "all" | "" => json!([]),
+                    "claude" | "claude-code" => json!(["claude"]),
+                    "codex" => json!(["codex"]),
+                    "cursor" => json!(["cursor"]),
+                    other => {
+                        bail!("unknown --source {other} (expected all, claude, codex, or cursor)")
+                    },
+                };
+                let mut body = json!({
+                    "sources": sources,
+                    "dry_run": dry_run,
+                });
+                if let Some(p) = claude_root {
+                    body["claude_root"] = json!(p);
+                }
+                if let Some(p) = codex_root {
+                    body["codex_root"] = json!(p);
+                }
+                if let Some(p) = cursor_root {
+                    body["cursor_root"] = json!(p);
+                }
+                if let Some(n) = limit {
+                    body["limit"] = json!(n);
+                }
+                let v = client.post_value("/v1/ingest/local", Some(body)).await?;
+                if cli.json {
+                    print_value(&v, true);
+                } else {
+                    print_ingest_report(&v);
+                }
+            },
         },
         Commands::Logs { kind } => {
             let v = client.get_value(&format!("/v1/logs/{kind}")).await?;
@@ -534,6 +599,27 @@ fn print_value(v: &Value, as_json: bool) {
         match serde_json::to_string_pretty(v) {
             Ok(s) => println!("{s}"),
             Err(_) => println!("{v}"),
+        }
+    }
+}
+
+fn print_ingest_report(v: &Value) {
+    let dry = v.get("dry_run").and_then(|x| x.as_bool()).unwrap_or(false);
+    let files = v.get("files_scanned").and_then(|x| x.as_u64()).unwrap_or(0);
+    let parsed = v.get("events_parsed").and_then(|x| x.as_u64()).unwrap_or(0);
+    let inserted = v.get("events_inserted").and_then(|x| x.as_u64()).unwrap_or(0);
+    let skipped = v.get("events_skipped_existing").and_then(|x| x.as_u64()).unwrap_or(0);
+    println!(
+        "ingest local{}: {files} files, {parsed} events parsed, {inserted} inserted, {skipped} skipped",
+        if dry { " (dry-run)" } else { "" }
+    );
+    if let Some(sources) = v.get("sources").and_then(|x| x.as_array()) {
+        for src in sources {
+            let name = src.get("source").and_then(|x| x.as_str()).unwrap_or("?");
+            let root = src.get("root").and_then(|x| x.as_str()).unwrap_or("");
+            let f = src.get("files_scanned").and_then(|x| x.as_u64()).unwrap_or(0);
+            let e = src.get("events_parsed").and_then(|x| x.as_u64()).unwrap_or(0);
+            println!("  {name}: {e} events from {f} files ({root})");
         }
     }
 }

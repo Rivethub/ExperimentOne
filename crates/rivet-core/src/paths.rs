@@ -37,6 +37,7 @@ impl RivetPaths {
             self.meta_dir().as_std_path(),
             self.harness_claude_dir().as_std_path(),
             self.harness_codex_dir().as_std_path(),
+            self.plugins_dir().as_std_path(),
             self.pid_dir().as_std_path(),
         ] {
             std::fs::create_dir_all(p)?;
@@ -113,6 +114,11 @@ impl RivetPaths {
     /// Isolated Codex home — set `CODEX_HOME` to this path.
     pub fn harness_codex_dir(&self) -> Utf8PathBuf {
         self.root.join("harness").join("codex")
+    }
+
+    /// Local Claude marketplace root copied from the Rivet `plugins/` tree.
+    pub fn plugins_dir(&self) -> Utf8PathBuf {
+        self.root.join("plugins")
     }
 
     pub fn ingest_sock(&self) -> Utf8PathBuf {

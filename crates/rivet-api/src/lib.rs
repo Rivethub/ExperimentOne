@@ -21,10 +21,10 @@ use chrono::{Duration, Utc};
 use rivet_core::{
     claude_mcp_json, claude_settings_json, codex_config_toml, conversations_from_events,
     harness_user_ready, lexical_embed, localhost_port_free, migrate_claude_connector_auth,
-    provider_catalog, Capabilities, ConversationSummary, ProviderKind, RivetConfig, RivetPaths,
-    TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
+    project_id_from_cwd, provider_catalog, resolve_project_root, Capabilities, ConversationSummary,
+    ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_SPACE,
 };
-use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore, WikiPageMeta};
+use rivet_store::{ClickHouseTrafficStore, MetaStore, SessionBinding, TrafficStore, WikiPageMeta};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -160,6 +160,24 @@ pub struct HarnessWriteRequest {
     pub mode: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct HarnessSessionRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HarnessSessionQuery {
+    pub session_id: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct HarnessWriteResponse {
     pub target: String,
@@ -175,6 +193,19 @@ pub struct HarnessWriteResponse {
 #[derive(Debug, Deserialize)]
 pub struct ImportRequest {
     pub path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LocalIngestRequest {
+    /// `claude`, `codex`, `cursor`, or omit / empty for all.
+    #[serde(default)]
+    pub sources: Vec<String>,
+    pub claude_root: Option<String>,
+    pub codex_root: Option<String>,
+    pub cursor_root: Option<String>,
+    #[serde(default)]
+    pub dry_run: bool,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize)]
@@ -383,6 +414,10 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/logs/{kind}", get(tail_logs))
         .route("/v1/demo/seed", post(demo_seed))
         .route("/v1/harness/write", post(harness_write))
+        .route(
+            "/v1/harness/session",
+            post(harness_session).get(harness_session_get).delete(harness_session_delete),
+        )
         .route("/v1/proxy/start", post(proxy_start))
         .route("/v1/proxy/stop", post(proxy_stop))
         .route("/v1/shutdown", post(shutdown_all))
@@ -393,6 +428,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/quota/refresh", post(quota_refresh))
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
+        .route("/v1/ingest/local", post(ingest_local))
         .route("/v1/workers/tick", post(workers_tick))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_api_key));
 
@@ -576,12 +612,14 @@ async fn conversation_events(
     if id.trim().is_empty() {
         return Ok(Json(Vec::new()));
     }
-    state
+    let mut events = state
         .store
         .conversation_events(&id, limit)
         .await
-        .map(Json)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Expand spilled full bodies so the transcript UI is not limited to the preview.
+    rivet_core::hydrate_events(&state.paths, &mut events);
+    Ok(Json(events))
 }
 
 async fn search_conversations(
@@ -803,6 +841,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "codex-work".into()
         });
         ev.session_id = Some(format!("demo-session-{}", i / 4));
+        ev.capture_quality = Some(rivet_core::CaptureQuality::Wire);
         out.push(ev);
     }
     out
@@ -1106,15 +1145,90 @@ async fn harness_write(
     state.control.write_harness(&body.target, body.mode.as_deref()).map(Json).map_err(err_response)
 }
 
+async fn harness_session(
+    State(state): State<ApiState>,
+    Json(body): Json<HarnessSessionRequest>,
+) -> Result<Json<SessionBinding>, (StatusCode, Json<ErrBody>)> {
+    let session_id = body.session_id.trim().to_string();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    let cwd = body
+        .cwd
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(resolve_project_root)
+        .filter(|s| !s.is_empty());
+    let mut project_id =
+        body.project_id.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    if project_id.is_none() {
+        if let Some(ref cwd) = cwd {
+            project_id = project_id_from_cwd(cwd);
+        }
+    }
+    if project_id.is_none() && cwd.is_none() {
+        return Err(err_response("cwd or project_id required".into()));
+    }
+    let binding = SessionBinding {
+        session_id,
+        project_id,
+        cwd,
+        provider: body.provider.filter(|s| !s.trim().is_empty()),
+        source: body.source.filter(|s| !s.trim().is_empty()).or_else(|| Some("plugin".into())),
+        updated_at: Utc::now().to_rfc3339(),
+    };
+    state.meta.upsert_session_binding(binding).map(Json).map_err(|e| err_response(e.to_string()))
+}
+
+async fn harness_session_get(
+    State(state): State<ApiState>,
+    Query(query): Query<HarnessSessionQuery>,
+) -> Result<Json<SessionBinding>, (StatusCode, Json<ErrBody>)> {
+    let session_id = query.session_id.trim();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    match state.meta.get_session_binding(session_id) {
+        Ok(Some(binding)) => Ok(Json(binding)),
+        Ok(None) => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrBody { error: "session binding not found".into() }),
+        )),
+        Err(e) => Err(err_response(e.to_string())),
+    }
+}
+
+async fn harness_session_delete(
+    State(state): State<ApiState>,
+    Query(query): Query<HarnessSessionQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let session_id = query.session_id.trim();
+    if session_id.is_empty() {
+        return Err(err_response("session_id required".into()));
+    }
+    let removed =
+        state.meta.delete_session_binding(session_id).map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "session_id": session_id,
+        "removed": removed,
+    })))
+}
+
 async fn export_bag(
     State(state): State<ApiState>,
 ) -> Result<Json<ExportResponse>, (StatusCode, Json<ErrBody>)> {
     state.paths.ensure().map_err(|e| err_response(e.to_string()))?;
     let name = format!("rivet-export-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"));
     let path = state.paths.exports_dir().join(&name);
-    let manifest = rivet_export::export_bag(state.store.clone(), path.as_std_path())
-        .await
-        .map_err(|e| err_response(e.to_string()))?;
+    let manifest = rivet_export::export_bag_with_paths(
+        state.store.clone(),
+        path.as_std_path(),
+        Some(&state.paths),
+    )
+    .await
+    .map_err(|e| err_response(e.to_string()))?;
     Ok(Json(ExportResponse {
         path: path.to_string(),
         event_count: manifest.event_count,
@@ -1145,6 +1259,35 @@ async fn import_bag(
         event_count: manifest.event_count,
         schema_version: manifest.schema_version,
     }))
+}
+
+async fn ingest_local(
+    State(state): State<ApiState>,
+    Json(body): Json<LocalIngestRequest>,
+) -> Result<Json<rivet_export::LocalIngestReport>, (StatusCode, Json<ErrBody>)> {
+    let mut sources = Vec::new();
+    for raw in &body.sources {
+        match rivet_export::LocalSource::parse(raw) {
+            Some(s) => sources.push(s),
+            None => {
+                return Err(err_response(format!(
+                    "unknown source {raw:?} (expected claude, codex, or cursor)"
+                )));
+            },
+        }
+    }
+    let opts = rivet_export::LocalIngestOptions {
+        sources,
+        claude_root: body.claude_root.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        codex_root: body.codex_root.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        cursor_root: body.cursor_root.filter(|s| !s.trim().is_empty()).map(PathBuf::from),
+        dry_run: body.dry_run,
+        limit: body.limit,
+    };
+    rivet_export::ingest_local(state.store.clone(), opts)
+        .await
+        .map(Json)
+        .map_err(|e| err_response(e.to_string()))
 }
 
 #[derive(Serialize)]

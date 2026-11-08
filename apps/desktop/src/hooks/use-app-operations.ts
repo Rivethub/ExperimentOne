@@ -144,6 +144,31 @@ export function useAppOperations(opts: {
     }
   }, [mutations.importBag, queryClient, setBusy]);
 
+  const ingestLocal = useCallback(async () => {
+    const toastId = "ingest-local";
+    setBusy(true);
+    notify.loading("Importing local sessions…", toastId);
+    try {
+      const body = await runApp(
+        Effect.gen(function* importLocalSessions() {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.ingestLocal({});
+        }),
+      );
+      if (body.error) throw new Error(body.error);
+      notify.dismiss(toastId);
+      notify.success(
+        `Imported local sessions — ${body.events_inserted} new, ${body.events_skipped_existing} already present (${body.events_parsed} parsed from ${body.files_scanned} files)`,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (err) {
+      notify.dismiss(toastId);
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [queryClient, setBusy]);
+
   const openWiki = useCallback(async () => {
     const path = status?.wiki_dir ?? null;
     if (!path) {
@@ -245,6 +270,7 @@ export function useAppOperations(opts: {
     copyText,
     exportBag,
     importBag,
+    ingestLocal,
     openWiki,
     revealExport,
     saveIntelligence,

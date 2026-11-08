@@ -2,6 +2,9 @@ import { providerKey } from "./provider-utils";
 import { formatRelativeTime } from "./relative-time";
 import type { QuotaAccount } from "./types";
 
+/** Install target for Rivet harness / plugin setup. */
+export type HarnessInstallTarget = "claude" | "codex" | "cursor";
+
 /** Claude Code or Codex install target for a linked account provider. */
 export function harnessTargetForProvider(provider: string): "claude" | "codex" | null {
   const key = providerKey(provider);

@@ -181,6 +181,7 @@ export function AppShell(): React.ReactElement {
                     canRevealExport: !!ops.bagPath,
                     onExport: () => void ops.exportBag(),
                     onImport: () => void ops.importBag(),
+                    onIngestLocal: () => void ops.ingestLocal(),
                     onRevealExport: () => void ops.revealExport(),
                   }
                 : undefined

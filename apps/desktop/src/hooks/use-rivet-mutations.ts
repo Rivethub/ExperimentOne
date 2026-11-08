@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { refreshWikiAtom } from "../atoms/wiki";
 import { runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
+import type { HarnessInstallTarget } from "../lib/format-utils";
 import type { JsonObject } from "../lib/json-types";
 import { queryKeys } from "../lib/query-keys";
 import type { QuotaHistory, QuotaSnapshot } from "../lib/types";
@@ -126,7 +127,7 @@ export function useRivetMutations(opts: { horizon: "1h" | "3h" | "6h" }) {
   });
 
   const writeHarness = useMutation({
-    mutationFn: async (opts: { target: "claude" | "codex"; mode: "user" | "isolated" }) =>
+    mutationFn: async (opts: { target: HarnessInstallTarget; mode: "user" | "isolated" }) =>
       withBackend(Rivet.writeHarness(opts.target, opts.mode)),
   });
 

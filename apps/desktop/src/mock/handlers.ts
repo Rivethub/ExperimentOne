@@ -382,6 +382,53 @@ export async function handleApiRequest(
       schema_version: 1,
     });
   }
+  if (m === "POST" && base === "/v1/ingest/local") {
+    const inserted = 3;
+    for (let i = 0; i < inserted; i++) {
+      s.traffic.unshift({
+        id: crypto.randomUUID(),
+        ts: new Date(Date.now() - i * 1000).toISOString(),
+        provider: i % 2 === 0 ? "claude" : "codex",
+        model: i % 2 === 0 ? "claude-sonnet-4-5" : "gpt-5",
+        role: "assistant",
+        content: `Mock local harness ingest (#${i + 1})`,
+        tokens_in: 200,
+        tokens_out: 80,
+        status_code: 200,
+        session_id: `mock-session-${i}`,
+        project_id: "/mock/project",
+        account_label: "local@mock",
+        latency_ms: 250,
+      });
+    }
+    return ok({
+      dry_run: false,
+      files_scanned: 2,
+      events_parsed: inserted,
+      events_inserted: inserted,
+      events_skipped_existing: 0,
+      sources: [
+        {
+          source: "claude",
+          root: "/mock/home/.claude/projects",
+          files_scanned: 1,
+          events_parsed: 2,
+        },
+        {
+          source: "codex",
+          root: "/mock/home/.codex/sessions",
+          files_scanned: 1,
+          events_parsed: 1,
+        },
+        {
+          source: "cursor",
+          root: "/mock/home/.cursor/projects",
+          files_scanned: 0,
+          events_parsed: 0,
+        },
+      ],
+    });
+  }
 
   // Logs
   if (m === "GET" && base === "/v1/logs/proxy") {

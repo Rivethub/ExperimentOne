@@ -1,9 +1,11 @@
 import { Effect, type Schema } from "effect";
 import type { WikiPageCard } from "../components/WikiBoard";
+import type { HarnessInstallTarget } from "../lib/format-utils";
 import type { JsonObject } from "../lib/json-types";
-import type { SearchMode } from "../lib/types";
+import type { LocalIngestReport, SearchMode } from "../lib/types";
 import type { ApiError, BackendUnavailable, IpcError } from "./errors";
 import {
+  apiJson,
   apiJsonSchema,
   apiResult,
   apiText,
@@ -100,7 +102,7 @@ export const removeAccount = (id: string): ApiFx<unknown> =>
   apiJsonSchema("DELETE", `/v1/accounts/${encodeURIComponent(id)}`, UnknownOkSchema);
 
 export const writeHarness = (
-  target: "claude" | "codex",
+  target: HarnessInstallTarget,
   mode: "user" | "isolated",
 ): ApiFx<Schema.Schema.Type<typeof HarnessWriteSchema>> =>
   apiJsonSchema("POST", "/v1/harness/write", HarnessWriteSchema, { target, mode });
@@ -117,6 +119,16 @@ export const tickWorkers = apiJsonSchema("POST", "/v1/workers/tick", WorkersTick
 export const exportBag = apiJsonSchema("POST", "/v1/export", BagResultSchema);
 export const importBag = (path: string): ApiFx<Schema.Schema.Type<typeof BagResultSchema>> =>
   apiJsonSchema("POST", "/v1/import", BagResultSchema, { path });
+export const ingestLocal = (
+  body: {
+    sources?: string[];
+    claude_root?: string;
+    codex_root?: string;
+    dry_run?: boolean;
+    limit?: number;
+  } = {},
+): ApiFx<LocalIngestReport & { error?: string }> =>
+  apiJson<LocalIngestReport & { error?: string }>("POST", "/v1/ingest/local", body);
 
 export const getProxyLog = (lines = 80): ApiFx<SoftHttpResult> =>
   apiResult("GET", `/v1/logs/proxy?lines=${lines}`);

@@ -139,7 +139,8 @@ impl ProxySupervisor {
             .arg("-config")
             .arg(self.paths.proxy_config_file().as_std_path())
             .env("RIVET_INGEST_URL", format!("http://127.0.0.1:{}", self.config.api_port))
-            .env("RIVET_INGEST_KEY", &self.config.proxy_access_key);
+            .env("RIVET_INGEST_KEY", &self.config.proxy_access_key)
+            .env("RIVET_BLOBS_DIR", self.paths.blobs_dir().as_str());
         Ok(cmd)
     }
 
@@ -528,6 +529,7 @@ impl ProxySupervisor {
             &self.config,
             self.paths.harness_claude_dir().as_std_path(),
             self.paths.harness_codex_dir().as_std_path(),
+            self.paths.plugins_dir().as_std_path(),
         )?;
         Ok(HarnessWriteResponse {
             target: result.target,

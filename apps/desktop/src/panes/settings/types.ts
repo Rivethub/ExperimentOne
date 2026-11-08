@@ -1,3 +1,4 @@
+import type { HarnessInstallTarget } from "../../lib/format-utils";
 import type { CatalogProvider } from "../../lib/provider-utils";
 import type { QuotaAccountUx } from "../../quota";
 import type { Account, HarnessWrite, LoginStatus, SettingsTab, Status } from "../../lib/types";
@@ -36,11 +37,14 @@ export type SettingsHarnessProps = {
   busy: boolean;
   harnessNote: HarnessWrite | null;
   snippet: string;
-  onWriteHarness: (target: "claude" | "codex", mode: "user" | "isolated") => void;
+  onWriteHarness: (target: HarnessInstallTarget, mode: "user" | "isolated") => void;
+  /** Install Claude + Codex + Cursor user configs / plugins in one pass. */
+  onWriteAllHarnesses: () => void;
   onLoadClaude: () => void;
   onLoadCodex: () => void;
   onLoadMcp: () => void;
   onCopyText: (text: string) => void;
+  onIngestLocal: () => void;
 };
 
 export type SettingsPaneProps = {

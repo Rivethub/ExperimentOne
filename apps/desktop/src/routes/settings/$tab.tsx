@@ -55,10 +55,12 @@ function SettingsPage(): React.ReactElement {
         harnessNote: accounts.harnessNote,
         snippet: accounts.snippet,
         onWriteHarness: (target, mode) => void accounts.writeHarness(target, mode),
+        onWriteAllHarnesses: () => void accounts.writeAllHarnesses(),
         onLoadClaude: () => void accounts.loadClaude(),
         onLoadCodex: () => void accounts.loadCodex(),
         onLoadMcp: () => void accounts.loadMcp(),
         onCopyText: (t) => void ops.copyText(t),
+        onIngestLocal: () => void ops.ingestLocal(),
       }}
     />
   );

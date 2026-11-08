@@ -26,16 +26,66 @@ export function HarnessTab({
       title="Harness (advanced)"
       lede={
         <>
-          One-click setup lives on each Claude / Codex account. This tab is for copying snippets or
-          writing an isolated Rivet config dir (default installs stay untouched; set{" "}
-          <code>CLAUDE_CONFIG_DIR</code> / <code>CODEX_HOME</code>).
+          One-click setup lives on each Claude / Codex account. This tab installs Rivet into Claude
+          Code, Codex, and Cursor (proxy + project plugins/hooks + MCP), copies snippets, and climbs
+          the capture ladder (proxy → full bodies → local transcript import). Restart each harness
+          after install so the new config loads.
         </>
       }
     >
+      <div className="mb-4">
+        <strong className="text-sm">Capture ladder</strong>
+        <p className="mt-1 mb-2 text-[13px] text-muted-foreground">
+          Higher rungs add fidelity. Live proxy traffic is always preferred over imports where they
+          overlap. Capture stores cwd/bodies as signals and sets `project_id` only on hard evidence
+          (explicit field/header, harness {"projects/<id>/"} key, or the Rivet harness plugin).
+        </p>
+        <Kv>
+          <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />
+          <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
+          <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
+          <KvRow
+            label="L2.5 Plugin"
+            value="SessionStart reports cwd → hard project_id + Rivet MCP"
+          />
+          <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
+          <KvRow label="L4 Import" value="Claude / Codex / Cursor transcripts already on disk" />
+          <KvRow
+            label="Project"
+            value="Hard evidence only; plugin + wire headers beat cwd scraping"
+          />
+        </Kv>
+        <Actions spaced={false} className="mt-2">
+          <Button
+            variant="primary"
+            disabled={harness.busy}
+            onClick={() => {
+              harness.onIngestLocal();
+            }}
+          >
+            Import local sessions
+          </Button>
+        </Actions>
+      </div>
+
       <div className="mb-2 text-xs tracking-wide text-muted-foreground">Write into home config</div>
       <Actions>
         <Button
           variant="primary"
+          disabled={harness.busy}
+          onClick={() => {
+            harness.onWriteAllHarnesses();
+          }}
+        >
+          Install Claude + Codex + Cursor
+        </Button>
+      </Actions>
+      <p className="mt-2 mb-2 text-[13px] text-muted-foreground">
+        Writes proxy settings, session→project plugins/hooks, and Rivet MCP. Restart Claude Code,
+        Codex, and Cursor afterward so plugins load.
+      </p>
+      <Actions>
+        <Button
           disabled={harness.busy}
           onClick={() => {
             harness.onWriteHarness("claude", "user");
@@ -50,6 +100,14 @@ export function HarnessTab({
           }}
         >
           Install into ~/.codex
+        </Button>
+        <Button
+          disabled={harness.busy}
+          onClick={() => {
+            harness.onWriteHarness("cursor", "user");
+          }}
+        >
+          Install into ~/.cursor
         </Button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

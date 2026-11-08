@@ -52,12 +52,33 @@ struct EmbeddingsFile {
     by_event: BTreeMap<String, EmbeddingEntry>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionBinding {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct SessionBindingsFile {
+    #[serde(default)]
+    by_session: BTreeMap<String, SessionBinding>,
+}
+
 #[derive(Debug)]
 struct MetaPaths {
     jobs: PathBuf,
     wiki: PathBuf,
     embeddings: PathBuf,
     quota: PathBuf,
+    sessions: PathBuf,
 }
 
 #[derive(Debug)]
@@ -79,6 +100,7 @@ impl MetaStore {
                 wiki: dir.join("wiki_pages.json").into_std_path_buf(),
                 embeddings: dir.join("embeddings.json").into_std_path_buf(),
                 quota: dir.join("quota_snapshots.jsonl").into_std_path_buf(),
+                sessions: dir.join("session_projects.json").into_std_path_buf(),
             },
             lock: Mutex::new(()),
         })
@@ -108,6 +130,59 @@ impl MetaStore {
         }
         fs::rename(&tmp, path)?;
         Ok(())
+    }
+
+    /// Upsert a harness-plugin session → project/cwd binding.
+    pub fn upsert_session_binding(&self, binding: SessionBinding) -> Result<SessionBinding> {
+        let _g = self.lock.lock().expect("meta lock");
+        let mut file: SessionBindingsFile = Self::read_json(&self.paths.sessions)?;
+        let session_id = binding.session_id.trim().to_string();
+        if session_id.is_empty() {
+            anyhow::bail!("session_id required");
+        }
+        let mut next = binding;
+        next.session_id.clone_from(&session_id);
+        if let Some(prev) = file.by_session.get(&session_id) {
+            if next.project_id.is_none() {
+                next.project_id.clone_from(&prev.project_id);
+            }
+            if next.cwd.is_none() {
+                next.cwd.clone_from(&prev.cwd);
+            }
+            if next.provider.is_none() {
+                next.provider.clone_from(&prev.provider);
+            }
+            if next.source.is_none() {
+                next.source.clone_from(&prev.source);
+            }
+        }
+        file.by_session.insert(session_id, next.clone());
+        Self::write_json_atomic(&self.paths.sessions, &file)?;
+        Ok(next)
+    }
+
+    pub fn get_session_binding(&self, session_id: &str) -> Result<Option<SessionBinding>> {
+        let id = session_id.trim();
+        if id.is_empty() {
+            return Ok(None);
+        }
+        let _g = self.lock.lock().expect("meta lock");
+        let file: SessionBindingsFile = Self::read_json(&self.paths.sessions)?;
+        Ok(file.by_session.get(id).cloned())
+    }
+
+    pub fn delete_session_binding(&self, session_id: &str) -> Result<bool> {
+        let id = session_id.trim();
+        if id.is_empty() {
+            anyhow::bail!("session_id required");
+        }
+        let _g = self.lock.lock().expect("meta lock");
+        let mut file: SessionBindingsFile = Self::read_json(&self.paths.sessions)?;
+        let removed = file.by_session.remove(id).is_some();
+        if removed {
+            Self::write_json_atomic(&self.paths.sessions, &file)?;
+        }
+        Ok(removed)
     }
 
     pub fn job_cursor(&self, name: &str) -> Result<Option<String>> {

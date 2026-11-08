@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v8/internal/logging"
+	log "github.com/sirupsen/logrus"
 )
 
 type sinkError string
@@ -26,32 +27,36 @@ const errNoFileBodySource sinkError = "rivetsink: inner logger does not support 
 // IsEnabled is always true while ingest is configured so middleware keeps
 // capturing traffic even when on-disk request-log is disabled.
 type Wrapper struct {
-	inner  logging.RequestLogger
-	sender *queueSender
+	inner    logging.RequestLogger
+	sender   *queueSender
+	blobsDir string
 }
 
 type trafficEvent struct {
-	ID           string  `json:"id"`
-	Ts           string  `json:"ts"`
-	Provider     string  `json:"provider"`
-	AccountLabel *string `json:"account_label"`
-	Model        *string `json:"model"`
-	SessionID    *string `json:"session_id"`
-	ProjectID    *string `json:"project_id"`
-	RequestID    *string `json:"request_id"`
-	Role         string  `json:"role"`
-	Content      *string `json:"content"`
-	TokensIn     uint32  `json:"tokens_in"`
-	TokensOut    uint32  `json:"tokens_out"`
-	LatencyMs    *uint64 `json:"latency_ms"`
-	StatusCode   *uint16 `json:"status_code"`
-	BodyRef      *string `json:"body_ref"`
+	ID             string  `json:"id"`
+	Ts             string  `json:"ts"`
+	Provider       string  `json:"provider"`
+	AccountLabel   *string `json:"account_label"`
+	Model          *string `json:"model"`
+	SessionID      *string `json:"session_id"`
+	ProjectID      *string `json:"project_id"`
+	Cwd            *string `json:"cwd,omitempty"`
+	RequestID      *string `json:"request_id"`
+	Role           string  `json:"role"`
+	Content        *string `json:"content"`
+	TokensIn       uint32  `json:"tokens_in"`
+	TokensOut      uint32  `json:"tokens_out"`
+	LatencyMs      *uint64 `json:"latency_ms"`
+	StatusCode     *uint16 `json:"status_code"`
+	BodyRef        *string `json:"body_ref"`
+	CaptureQuality *string `json:"capture_quality,omitempty"`
 }
 
 type parsedMeta struct {
 	Model     string
 	SessionID string
 	ProjectID string
+	Cwd       string
 	Role      string
 	TokensIn  uint32
 	TokensOut uint32
@@ -64,8 +69,9 @@ func Wrap(inner logging.RequestLogger) logging.RequestLogger {
 		return inner
 	}
 	return &Wrapper{
-		inner:  inner,
-		sender: newQueueSender(url, strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY"))),
+		inner:    inner,
+		sender:   newQueueSender(url, strings.TrimSpace(os.Getenv("RIVET_INGEST_KEY"))),
+		blobsDir: strings.TrimSpace(os.Getenv("RIVET_BLOBS_DIR")),
 	}
 }
 
@@ -121,14 +127,16 @@ func (w *Wrapper) logInnerWithForce(url, method string, requestHeaders map[strin
 
 func (w *Wrapper) LogRequest(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiResponseErrors []*interfaces.ErrorMessage, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
 	err := w.logInnerWithForce(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, false, requestID, requestTimestamp, apiResponseTimestamp)
-	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
+	resp := mergeWebsocketIntoResponse(response, websocketTimeline, apiWebsocketTimeline)
+	w.forward(url, requestHeaders, body, resp, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
 	return err
 }
 
 // LogRequestWithOptions preserves forced error-log writes on the inner logger.
 func (w *Wrapper) LogRequestWithOptions(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
 	err := w.logInnerWithForce(url, method, requestHeaders, body, statusCode, responseHeaders, response, websocketTimeline, apiRequest, apiResponse, apiWebsocketTimeline, apiResponseErrors, force, requestID, requestTimestamp, apiResponseTimestamp)
-	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
+	resp := mergeWebsocketIntoResponse(response, websocketTimeline, apiWebsocketTimeline)
+	w.forward(url, requestHeaders, body, resp, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
 	return err
 }
 
@@ -154,7 +162,8 @@ func mergeAPIRequestCapture(apiRequest []byte, source *logging.FileBodySource) [
 }
 
 func (w *Wrapper) LogRequestWithOptionsAndSources(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline []byte, websocketTimelineSource *logging.FileBodySource, apiRequest, apiResponse, apiWebsocketTimeline []byte, apiWebsocketTimelineSource *logging.FileBodySource, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
-	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
+	resp := mergeWebsocketIntoResponse(response, websocketTimeline, apiWebsocketTimeline)
+	w.forward(url, requestHeaders, body, resp, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequest)
 	force = w.forceForInner(force, statusCode)
 	if withOpts, ok := w.inner.(interface {
 		LogRequestWithOptionsAndSources(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, *logging.FileBodySource, []byte, []byte, []byte, *logging.FileBodySource, []*interfaces.ErrorMessage, bool, string, time.Time, time.Time) error
@@ -167,7 +176,8 @@ func (w *Wrapper) LogRequestWithOptionsAndSources(url, method string, requestHea
 func (w *Wrapper) LogRequestWithOptionsAndAllSources(url, method string, requestHeaders map[string][]string, body []byte, statusCode int, responseHeaders map[string][]string, response, websocketTimeline []byte, websocketTimelineSource *logging.FileBodySource, apiRequest []byte, apiRequestSource *logging.FileBodySource, apiResponse []byte, apiResponseSource *logging.FileBodySource, apiWebsocketTimeline []byte, apiWebsocketTimelineSource *logging.FileBodySource, apiResponseErrors []*interfaces.ErrorMessage, force bool, requestID string, requestTimestamp, apiResponseTimestamp time.Time) error {
 	// Read source-backed upstream metadata before the inner logger cleans it up.
 	apiRequestForRivet := mergeAPIRequestCapture(apiRequest, apiRequestSource)
-	w.forward(url, requestHeaders, body, response, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequestForRivet)
+	resp := mergeWebsocketIntoResponse(response, websocketTimeline, apiWebsocketTimeline)
+	w.forward(url, requestHeaders, body, resp, statusCode, requestID, requestTimestamp, apiResponseTimestamp, apiRequestForRivet)
 	force = w.forceForInner(force, statusCode)
 	if withOpts, ok := w.inner.(interface {
 		LogRequestWithOptionsAndAllSources(string, string, map[string][]string, []byte, int, map[string][]string, []byte, []byte, *logging.FileBodySource, []byte, *logging.FileBodySource, []byte, *logging.FileBodySource, []byte, *logging.FileBodySource, []*interfaces.ErrorMessage, bool, string, time.Time, time.Time) error
@@ -182,7 +192,7 @@ func (w *Wrapper) LogStreamingRequest(url, method string, headers map[string][]s
 	if err != nil {
 		return writer, err
 	}
-	return &streamWrapper{
+	sw := &streamWrapper{
 		inner:     writer,
 		parent:    w,
 		url:       url,
@@ -191,7 +201,19 @@ func (w *Wrapper) LogStreamingRequest(url, method string, headers map[string][]s
 		requestID: requestID,
 		started:   time.Now(),
 		provider:  inferProvider(url, body),
-	}, nil
+		eventID:   uuid.NewString(),
+	}
+	if file, rel, abs, spillErr := w.openSpill(sw.eventID); spillErr != nil {
+		log.Warnf("rivet sink spill open: %v", spillErr)
+	} else if file != nil {
+		sw.spill = file
+		sw.spillRel = rel
+		sw.spillAbs = abs
+		_, _ = file.WriteString("=== REQUEST ===\n")
+		_, _ = file.Write(body)
+		_, _ = file.WriteString("\n=== RESPONSE ===\n")
+	}
+	return sw, nil
 }
 
 type streamWrapper struct {
@@ -203,6 +225,7 @@ type streamWrapper struct {
 	requestID string
 	started   time.Time
 	provider  string
+	eventID   string
 
 	mu       sync.Mutex
 	head     []byte
@@ -218,16 +241,21 @@ type streamWrapper struct {
 	tokensOut uint32
 	model     string
 	partial   string // incomplete SSE JSON across chunk boundaries
+
+	spill      *os.File
+	spillRel   string
+	spillAbs   string
+	wsTimeline []byte // upstream/downstream websocket event log
 }
 
-// appendHeadTail keeps the first headBytes and last tailBytes of a stream so
+// appendHeadTail keeps the first and last previewRespBytes of a stream so
 // long responses retain both the start (prompt context) and end (usage).
-func appendHeadTail(head, tail *[]byte, chunk []byte, headBytes, tailBytes int) {
+func appendHeadTail(head, tail *[]byte, chunk []byte) {
 	if len(chunk) == 0 {
 		return
 	}
-	if len(*head) < headBytes {
-		need := headBytes - len(*head)
+	if len(*head) < previewRespBytes {
+		need := previewRespBytes - len(*head)
 		if len(chunk) <= need {
 			*head = append(*head, chunk...)
 			return
@@ -236,8 +264,8 @@ func appendHeadTail(head, tail *[]byte, chunk []byte, headBytes, tailBytes int) 
 		chunk = chunk[need:]
 	}
 	*tail = append(*tail, chunk...)
-	if len(*tail) > tailBytes {
-		*tail = append([]byte(nil), (*tail)[len(*tail)-tailBytes:]...)
+	if len(*tail) > previewRespBytes {
+		*tail = append([]byte(nil), (*tail)[len(*tail)-previewRespBytes:]...)
 	}
 }
 
@@ -245,7 +273,12 @@ func (s *streamWrapper) WriteChunkAsync(chunk []byte) {
 	s.inner.WriteChunkAsync(chunk)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	appendHeadTail(&s.head, &s.tail, chunk, 48*1024, 48*1024)
+	if s.spill != nil && len(chunk) > 0 {
+		if _, err := s.spill.Write(chunk); err != nil {
+			log.Warnf("rivet sink spill write: %v", err)
+		}
+	}
+	appendHeadTail(&s.head, &s.tail, chunk)
 	// Parse complete SSE lines; keep a partial trailing frame across writes.
 	buf := s.partial + string(chunk)
 	lines := strings.Split(buf, "\n")
@@ -284,16 +317,49 @@ func (s *streamWrapper) WriteAPIRequest(apiRequest []byte) error {
 
 func (s *streamWrapper) WriteAPIResponse(apiResponse []byte) error {
 	s.mu.Lock()
+	// Keep a short preview copy only; full upstream capture belongs in the spill file.
 	s.apiResp = append([]byte(nil), apiResponse...)
-	if len(s.apiResp) > 96*1024 {
-		s.apiResp = s.apiResp[:96*1024]
+	if len(s.apiResp) > previewRespBytes {
+		s.apiResp = s.apiResp[:previewRespBytes]
+	}
+	if s.spill != nil && len(apiResponse) > 0 {
+		_, _ = s.spill.WriteString("\n=== API RESPONSE ===\n")
+		_, _ = s.spill.Write(apiResponse)
 	}
 	s.mu.Unlock()
 	return s.inner.WriteAPIResponse(apiResponse)
 }
 
 func (s *streamWrapper) WriteAPIWebsocketTimeline(apiWebsocketTimeline []byte) error {
-	return s.inner.WriteAPIWebsocketTimeline(apiWebsocketTimeline)
+	err := s.inner.WriteAPIWebsocketTimeline(apiWebsocketTimeline)
+	if len(apiWebsocketTimeline) == 0 {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.wsTimeline = append([]byte(nil), apiWebsocketTimeline...)
+	if s.spill != nil {
+		_, _ = s.spill.WriteString("\n=== API WEBSOCKET TIMELINE ===\n")
+		_, _ = s.spill.Write(apiWebsocketTimeline)
+	}
+	// Prefer WS frames for the Rivet preview when HTTP chunk body is empty
+	// (Codex Responses WebSocket path).
+	if len(s.head) == 0 && len(s.tail) == 0 {
+		appendHeadTail(&s.head, &s.tail, apiWebsocketTimeline)
+	} else {
+		// Keep a truncated WS appendix in the preview so sessions aren't HTTP-only.
+		marker := []byte("\n=== API WEBSOCKET TIMELINE ===\n")
+		appendHeadTail(&s.head, &s.tail, marker)
+		appendHeadTail(&s.head, &s.tail, apiWebsocketTimeline)
+	}
+	meta := parsedMeta{TokensIn: s.tokensIn, TokensOut: s.tokensOut, Model: s.model}
+	parseStreamMeta(&meta, s.provider, string(apiWebsocketTimeline))
+	s.tokensIn = meta.TokensIn
+	s.tokensOut = meta.TokensOut
+	if meta.Model != "" {
+		s.model = meta.Model
+	}
+	return err
 }
 
 func (s *streamWrapper) WriteAPIResponseErrors(errors []*interfaces.ErrorMessage) error {
@@ -316,16 +382,25 @@ func (s *streamWrapper) Close() error {
 	}
 	s.closed = true
 	s.finished = time.Now()
-	resp := append([]byte(nil), s.head...)
+	respPreview := append([]byte(nil), s.head...)
 	if len(s.tail) > 0 {
 		if len(s.head) > 0 {
-			resp = append(resp, []byte("\n…\n")...)
+			respPreview = append(respPreview, []byte("\n…\n")...)
 		}
-		resp = append(resp, s.tail...)
+		respPreview = append(respPreview, s.tail...)
 	}
 	if len(s.apiResp) > 0 {
-		resp = append(resp, '\n')
-		resp = append(resp, s.apiResp...)
+		respPreview = append(respPreview, '\n')
+		respPreview = append(respPreview, s.apiResp...)
+	}
+	// WS-only turns: head/tail may still be empty if WriteAPIWebsocketTimeline
+	// never ran before Close (defensive — normally filled above).
+	if len(respPreview) == 0 && len(s.wsTimeline) > 0 {
+		respPreview = append([]byte(nil), s.wsTimeline...)
+		if len(respPreview) > previewRespBytes*2 {
+			half := previewRespBytes
+			respPreview = append(append(respPreview[:half], []byte("\n…\n")...), respPreview[len(respPreview)-half:]...)
+		}
 	}
 	status := s.status
 	started := s.started
@@ -343,25 +418,51 @@ func (s *streamWrapper) Close() error {
 	if provider == "" {
 		provider = s.provider
 	}
+	spill := s.spill
+	spillRel := s.spillRel
+	spillAbs := s.spillAbs
+	eventID := s.eventID
+	wsTimeline := append([]byte(nil), s.wsTimeline...)
+	s.spill = nil
 	s.mu.Unlock()
 
-	s.parent.forwardStream(url, headers, reqBody, resp, status, requestID, started, finished, provider, tokensIn, tokensOut, model)
+	var bodyRef string
+	if spill != nil {
+		_ = spill.Close()
+		if _, finErr := finalizeSpill(spillAbs); finErr != nil {
+			log.Warnf("rivet sink spill finalize: %v", finErr)
+		} else {
+			bodyRef = spillRel
+		}
+	} else if len(wsTimeline) > 0 && s.parent != nil && strings.TrimSpace(s.parent.blobsDir) != "" {
+		// No open spill — still persist the WS timeline so Codex turns aren't lost.
+		full := append([]byte(nil), reqBody...)
+		if len(full) > 0 {
+			full = append(full, []byte("\n---\n")...)
+		}
+		full = append(full, mergeWebsocketIntoResponse(nil, nil, wsTimeline)...)
+		if rel, ok := s.parent.spillBody(eventID, redactSecrets(string(full))); ok {
+			bodyRef = rel
+		}
+	}
+
+	s.parent.forwardStream(url, headers, reqBody, respPreview, status, requestID, started, finished, provider, tokensIn, tokensOut, model, eventID, bodyRef, apiReq)
 	// Inner streaming writer is often a no-op when request-log is off; force an error file.
 	if s.parent.inner != nil && !s.parent.inner.IsEnabled() && (status >= 400 || len(apiErrs) > 0) {
 		forceStatus := status
 		if forceStatus < 400 {
 			forceStatus = 500
 		}
-		_ = s.parent.logInnerWithForce(url, "POST", headers, reqBody, forceStatus, nil, resp, nil, apiReq, nil, nil, apiErrs, true, requestID, started, finished)
+		_ = s.parent.logInnerWithForce(url, "POST", headers, reqBody, forceStatus, nil, respPreview, nil, apiReq, nil, nil, apiErrs, true, requestID, started, finished)
 	}
 	return err
 }
 
-func (w *Wrapper) forwardStream(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, tokensIn, tokensOut uint32, modelHint string) {
+func (w *Wrapper) forwardStream(url string, headers map[string][]string, reqBody, respPreview []byte, statusCode int, requestID string, started, finished time.Time, provider string, tokensIn, tokensOut uint32, modelHint, eventID, bodyRef string, apiRequest []byte) {
 	if v := headerFirst(headers, "x-rivet-internal"); v != "" {
 		return
 	}
-	meta := parseMeta(provider, headers, reqBody, respBody)
+	meta := parseMeta(provider, headers, reqBody, respPreview)
 	if tokensIn > 0 {
 		meta.TokensIn = tokensIn
 	}
@@ -371,7 +472,7 @@ func (w *Wrapper) forwardStream(url string, headers map[string][]string, reqBody
 	if modelHint != "" && meta.Model == "" {
 		meta.Model = modelHint
 	}
-	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, meta)
+	w.emit(url, headers, reqBody, respPreview, statusCode, requestID, started, finished, provider, &meta, eventID, bodyRef, true, apiRequest)
 }
 
 func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, apiRequest []byte) {
@@ -380,22 +481,42 @@ func (w *Wrapper) forward(url string, headers map[string][]string, reqBody, resp
 	}
 	provider := inferProviderFromCapture(url, reqBody, apiRequest)
 	meta := parseMeta(provider, headers, reqBody, respBody)
-	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, meta)
+	w.emit(url, headers, reqBody, respBody, statusCode, requestID, started, finished, provider, &meta, "", "", false, apiRequest)
 }
 
-func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, meta parsedMeta) {
-	// Truncate request only; response may already be a head+tail assembly — keep its ending.
-	reqPart := truncate(string(reqBody), 48*1024)
-	content := reqPart
-	if len(respBody) > 0 {
-		respPart := string(respBody)
-		if len(respPart) > 96*1024 {
-			// Prefer keeping the end of a long response (usage / final text).
-			respPart = "…\n" + respPart[len(respPart)-96*1024:]
-		}
-		content = reqPart + "\n---\n" + respPart
+func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBody []byte, statusCode int, requestID string, started, finished time.Time, provider string, meta *parsedMeta, eventID, existingBodyRef string, previewOnly bool, apiRequest []byte) {
+	if meta == nil {
+		meta = &parsedMeta{}
 	}
-	content = redactSecrets(content)
+	eventID = strings.TrimSpace(eventID)
+	if eventID == "" {
+		eventID = uuid.NewString()
+	}
+
+	preview := redactSecrets(buildPreview(reqBody, respBody))
+	content := preview
+	var bodyRef *string
+	if existingBodyRef != "" {
+		bodyRef = &existingBodyRef
+	} else if !previewOnly {
+		full := string(reqBody)
+		if len(respBody) > 0 {
+			if full != "" {
+				full += "\n---\n"
+			}
+			full += string(respBody)
+		}
+		full = redactSecrets(full)
+		if rel, ok := w.spillBody(eventID, full); ok && len(full) > len(preview) {
+			bodyRef = &rel
+		} else {
+			// Small enough (or no blobs dir) — keep the full payload in content.
+			content = full
+			if w.blobsDir == "" && len(full) > len(preview) {
+				content = preview
+			}
+		}
+	}
 
 	var latency *uint64
 	if !started.IsZero() && !finished.IsZero() && finished.After(started) {
@@ -411,18 +532,24 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 	if requestID != "" {
 		rid = &requestID
 	}
-	var model, sessionID, projectID, accountLabel *string
+	var model, sessionID, projectID, cwd, accountLabel *string
 	if meta.Model != "" {
 		model = &meta.Model
-	}
-	if meta.SessionID != "" {
-		sessionID = &meta.SessionID
 	}
 	if meta.ProjectID != "" {
 		projectID = &meta.ProjectID
 	}
+	if meta.Cwd != "" {
+		cwd = &meta.Cwd
+	}
 	if v := headerFirst(headers, "x-rivet-account", "x-account-label", "x-account-email", "x-goog-authenticated-user-email"); v != "" {
 		accountLabel = &v
+	} else if v := accountLabelFromAPIRequest(apiRequest); v != "" {
+		accountLabel = &v
+	}
+	accountStr := ""
+	if accountLabel != nil {
+		accountStr = *accountLabel
 	}
 	role := meta.Role
 	if role == "" {
@@ -434,22 +561,32 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 			provider = refined
 		}
 	}
+	quality := "wire"
+	if meta.SessionID != "" {
+		sessionID = &meta.SessionID
+	} else if soft := softSessionID(provider, accountStr, meta.Model, reqBody); soft != "" {
+		sessionID = &soft
+		quality = "soft"
+	}
 
 	evt := trafficEvent{
-		ID:           uuid.NewString(),
-		Ts:           time.Now().UTC().Format(time.RFC3339Nano),
-		Provider:     provider,
-		AccountLabel: accountLabel,
-		Model:        model,
-		SessionID:    sessionID,
-		ProjectID:    projectID,
-		RequestID:    rid,
-		Role:         role,
-		Content:      &content,
-		TokensIn:     meta.TokensIn,
-		TokensOut:    meta.TokensOut,
-		LatencyMs:    latency,
-		StatusCode:   status,
+		ID:             eventID,
+		Ts:             time.Now().UTC().Format(time.RFC3339Nano),
+		Provider:       provider,
+		AccountLabel:   accountLabel,
+		Model:          model,
+		SessionID:      sessionID,
+		ProjectID:      projectID,
+		Cwd:            cwd,
+		RequestID:      rid,
+		Role:           role,
+		Content:        &content,
+		TokensIn:       meta.TokensIn,
+		TokensOut:      meta.TokensOut,
+		LatencyMs:      latency,
+		StatusCode:     status,
+		BodyRef:        bodyRef,
+		CaptureQuality: &quality,
 	}
 	payload, err := json.Marshal(evt)
 	if err != nil {
@@ -562,6 +699,59 @@ func parseAuthField(authLine, key string) string {
 	return strings.TrimSpace(rest)
 }
 
+// accountLabelFromAPIRequest maps the credential-pool auth_id (e.g. alice.json)
+// into a stable account label when the client did not send one.
+func accountLabelFromAPIRequest(apiRequest []byte) string {
+	if len(apiRequest) == 0 {
+		return ""
+	}
+	var lastAuthID string
+	inHeaders := false
+	for _, raw := range strings.Split(string(apiRequest), "\n") {
+		line := strings.TrimSpace(raw)
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "=== api request") {
+			inHeaders = true
+			continue
+		}
+		if !inHeaders {
+			continue
+		}
+		if lower == "body:" || strings.HasPrefix(lower, "body:") {
+			inHeaders = false
+			continue
+		}
+		if strings.HasPrefix(lower, "auth:") {
+			if id := parseAuthField(line, "auth_id="); id != "" {
+				lastAuthID = id
+			}
+		}
+	}
+	return humanizeAuthID(lastAuthID)
+}
+
+func humanizeAuthID(authID string) string {
+	id := strings.TrimSpace(authID)
+	if id == "" {
+		return ""
+	}
+	id = strings.ReplaceAll(id, "\\", "/")
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		id = id[i+1:]
+	}
+	for _, ext := range []string{".json", ".jsonl", ".yaml", ".yml", ".toml"} {
+		if strings.HasSuffix(strings.ToLower(id), ext) {
+			id = id[:len(id)-len(ext)]
+			break
+		}
+	}
+	id = strings.TrimSpace(id)
+	if id == "" || strings.EqualFold(id, "default") || strings.EqualFold(id, "auth") {
+		return ""
+	}
+	return id
+}
+
 func isKimiAIPool(upstreamURL, authID string) bool {
 	// kimi.com → "kimi" pool; kimi.ai → "kimi-ai" pool. Do not conflate.
 	u := strings.ToLower(upstreamURL)
@@ -669,10 +859,8 @@ func inferProvider(url string, reqBody []byte) string {
 
 func parseMeta(provider string, headers map[string][]string, reqBody, respBody []byte) parsedMeta {
 	meta := parsedMeta{Role: "unknown"}
-	if v := headerFirst(headers, "x-session-id", "session-id", "x-chat-id"); v != "" {
-		meta.SessionID = v
-	}
-	if v := headerFirst(headers, "x-project-id", "project-id"); v != "" {
+	// Hard evidence only: explicit project headers/fields. cwd is captured separately.
+	if v := headerFirst(headers, "x-project-id", "x-rivet-project-id", "project-id", "openai-project", "x-openai-project"); v != "" {
 		meta.ProjectID = v
 	}
 
@@ -682,25 +870,19 @@ func parseMeta(provider string, headers map[string][]string, reqBody, respBody [
 		if m, ok := req["model"].(string); ok && m != "" {
 			meta.Model = m
 		}
-		if meta.SessionID == "" {
-			if s, ok := req["session_id"].(string); ok {
-				meta.SessionID = s
-			}
-		}
 		if meta.ProjectID == "" {
 			if s, ok := req["project_id"].(string); ok {
-				meta.ProjectID = s
+				meta.ProjectID = strings.TrimSpace(s)
 			} else if metaMap, ok := req["metadata"].(map[string]any); ok {
 				if s, ok := metaMap["project_id"].(string); ok {
-					meta.ProjectID = s
-				}
-				if s, ok := metaMap["session_id"].(string); ok && meta.SessionID == "" {
-					meta.SessionID = s
+					meta.ProjectID = strings.TrimSpace(s)
 				}
 			}
 		}
+		meta.Cwd = extractCwd(req)
 		meta.Role = inferRoleFromRequest(req)
 	}
+	meta.SessionID = extractSessionID(headers, req, reqBody)
 
 	// Non-stream JSON response.
 	var resp map[string]any
@@ -719,6 +901,48 @@ func parseMeta(provider string, headers map[string][]string, reqBody, respBody [
 		parseStreamMeta(&meta, provider, string(respBody))
 	}
 	return meta
+}
+
+// extractCwd pulls a working-directory signal when present. This is not a project
+// classification — workers assign projects from cwd plus content/context later.
+func extractCwd(req map[string]any) string {
+	if req == nil {
+		return ""
+	}
+	if s := strings.TrimSpace(asString(req["cwd"])); s != "" {
+		return s
+	}
+	if gs, ok := req["git_state"].(map[string]any); ok {
+		if s := strings.TrimSpace(asString(gs["cwd"])); s != "" {
+			return s
+		}
+	}
+	if metaMap, ok := req["metadata"].(map[string]any); ok {
+		if s := strings.TrimSpace(asString(metaMap["cwd"])); s != "" {
+			return s
+		}
+	}
+	if safeguards, ok := req["safeguards"].([]any); ok {
+		for _, item := range safeguards {
+			m, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			ctx, ok := m["classifier_context"].(map[string]any)
+			if !ok {
+				continue
+			}
+			if s := strings.TrimSpace(asString(ctx["live_cwd"])); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
 }
 
 func applyUsage(meta *parsedMeta, _provider string, obj map[string]any) {
@@ -923,6 +1147,77 @@ func uintFrom(m map[string]any, key string) uint32 {
 	default:
 		return 0
 	}
+}
+
+// extractSessionID resolves harness session markers from headers and request bodies.
+// Claude Code: X-Claude-Code-Session-Id or metadata.user_id JSON / `_session_<uuid>` suffix.
+// Codex / OpenAI-compat: session_id / Session-Id headers and body fields.
+func extractSessionID(headers map[string][]string, req map[string]any, reqBody []byte) string {
+	if v := headerFirst(headers,
+		"x-claude-code-session-id",
+		"x-session-id",
+		"session-id",
+		"session_id",
+		"x-chat-id",
+		"chat-id",
+		"x-conversation-id",
+		"conversation-id",
+	); v != "" {
+		return v
+	}
+
+	if req == nil && len(reqBody) > 0 {
+		_ = json.Unmarshal(reqBody, &req)
+	}
+	if req == nil {
+		return ""
+	}
+
+	for _, key := range []string{"session_id", "conversation_id", "chat_id"} {
+		if s, ok := req[key].(string); ok {
+			if s = strings.TrimSpace(s); s != "" {
+				return s
+			}
+		}
+	}
+
+	metaMap, _ := req["metadata"].(map[string]any)
+	if metaMap != nil {
+		for _, key := range []string{"session_id", "conversation_id"} {
+			if s, ok := metaMap[key].(string); ok {
+				if s = strings.TrimSpace(s); s != "" {
+					return s
+				}
+			}
+		}
+		if s, ok := metaMap["user_id"].(string); ok {
+			if sid := sessionIDFromClaudeUserID(s); sid != "" {
+				return sid
+			}
+		}
+	}
+	return ""
+}
+
+var claudeCodeSessionSuffixPattern = regexp.MustCompile(`_session_([a-f0-9-]+)$`)
+
+func sessionIDFromClaudeUserID(userID string) string {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return ""
+	}
+	if matches := claudeCodeSessionSuffixPattern.FindStringSubmatch(userID); len(matches) >= 2 {
+		return matches[1]
+	}
+	if strings.HasPrefix(userID, "{") {
+		var nested map[string]any
+		if json.Unmarshal([]byte(userID), &nested) == nil {
+			if s, ok := nested["session_id"].(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+	return ""
 }
 
 func headerFirst(headers map[string][]string, names ...string) string {

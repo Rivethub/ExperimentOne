@@ -33,6 +33,7 @@ export type AppTopbarDataActions = {
   canRevealExport: boolean;
   onExport: () => void;
   onImport: () => void;
+  onIngestLocal: () => void;
   onRevealExport: () => void;
 };
 
@@ -89,6 +90,9 @@ export function AppTopbar({
               </DropdownMenuItem>
               <DropdownMenuItem disabled={busy} onSelect={data.onImport}>
                 Import .rivetbag
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={busy} onSelect={data.onIngestLocal}>
+                Import local sessions
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
