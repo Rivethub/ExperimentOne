@@ -1504,9 +1504,8 @@ async fn export_bag(
             ids.into_iter().map(|id| id.trim().to_string()).filter(|id| !id.is_empty()).collect();
         (!cleaned.is_empty()).then_some(cleaned)
     });
-    let export_ids = conversation_ids
-        .as_ref()
-        .map(|ids| expand_export_conversation_ids(&state.meta, ids));
+    let export_ids =
+        conversation_ids.as_ref().map(|ids| expand_export_conversation_ids(&state.meta, ids));
     let name = match conversation_ids.as_ref() {
         Some(ids) if ids.len() == 1 => {
             format!("rivet-export-1conv-{}.rivetbag", Utc::now().format("%Y%m%d-%H%M%S"))
