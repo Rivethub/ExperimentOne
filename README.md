@@ -21,7 +21,12 @@ docs/            Architecture, packaging, ClickHouse, enterprise
 
 Requires **Rust 1.99.1** (`rust-toolchain.toml` pins it), **Bun 1.4.4**, and **Node.js 26** (`.prototools`).
 
+Commit messages use [Conventional Commits](https://www.conventionalcommits.org/) with a required project scope (`committed.toml`). Local gate is **hk** (fast parallel hooks runner) + `committed`; CI runs the same check.
+
 ```bash
+brew install hk committed
+hk install
+
 # Sidecars (rivetd + rivet-proxy + ClickHouse) into Tauri binaries/
 ./scripts/build-sidecars.sh
 
@@ -33,6 +38,8 @@ cd apps/desktop && bun install && bun run tauri dev
 # (bun run dev for Vite-only against an already-running rivetd;
 #  bun run dev:mock for browser UI with mocked IPC)
 ```
+
+Scopes: `api`, `charts`, `ci`, `core`, `desktop`, `docs`, `export`, `ingest`, `mcp`, `proxy`, `repo`, `runtime`, `scripts`, `store`, `worker`. Example: `feat(desktop): Add tray quit confirmation`.
 
 ## Product (v1.0)
 

@@ -1,0 +1,41 @@
+# Conventional Commits + Rivet project scopes.
+# Validated by `scripts/lint-commit-msg.sh` (hk commit-msg hook + CI).
+style = "conventional"
+subject_length = 100
+# Bodies often keep a long rationale line plus trailers; do not hard-fail on wrap length.
+line_length = 200
+hard_line_length = 0
+subject_capitalized = true
+subject_not_punctuated = true
+imperative_subject = true
+merge_commit = true
+allowed_types = [
+  "feat",
+  "fix",
+  "docs",
+  "style",
+  "refactor",
+  "perf",
+  "test",
+  "build",
+  "ci",
+  "chore",
+  "revert",
+]
+allowed_scopes = [
+  "api",
+  "charts",
+  "ci",
+  "core",
+  "desktop",
+  "docs",
+  "export",
+  "ingest",
+  "mcp",
+  "proxy",
+  "repo",
+  "runtime",
+  "scripts",
+  "store",
+  "worker",
+]

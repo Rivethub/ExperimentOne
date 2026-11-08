@@ -1,0 +1,16 @@
+amends "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.11.1/hk@2.11.1#/Builtins.pkl"
+
+// hk (https://hk.jdx.dev) is the hooks runner: parallel by default and currently
+// the fastest manager in public hook benchmarks vs lefthook / prek / pre-commit.
+// Commit messages are gated by scripts/lint-commit-msg.sh (scopes + committed).
+
+hooks {
+  ["commit-msg"] {
+    steps {
+      ["commit-lint"] {
+        check = "bash scripts/lint-commit-msg.sh {{commit_msg_file}}"
+      }
+    }
+  }
+}
