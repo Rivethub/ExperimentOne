@@ -38,6 +38,7 @@ export type UseAccountsResult = {
   cancelLogin: () => Promise<void>;
   removeAccount: (id: string) => Promise<void>;
   writeHarness: (target: HarnessInstallTarget, mode?: "user" | "isolated") => Promise<void>;
+  writeAllHarnesses: () => Promise<void>;
   loadClaude: () => Promise<void>;
   loadCodex: () => Promise<void>;
   loadMcp: () => Promise<void>;
@@ -155,6 +156,7 @@ export function useAccounts(opts: AccountsOpts): UseAccountsResult {
     cancelLogin: loginApi.cancelLogin,
     removeAccount,
     writeHarness: harnessApi.writeHarness,
+    writeAllHarnesses: harnessApi.writeAllHarnesses,
     loadClaude: harnessApi.loadClaude,
     loadCodex: harnessApi.loadCodex,
     loadMcp: harnessApi.loadMcp,

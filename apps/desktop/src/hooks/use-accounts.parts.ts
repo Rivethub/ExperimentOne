@@ -32,6 +32,7 @@ export type AccountsHarnessApi = {
   harnessNote: HarnessWrite | null;
   snippet: string;
   writeHarness: (target: HarnessInstallTarget, mode?: "user" | "isolated") => Promise<void>;
+  writeAllHarnesses: () => Promise<void>;
   loadClaude: () => Promise<void>;
   loadCodex: () => Promise<void>;
   loadMcp: () => Promise<void>;
@@ -284,6 +285,40 @@ export function useAccountsHarness(
     [setBusy, setError],
   );
 
+  const writeAllHarnesses = useCallback(async () => {
+    setBusy(true);
+    try {
+      const notes = await runApp(
+        Effect.gen(function* writeAllHarnessConfigs() {
+          yield* Rivet.requireBackend;
+          const targets: HarnessInstallTarget[] = ["claude", "codex", "cursor"];
+          const out: HarnessWrite[] = [];
+          for (const target of targets) {
+            out.push(yield* Rivet.writeHarness(target, "user"));
+          }
+          return out;
+        }),
+      );
+      const paths = notes.map((n) => n.path).join("; ");
+      const backup = notes
+        .map((n) => n.backup_path)
+        .find((p) => p !== null && p !== undefined && p !== "");
+      setHarnessNote({
+        target: "all",
+        path: paths,
+        env_hint: "",
+        note: "Installed Rivet into ~/.claude, ~/.codex, and ~/.cursor (proxy, plugins/hooks, MCP). Restart Claude Code, Codex, and Cursor so the new config loads.",
+        backup_path: backup ?? null,
+        mode: "user",
+      });
+      setSnippet("");
+    } catch (err) {
+      setError(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [setBusy, setError]);
+
   const loadClaude = useCallback(async () => {
     const text = await runApp(
       Effect.gen(function* loadClaudeHarness() {
@@ -317,5 +352,5 @@ export function useAccountsHarness(
     setHarnessNote(null);
   }, []);
 
-  return { harnessNote, snippet, writeHarness, loadClaude, loadCodex, loadMcp };
+  return { harnessNote, snippet, writeHarness, writeAllHarnesses, loadClaude, loadCodex, loadMcp };
 }

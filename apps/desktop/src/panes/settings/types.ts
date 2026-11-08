@@ -39,6 +39,8 @@ export type SettingsHarnessProps = {
   harnessNote: HarnessWrite | null;
   snippet: string;
   onWriteHarness: (target: HarnessInstallTarget, mode: "user" | "isolated") => void;
+  /** Install Claude + Codex + Cursor user configs / plugins in one pass. */
+  onWriteAllHarnesses: () => void;
   onLoadClaude: () => void;
   onLoadCodex: () => void;
   onLoadMcp: () => void;

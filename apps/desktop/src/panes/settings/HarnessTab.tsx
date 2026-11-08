@@ -18,9 +18,10 @@ export function HarnessTab({
       title="Harness (advanced)"
       lede={
         <>
-          One-click setup lives on each Claude / Codex account. This tab is for copying snippets,
-          writing an isolated Rivet config dir, and climbing the capture ladder (proxy → full bodies
-          → local transcript import).
+          One-click setup lives on each Claude / Codex account. This tab installs Rivet into Claude
+          Code, Codex, and Cursor (proxy + project plugins/hooks + MCP), copies snippets, and climbs
+          the capture ladder (proxy → full bodies → local transcript import). Restart each harness
+          after install so the new config loads.
         </>
       }
     >
@@ -64,13 +65,26 @@ export function HarnessTab({
           variant="primary"
           disabled={harness.busy}
           onClick={() => {
+            harness.onWriteAllHarnesses();
+          }}
+        >
+          Install Claude + Codex + Cursor
+        </Button>
+      </Actions>
+      <p className={styles.muted} style={{ marginTop: 8, marginBottom: 8 }}>
+        Writes proxy settings, session→project plugins/hooks, and Rivet MCP. Restart Claude Code,
+        Codex, and Cursor afterward so plugins load.
+      </p>
+      <Actions>
+        <Button
+          disabled={harness.busy}
+          onClick={() => {
             harness.onWriteHarness("claude", "user");
           }}
         >
           Install into ~/.claude
         </Button>
         <Button
-          variant="primary"
           disabled={harness.busy}
           onClick={() => {
             harness.onWriteHarness("codex", "user");
@@ -79,7 +93,6 @@ export function HarnessTab({
           Install into ~/.codex
         </Button>
         <Button
-          variant="primary"
           disabled={harness.busy}
           onClick={() => {
             harness.onWriteHarness("cursor", "user");
