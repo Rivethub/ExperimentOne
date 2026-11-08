@@ -37,4 +37,7 @@ pub use proxy_config::{
     write_proxy_config,
 };
 pub use redact::{redact_event, redact_text};
-pub use traffic::{ExportManifest, ProviderKind, TrafficEvent, TrafficRole, UsageTotals};
+pub use traffic::{
+    conversations_from_events, ConversationSummary, ExportManifest, ProviderKind, TrafficEvent,
+    TrafficRole, UsageTotals,
+};

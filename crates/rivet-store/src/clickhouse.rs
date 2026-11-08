@@ -374,7 +374,35 @@ impl TrafficStore for ClickHouseTrafficStore {
         }
         let body = self
             .query_json_rows(&format!(
-                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE positionCaseInsensitive(ifNull(content, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(model, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(account_label, ''), '{q}') > 0 OR positionCaseInsensitive(ifNull(session_id, ''), '{q}') > 0 ORDER BY ts DESC LIMIT {limit}"
+            ))
+            .await?;
+        Self::parse_events(&body)
+    }
+
+    async fn conversation_events(
+        &self,
+        conversation_id: &str,
+        limit: u32,
+    ) -> Result<Vec<TrafficEvent>> {
+        let limit = limit.clamp(1, 5000);
+        let id = conversation_id.trim();
+        if id.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(event_id) = id.strip_prefix("event:") {
+            let eid = Self::escape_literal(event_id);
+            let body = self
+                .query_json_rows(&format!(
+                    "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE toString(id) = '{eid}' ORDER BY ts ASC LIMIT {limit}"
+                ))
+                .await?;
+            return Self::parse_events(&body);
+        }
+        let sid = Self::escape_literal(id);
+        let body = self
+            .query_json_rows(&format!(
+                "SELECT id, ts, provider, account_label, model, session_id, project_id, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref FROM traffic_events WHERE session_id = '{sid}' ORDER BY ts ASC LIMIT {limit}"
             ))
             .await?;
         Self::parse_events(&body)

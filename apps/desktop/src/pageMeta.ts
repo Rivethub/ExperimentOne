@@ -5,10 +5,9 @@ import type { WikiInfo } from "./components/WikiBoard";
 
 const TITLE_MAP: Record<Page, string> = {
   quota: "Quota Management",
-  traffic: "Traffic",
+  data: "Data",
   runtime: "Runtime",
   wiki: "Wiki",
-  export: "Export / import",
   settings: "Settings",
 };
 
@@ -38,8 +37,8 @@ export function pageSubtitle(opts: {
       return `${credentialCount} credential${credentialCount === 1 ? "" : "s"} · ${
         quota?.source === "management" ? "live quota" : "local estimates"
       } · proxy ${proxyLabel}`;
-    case "traffic":
-      return `${fmt(status?.usage.events ?? recentCount)} captured events`;
+    case "data":
+      return `${fmt(status?.usage.events ?? recentCount)} messages across conversations`;
     case "runtime":
       return status?.proxy_base_url ?? "Control plane · workers · logs";
     case "wiki": {
@@ -52,7 +51,5 @@ export function pageSubtitle(opts: {
     }
     case "settings":
       return SETTINGS_TABS.find((t) => t.id === settingsTab)?.hint ?? "Configure Rivet";
-    case "export":
-      return `${fmt(status?.usage.events ?? 0)} events ready · credentials excluded`;
   }
 }

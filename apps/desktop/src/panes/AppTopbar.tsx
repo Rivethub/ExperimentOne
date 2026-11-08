@@ -1,5 +1,7 @@
+import { useEffect, useId, useRef, useState } from "react";
 import type { Page } from "../types";
 import { Button } from "../ui";
+import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 
 export type AppTopbarQuotaActions = {
@@ -22,6 +24,13 @@ export type AppTopbarRuntimeActions = {
   onRunWorkers: () => void;
 };
 
+export type AppTopbarDataActions = {
+  canRevealExport: boolean;
+  onExport: () => void;
+  onImport: () => void;
+  onRevealExport: () => void;
+};
+
 export type AppTopbarProps = {
   title: string;
   subtitle: string;
@@ -31,6 +40,7 @@ export type AppTopbarProps = {
   quota?: AppTopbarQuotaActions;
   wiki?: AppTopbarWikiActions;
   runtime?: AppTopbarRuntimeActions;
+  data?: AppTopbarDataActions;
 };
 
 export function AppTopbar({
@@ -42,7 +52,32 @@ export function AppTopbar({
   quota,
   wiki,
   runtime,
+  data,
 }: AppTopbarProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (page !== "data") setMenuOpen(false);
+  }, [page]);
+
   return (
     <header className={styles.topbar}>
       <div>
@@ -64,6 +99,60 @@ export function AppTopbar({
               Manage credentials
             </Button>
           </>
+        )}
+        {page === "data" && data && (
+          <div className={styles.topMenu} ref={menuRef}>
+            <Button
+              variant="primary"
+              disabled={busy}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              aria-controls={menuId}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              Export / import
+            </Button>
+            {menuOpen && (
+              <div className={styles.topMenuPanel} id={menuId} role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.topMenuItem}
+                  disabled={busy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    data.onExport();
+                  }}
+                >
+                  Export .rivetbag
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.topMenuItem}
+                  disabled={busy}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    data.onImport();
+                  }}
+                >
+                  Import .rivetbag
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={cx(styles.topMenuItem, !data.canRevealExport ? styles.disabled : "")}
+                  disabled={busy || !data.canRevealExport}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    data.onRevealExport();
+                  }}
+                >
+                  Reveal last export
+                </button>
+              </div>
+            )}
+          </div>
         )}
         {page === "wiki" && wiki && (
           <>

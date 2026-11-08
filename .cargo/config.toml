@@ -1,0 +1,8 @@
+# Build performance knobs. See README "Faster Rust builds".
+#
+# Linux: prefer mold for link times (install: apt/brew install mold clang).
+# macOS/Windows: leave the platform linker; mold does not support Mach-O / PE.
+
+[target.'cfg(target_os = "linux")']
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]

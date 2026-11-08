@@ -6,7 +6,9 @@ mod redacting;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rivet_core::{RivetPaths, TrafficEvent, UsageTotals};
+use rivet_core::{
+    conversations_from_events, ConversationSummary, RivetPaths, TrafficEvent, UsageTotals,
+};
 use std::sync::Arc;
 use tracing::info;
 
@@ -23,6 +25,47 @@ pub trait TrafficStore: Send + Sync {
     async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>>;
     async fn usage_totals(&self) -> Result<UsageTotals>;
     async fn export_all(&self) -> Result<Vec<TrafficEvent>>;
+
+    /// Historical conversations grouped by session (newest first).
+    async fn list_conversations(&self, limit: u32) -> Result<Vec<ConversationSummary>> {
+        let events = self.recent(limit.saturating_mul(8).clamp(50, 2000)).await?;
+        Ok(conversations_from_events(&events, limit.max(1)))
+    }
+
+    /// Events for one conversation, chronological.
+    async fn conversation_events(
+        &self,
+        conversation_id: &str,
+        limit: u32,
+    ) -> Result<Vec<TrafficEvent>> {
+        let id = conversation_id.trim();
+        if id.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Some(event_id) = id.strip_prefix("event:") {
+            return self.get_by_ids(&[event_id.to_string()]).await;
+        }
+        let events = self.recent(limit.saturating_mul(8).clamp(100, 5000)).await?;
+        let mut matched: Vec<TrafficEvent> = events
+            .into_iter()
+            .filter(|e| e.conversation_id() == id)
+            .collect();
+        matched.sort_by(|a, b| a.ts.cmp(&b.ts));
+        matched.truncate(limit.max(1) as usize);
+        Ok(matched)
+    }
+
+    /// Keyword search projected to conversation summaries.
+    async fn search_conversations(
+        &self,
+        query: &str,
+        limit: u32,
+    ) -> Result<Vec<ConversationSummary>> {
+        let events = self
+            .search_keyword(query, limit.saturating_mul(8).clamp(50, 2000))
+            .await?;
+        Ok(conversations_from_events(&events, limit.max(1)))
+    }
 }
 
 /// Open local stores under Application Support.
