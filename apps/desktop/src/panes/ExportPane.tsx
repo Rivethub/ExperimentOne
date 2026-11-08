@@ -86,11 +86,7 @@ export function ExportPane({
                 <Button disabled={busy} onClick={onPickImport}>
                   Choose file
                 </Button>
-                <Button
-                  variant="primary"
-                  disabled={busy || !importPath.trim()}
-                  onClick={onImport}
-                >
+                <Button variant="primary" disabled={busy || !importPath.trim()} onClick={onImport}>
                   Import
                 </Button>
               </div>

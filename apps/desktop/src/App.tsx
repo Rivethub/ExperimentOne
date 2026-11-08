@@ -108,29 +108,32 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount wiki snapshot after rivet boot
   }, []);
 
+  const { loadLogs } = ops;
+  const { refreshCredentials, trafficRows } = rivet;
+
   useEffect(() => {
-    if (page === "runtime") void ops.loadLogs();
-  }, [page, ops.loadLogs]);
+    if (page === "runtime") void loadLogs();
+  }, [page, loadLogs]);
 
   useEffect(() => {
     const id = setInterval(() => {
-      if (page === "runtime") void ops.loadLogs();
+      if (page === "runtime") void loadLogs();
     }, 10_000);
     return () => clearInterval(id);
-  }, [page, ops.loadLogs]);
+  }, [page, loadLogs]);
 
   const filteredTraffic = useMemo(
-    () => filterTrafficRows(rivet.trafficRows, trafficProvider, trafficStatus, providerKey),
-    [rivet.trafficRows, trafficProvider, trafficStatus],
+    () => filterTrafficRows(trafficRows, trafficProvider, trafficStatus, providerKey),
+    [trafficRows, trafficProvider, trafficStatus],
   );
 
   const limitActions = useMemo(
     () => ({
-      onRefreshCredentials: () => void rivet.refreshCredentials(),
+      onRefreshCredentials: () => void refreshCredentials(),
       onSwitchAccount: () => openSettings("accounts"),
       onWait: () => setLimitBannerHidden(true),
     }),
-    [openSettings, rivet.refreshCredentials],
+    [openSettings, refreshCredentials],
   );
 
   const title = pageTitle(page, settingsTab);

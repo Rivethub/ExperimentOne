@@ -273,7 +273,9 @@ fn decode_http_body(headers: &str, body: &str) -> String {
             return false;
         };
         name.eq_ignore_ascii_case("transfer-encoding")
-            && value.split(',').any(|p| p.trim().eq_ignore_ascii_case("chunked"))
+            && value
+                .split(',')
+                .any(|p| p.trim().eq_ignore_ascii_case("chunked"))
     });
     if !chunked {
         return body.to_string();

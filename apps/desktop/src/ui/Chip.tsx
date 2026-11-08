@@ -18,11 +18,7 @@ export function Chip({
   ...rest
 }: ChipProps) {
   return (
-    <button
-      type={type}
-      className={cx(styles.chip, active && styles.active, className)}
-      {...rest}
-    >
+    <button type={type} className={cx(styles.chip, active && styles.active, className)} {...rest}>
       {dotColor ? <span className={styles.dot} style={{ background: dotColor }} /> : null}
       {children}
       {count != null ? <span className={styles.count}>{count}</span> : null}

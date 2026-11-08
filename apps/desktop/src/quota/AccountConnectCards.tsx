@@ -74,10 +74,7 @@ export function AccountConnectCards({
                   Harness setup
                 </Button>
               )}
-              <Button
-                disabled={busy || loginActive}
-                onClick={() => onReconnect(id)}
-              >
+              <Button disabled={busy || loginActive} onClick={() => onReconnect(id)}>
                 Reconnect
               </Button>
               <Button

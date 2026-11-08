@@ -276,7 +276,8 @@ pub fn migrate_claude_settings_file(path: &Path, config: &RivetConfig) -> Result
     if base != config.proxy_base_url() {
         return Ok(false);
     }
-    let had_auth = env.contains_key("ANTHROPIC_AUTH_TOKEN") || env.contains_key("ANTHROPIC_API_KEY");
+    let had_auth =
+        env.contains_key("ANTHROPIC_AUTH_TOKEN") || env.contains_key("ANTHROPIC_API_KEY");
     if !had_auth {
         return Ok(false);
     }

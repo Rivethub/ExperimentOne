@@ -14,9 +14,9 @@ func TestClaudeUsageHighWaterNotAdditive(t *testing.T) {
 	}
 	frame2 := map[string]any{
 		"usage": map[string]any{
-			"input_tokens":                float64(100),
-			"cache_read_input_tokens":     float64(50),
-			"output_tokens":               float64(20),
+			"input_tokens":            float64(100),
+			"cache_read_input_tokens": float64(50),
+			"output_tokens":           float64(20),
 		},
 	}
 	applyUsage(&meta, "claude", frame1)

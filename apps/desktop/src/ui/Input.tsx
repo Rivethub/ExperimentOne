@@ -9,9 +9,6 @@ export type InputProps = InputHTMLAttributes<HTMLInputElement> & {
 
 export function Input({ tone = "mono", className, ...rest }: InputProps) {
   return (
-    <input
-      className={cx(styles.input, tone === "plain" && styles.plain, className)}
-      {...rest}
-    />
+    <input className={cx(styles.input, tone === "plain" && styles.plain, className)} {...rest} />
   );
 }

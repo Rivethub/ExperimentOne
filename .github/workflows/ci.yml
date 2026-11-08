@@ -20,6 +20,8 @@ jobs:
         with:
           toolchain: "1.99.1"
           components: rustfmt, clippy
+      - name: rustfmt
+        run: cargo fmt --all -- --check
       - name: Check control plane
         run: cargo check -p rivet-runtime
       - name: Clippy
@@ -34,9 +36,38 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: vendor/cliproxyapi/go.mod
+      - name: gofmt
+        working-directory: vendor/cliproxyapi
+        run: |
+          files="$(gofmt -l ./internal/rivetsink/)"
+          if [ -n "$files" ]; then
+            echo "gofmt needed on:"
+            echo "$files"
+            exit 1
+          fi
       - name: Rivet sink tests
         working-directory: vendor/cliproxyapi
         run: go test ./internal/rivetsink/ -count=1
+
+  desktop-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.4"
+      - name: Install frontend deps
+        working-directory: apps/desktop
+        run: bun install --frozen-lockfile
+      - name: Format check
+        working-directory: apps/desktop
+        run: bun run fmt:check
+      - name: Lint
+        working-directory: apps/desktop
+        run: bun run lint
+      - name: Typecheck
+        working-directory: apps/desktop
+        run: bun run typecheck
 
   desktop:
     strategy:
