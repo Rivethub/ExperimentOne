@@ -25,5 +25,5 @@ spec:
             - name: RIVET_ROLE
               value: worker
             - name: RIVET_CLICKHOUSE_URL
-              value: "http://{{ include "rivet.fullname" . }}-clickhouse:{{ .Values.clickhouse.service.httpPort }}"
+              value: {{ include "rivet.clickhouse.url" . | quote }}
 {{- end }}

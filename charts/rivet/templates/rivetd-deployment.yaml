@@ -28,7 +28,7 @@ spec:
               containerPort: {{ .Values.rivetd.service.mcpPort }}
           env:
             - name: RIVET_CLICKHOUSE_URL
-              value: "http://{{ include "rivet.fullname" . }}-clickhouse:{{ .Values.clickhouse.service.httpPort }}"
+              value: {{ include "rivet.clickhouse.url" . | quote }}
           resources:
             {{- toYaml .Values.rivetd.resources | nindent 12 }}
 ---

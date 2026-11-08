@@ -13,8 +13,6 @@ rivetd:
     type: ClusterIP
     apiPort: 8741
     mcpPort: 8742
-  env:
-    RIVET_CLICKHOUSE_URL: "http://{{ .Release.Name }}-clickhouse:8123"
   resources: {}
 
 proxy:
@@ -29,18 +27,37 @@ proxy:
     port: 8317
   resources: {}
 
+# Extends https://helm.altinity.com chart `clickhouse` (Altinity Operator + CHI).
+# Set clickhouse.enabled=false and clickhouse.url to point at an external cluster.
 clickhouse:
   enabled: true
-  # Prefer an operator / managed CH in production; this ships a single-node Dev chart dependency stub.
-  image:
-    repository: clickhouse/clickhouse-server
-    tag: "24.8"
-  service:
-    httpPort: 8123
-    nativePort: 9000
-  persistence:
+  # Optional override when using an external / managed ClickHouse instead of the subchart.
+  url: ""
+
+  # Install the Altinity operator with this release.
+  # Disable if the operator is already installed cluster-wide.
+  operator:
     enabled: true
-    size: 50Gi
+
+  # Keeper only needed for multi-replica / replicated tables.
+  keeper:
+    enabled: false
+
+  # Nested `clickhouse:` is the CHI config consumed by the Altinity subchart.
+  clickhouse:
+    defaultUser:
+      # Empty password matches Rivet's unauthenticated HTTP client today.
+      # Prefer password_secret_name + URL credentials for production.
+      password: ""
+      # Required so rivetd/workers can connect (chart default is 127.0.0.1/32).
+      allowExternalAccess: true
+    replicasCount: 1
+    shardsCount: 1
+    persistence:
+      enabled: true
+      size: 50Gi
+    service:
+      type: ClusterIP
 
 workers:
   enabled: true
