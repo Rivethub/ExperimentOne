@@ -630,7 +630,7 @@ Default data root: macOS `~/Library/Application Support/Rivet`, Linux
 | Proxy | Sidecar process (`:18317`) | Deployment (chart often `:8317`) |
 | ClickHouse | Bundled single-node or URL | Altinity CHI / managed (analytics only) |
 | NATS | Bundled `nats-server` JetStream (**required**) | External `bus.natsUrl` (required) |
-| Workers | In-process role loops (`RIVET_WORKER_ROLE=all`) | Default in-process on rivetd; optional `workers.enabled` → role Deployments (`embed`/`compact`/`wiki`) + rivetd `none` |
+| Workers | In-process role loops (`RIVET_WORKER_ROLE=all`) | Same in-process on rivetd (role-split Deployments not ready — meta is process-local) |
 | Bus | NATS JetStream job plane + in-process `LiveBus` | Same intended JetStream URL; Redpanda optional later for fan-out |
 | UI auth | Loopback + key / control IPC | OIDC + admin portal (scaffold) |
 | Tenancy | Single user | Org / team namespaces (`capabilities.teams`) |
@@ -690,9 +690,9 @@ Close-to-tray; Quit from tray stops `rivetd`.
    bodies stay in `content`.
 4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context
    when needed.
-5. Helm proxy port may differ from the local default `18317`. Role-split workers use
-   `RIVET_WORKER_ROLE=embed|compact|wiki` (worker-only process) and need a shared
-   data volume for meta/wiki.
+5. Helm proxy port may differ from the local default `18317`. Role-split worker
+   Deployments are blocked until meta has cross-process locking and workers can
+   reach an authenticated proxy URL for LLM jobs.
 6. **Jobs** are NATS JetStream messages (`Msg-Id=job_key` dedup, role pull consumers,
    dead stream for flagged) — not Postgres/SQLite/ClickHouse.
 7. **Control IPC ≠ full TCP surface** — no ingest merge, no governor/metrics layers.

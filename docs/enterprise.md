@@ -8,7 +8,7 @@ Local desktop installers and Helm share the same crates (`rivet-runtime`,
 | Deploy | Tauri (DMG / deb+AppImage / NSIS) + sidecars | `charts/rivet` |
 | Traffic store | ClickHouse (bundled or URL) | Altinity ClickHouse operator via `charts/rivet` (`clickhouse` subchart) |
 | Job plane | Bundled `nats-server` JetStream | External NATS (`bus.natsUrl`, required) |
-| Workers | In-process Tokio (`RIVET_WORKER_ROLE=all`) | Default: same in-process on rivetd. Optional: `workers.enabled=true` → rivetd `none` + Deployments per `embed`/`compact`/`wiki` |
+| Workers | In-process Tokio (`RIVET_WORKER_ROLE=all`) | Same — in-process on rivetd. Role-split Deployments blocked until meta locking + proxy URL exist |
 | Auth UI | Local only | OIDC (`teams.oidc` in values) — scaffold |
 | Tenancy | Single user | Org / team namespaces (`capabilities.teams`) |
 
@@ -23,11 +23,6 @@ chart (operator + `ClickHouseInstallation`). Override CHI settings under
 `clickhouse.clickhouse` in values; set `clickhouse.operator.enabled=false` if the
 operator is already installed cluster-wide, or `clickhouse.enabled=false` plus
 `clickhouse.url` for an external cluster.
-
-Worker role splits use the same `rivetd` image with `RIVET_WORKER_ROLE` set to
-`embed`, `compact`, or `wiki` (skips proxy/API/MCP listeners). The control-plane
-Deployment then runs with `RIVET_WORKER_ROLE=none`. Shared meta/wiki volumes are
-required for split workers — wire those before enabling `workers.enabled`.
 
 Build the control-plane image with the root `Dockerfile`. Proxy image builds from
 `vendor/cliproxyapi`. Teams admin portal and OIDC login are intentionally later;

@@ -33,39 +33,22 @@ pub struct Runtime {
     pub proxy: Arc<ProxySupervisor>,
     pub clickhouse: Arc<ClickHouseSupervisor>,
     pub nats: Arc<NatsSupervisor>,
-    /// Held for process lifetime so a second API rivetd cannot claim the instance.
-    /// Absent in worker-only role pods that share a data volume with the API process.
-    _instance_lock: Option<rivet_core::pids::InstanceLock>,
-    /// True when this process should clear `rivetd.pid` on exit (API / all / none roles).
-    owns_rivetd_pid: bool,
+    /// Held for process lifetime so a second rivetd cannot claim the instance.
+    _instance_lock: rivet_core::pids::InstanceLock,
 }
 
 impl Runtime {
     pub fn bootstrap() -> Result<Self> {
         let paths = rivet_core::RivetPaths::discover()?;
         paths.ensure()?;
-        let worker_only = matches!(
-            rivet_store::WorkerRole::from_env(),
-            rivet_store::WorkerRole::Embed
-                | rivet_store::WorkerRole::Compact
-                | rivet_store::WorkerRole::Wiki
-        );
-        // API processes take the exclusive lock; worker-only roles may share the data dir.
-        let instance_lock = if worker_only {
-            None
-        } else {
-            Some(pids::try_acquire_rivetd_lock(&paths)?)
-        };
-        let owns_rivetd_pid = !worker_only;
-        if owns_rivetd_pid {
-            pids::write_rivetd_pid(&paths);
-        }
-        match Self::bootstrap_after_pid(paths.clone(), instance_lock, owns_rivetd_pid) {
+        // Lock before mutating config / writing pidfiles so a twin cannot race.
+        // MetaStore is process-local only — do not share the data dir across rivetd processes.
+        let instance_lock = pids::try_acquire_rivetd_lock(&paths)?;
+        pids::write_rivetd_pid(&paths);
+        match Self::bootstrap_after_pid(paths.clone(), instance_lock) {
             Ok(rt) => Ok(rt),
             Err(err) => {
-                if owns_rivetd_pid {
-                    pids::clear_rivetd_pid(&paths);
-                }
+                pids::clear_rivetd_pid(&paths);
                 Err(err)
             },
         }
@@ -73,8 +56,7 @@ impl Runtime {
 
     fn bootstrap_after_pid(
         paths: rivet_core::RivetPaths,
-        instance_lock: Option<rivet_core::pids::InstanceLock>,
-        owns_rivetd_pid: bool,
+        instance_lock: rivet_core::pids::InstanceLock,
     ) -> Result<Self> {
         ensure_wiki_seed(&paths)?;
         let mut config = rivet_core::RivetConfig::load_or_init(&paths)?;
@@ -88,50 +70,23 @@ impl Runtime {
         let proxy = Arc::new(ProxySupervisor::new(paths.clone(), config.clone())?);
         let clickhouse = Arc::new(ClickHouseSupervisor::new(paths.clone(), config.clone())?);
         let nats = Arc::new(NatsSupervisor::new(paths.clone(), config.clone())?);
-        Ok(Self {
-            paths,
-            config,
-            stores,
-            proxy,
-            clickhouse,
-            nats,
-            _instance_lock: instance_lock,
-            owns_rivetd_pid,
-        })
+        Ok(Self { paths, config, stores, proxy, clickhouse, nats, _instance_lock: instance_lock })
     }
 
     pub async fn run(self) -> Result<()> {
         let paths = self.paths.clone();
-        let owns_rivetd_pid = self.owns_rivetd_pid;
         let result = self.run_inner().await;
-        if owns_rivetd_pid {
-            pids::clear_rivetd_pid(&paths);
-        }
+        pids::clear_rivetd_pid(&paths);
         result
     }
 
     #[allow(clippy::too_many_lines)] // Single startup orchestration for all local services.
     async fn run_inner(self) -> Result<()> {
-        let worker_role = rivet_store::WorkerRole::from_env();
-        let worker_only = matches!(
-            worker_role,
-            rivet_store::WorkerRole::Embed
-                | rivet_store::WorkerRole::Compact
-                | rivet_store::WorkerRole::Wiki
-        );
-
-        if worker_only {
-            info!(
-                role = worker_role.as_str(),
-                "worker-only mode — skipping proxy / API / MCP listeners"
-            );
-        } else {
-            match self.proxy.start() {
-                Ok(()) => info!("proxy sidecar ready"),
-                Err(err) => {
-                    tracing::warn!(?err, "proxy not started (start from UI when binary is ready)");
-                },
-            }
+        match self.proxy.start() {
+            Ok(()) => info!("proxy sidecar ready"),
+            Err(err) => {
+                tracing::warn!(?err, "proxy not started (start from UI when binary is ready)");
+            },
         }
 
         let mut nats_url = NatsJobStore::from_env_url();
@@ -215,23 +170,6 @@ impl Runtime {
             live.clone(),
         ));
         let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-
-        info!(
-            role = worker_role.as_str(),
-            "spawning role-isolated NATS job workers (RIVET_WORKER_ROLE=all|embed|compact|wiki|none)"
-        );
-        let _worker_handles = worker.clone().spawn();
-
-        if worker_only {
-            let clickhouse = self.clickhouse.clone();
-            let nats = self.nats.clone();
-            wait_for_shutdown_signal().await;
-            info!("shutdown signaled — stopping worker-only process");
-            let _ = clickhouse.stop();
-            let _ = nats.stop();
-            return Ok(());
-        }
-
         let api_state = ApiState {
             config: config.clone(),
             store: store.clone(),
@@ -241,11 +179,18 @@ impl Runtime {
             paths: self.paths.clone(),
             meta: meta.clone(),
             traffic_backend,
-            workers: Some(worker),
+            workers: Some(worker.clone()),
             wiki_revision,
             live: live.clone(),
             shutdown: shutdown_tx,
         };
+
+        let worker_role = rivet_store::WorkerRole::from_env();
+        info!(
+            role = worker_role.as_str(),
+            "spawning role-isolated NATS job workers (RIVET_WORKER_ROLE=all|embed|compact|wiki|none)"
+        );
+        let _worker_handles = worker.spawn();
         let ingest_state = IngestState {
             store: store.clone(),
             ingest_key: self.config.proxy_access_key.clone(),

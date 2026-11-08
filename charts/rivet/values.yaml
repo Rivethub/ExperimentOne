@@ -59,13 +59,10 @@ clickhouse:
     service:
       type: ClusterIP
 
-# When false (default), rivetd runs RIVET_WORKER_ROLE=all in-process.
-# When true, rivetd uses role=none and separate Deployments claim NATS jobs.
+# Role-split Deployments are not ready (meta is process-local; LLM jobs need
+# a reachable proxy). Keep false — rivetd runs RIVET_WORKER_ROLE=all.
 workers:
   enabled: false
-  replicaCount: 1
-  roles: [embed, compact, wiki]
-  # Same image as rivetd; role selected via RIVET_WORKER_ROLE.
   image:
     repository: rivet/rivetd
     tag: "0.1.0"

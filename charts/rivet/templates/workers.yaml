@@ -1,37 +1,8 @@
+{{- /*
+Separate role Deployments need cross-process meta locking and a reachable
+proxy URL for LLM-backed jobs. Until that lands, keep workers on rivetd
+(RIVET_WORKER_ROLE=all) and leave this template disabled.
+*/ -}}
 {{- if .Values.workers.enabled }}
-{{- range $role := .Values.workers.roles }}
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "rivet.fullname" $ }}-workers-{{ $role }}
-  labels:
-    {{- include "rivet.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: workers
-    rivet.ai/worker-role: {{ $role }}
-spec:
-  replicas: {{ $.Values.workers.replicaCount }}
-  selector:
-    matchLabels:
-      app.kubernetes.io/instance: {{ $.Release.Name }}
-      app.kubernetes.io/component: workers
-      rivet.ai/worker-role: {{ $role }}
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/instance: {{ $.Release.Name }}
-        app.kubernetes.io/component: workers
-        rivet.ai/worker-role: {{ $role }}
-    spec:
-      containers:
-        - name: worker
-          image: "{{ $.Values.workers.image.repository }}:{{ $.Values.workers.image.tag }}"
-          env:
-            - name: RIVET_WORKER_ROLE
-              value: {{ $role | quote }}
-            - name: RIVET_CLICKHOUSE_URL
-              value: {{ include "rivet.clickhouse.url" $ | quote }}
-            - name: RIVET_NATS_URL
-              value: {{ required "bus.natsUrl is required when workers.enabled" $.Values.bus.natsUrl | quote }}
----
-{{- end }}
+{{- fail "charts/rivet: workers.enabled requires shared-meta locking + proxy URL wiring; keep false and run RIVET_WORKER_ROLE=all on rivetd" }}
 {{- end }}

@@ -95,6 +95,9 @@ struct CredFile {
     disabled: Option<bool>,
     #[serde(default)]
     supports_quota: Option<bool>,
+    /// Host-local plugin that implements quota for this credential (v8 credentials list).
+    #[serde(default)]
+    quota_plugin_id: Option<String>,
     #[serde(default)]
     quota: Option<QuotaObservation>,
     #[serde(default)]
@@ -326,23 +329,28 @@ async fn build_snapshot(
         let mut plan: Option<String> = None;
 
         let supports = file.supports_quota.unwrap_or(false);
+        let plugin_id = file.quota_plugin_id.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if supports {
-            if let Ok(fetched) = fetch_live_quota(http, &cfg.proxy_base_url(), key, &id).await {
-                plan = fetched.subscription.as_ref().and_then(QuotaSubscriptionRaw::plan_label);
-                let fetched_windows = windows_from_fetch(&fetched);
-                if !fetched_windows.is_empty() {
-                    windows = fetched_windows;
-                }
-                if remaining_pct.is_none() {
-                    if let Some(bucket) = fetched
-                        .groups
-                        .iter()
-                        .flat_map(|g| g.buckets.iter())
-                        .find(|b| b.remaining().is_some())
-                    {
-                        remaining_pct = bucket.remaining();
-                        if reset_at.is_none() {
-                            reset_at = bucket.reset();
+            if let Some(plugin_id) = plugin_id {
+                if let Ok(fetched) =
+                    fetch_live_quota(http, &cfg.proxy_base_url(), key, &id, plugin_id).await
+                {
+                    plan = fetched.subscription.as_ref().and_then(QuotaSubscriptionRaw::plan_label);
+                    let fetched_windows = windows_from_fetch(&fetched);
+                    if !fetched_windows.is_empty() {
+                        windows = fetched_windows;
+                    }
+                    if remaining_pct.is_none() {
+                        if let Some(bucket) = fetched
+                            .groups
+                            .iter()
+                            .flat_map(|g| g.buckets.iter())
+                            .find(|b| b.remaining().is_some())
+                        {
+                            remaining_pct = bucket.remaining();
+                            if reset_at.is_none() {
+                                reset_at = bucket.reset();
+                            }
                         }
                     }
                 }
@@ -415,13 +423,19 @@ async fn build_snapshot(
     })
 }
 
+fn plugin_quota_fetch_url(base: &str, plugin_id: &str) -> String {
+    // v8 dropped `/credentials/quota/fetch` (404). Live fetch is per plugin.
+    format!("{base}/v8/management/plugins/{plugin_id}/quota")
+}
+
 async fn fetch_live_quota(
     http: &reqwest::Client,
     base: &str,
     key: &str,
     auth_index: &str,
+    plugin_id: &str,
 ) -> Result<QuotaFetchResponse> {
-    let url = format!("{base}/v8/management/credentials/quota/fetch");
+    let url = plugin_quota_fetch_url(base, plugin_id);
     let res = auth_headers(http.post(&url), key)
         .json(&serde_json::json!({ "auth_index": auth_index }))
         .send()
@@ -917,5 +931,18 @@ mod tests {
         assert_eq!(snap.source, "local");
         assert_eq!(snap.providers[0].known_count, 0);
         assert!(snap.providers[0].pool_empty.contains("pending"));
+    }
+
+    #[test]
+    fn v8_credentials_carry_quota_plugin_id() {
+        let file: CredFile = serde_json::from_str(
+            r#"{"auth_index":"a1","supports_quota":true,"quota_plugin_id":"z-foo-quota"}"#,
+        )
+        .expect("cred file");
+        assert_eq!(file.quota_plugin_id.as_deref(), Some("z-foo-quota"));
+        assert_eq!(
+            plugin_quota_fetch_url("http://127.0.0.1:18317", "z-foo-quota"),
+            "http://127.0.0.1:18317/v8/management/plugins/z-foo-quota/quota"
+        );
     }
 }
