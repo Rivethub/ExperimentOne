@@ -37,7 +37,17 @@ clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+# Explicit features (not `full`) — skips unused crates like process/io-std.
+tokio = { version = "1", features = [
+  "fs",
+  "io-util",
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "signal",
+  "sync",
+  "time",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -51,6 +61,14 @@ futures = "0.3"
 tokio-stream = "0.1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 notify = "8"
+
+# Faster local/CI compiles: less debug info to generate and link.
+# Use `cargo build --release` (unchanged below) when you need full symbols/LTO.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"

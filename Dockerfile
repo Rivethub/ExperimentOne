@@ -1,6 +1,10 @@
 # Multi-stage image for enterprise / Helm deploys of rivetd.
-FROM rust:1.86-bookworm AS build
+FROM rust:1.99.1-bookworm AS build
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends clang mold \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
+COPY .cargo ./.cargo
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo build -p rivet-runtime --release
