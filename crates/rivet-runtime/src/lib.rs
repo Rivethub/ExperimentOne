@@ -151,8 +151,11 @@ impl Runtime {
             wiki_revision,
             shutdown: shutdown_tx,
         };
-        let ingest_state =
-            IngestState { store: store.clone(), ingest_key: self.config.proxy_access_key.clone() };
+        let ingest_state = IngestState {
+            store: store.clone(),
+            ingest_key: self.config.proxy_access_key.clone(),
+            meta: Some(meta.clone()),
+        };
 
         let mcp_state = McpState { store: store.clone(), ch: ch.clone(), config: config.clone() };
 

@@ -29,15 +29,22 @@ export function HarnessTab({
         <p className={styles.muted} style={{ marginTop: 4, marginBottom: 8 }}>
           Higher rungs add fidelity. Live proxy traffic is always preferred over imports where they
           overlap. Capture stores cwd/bodies as signals and sets `project_id` only on hard evidence
-          (explicit field/header or harness {"projects/<id>/"} key) — workers fill the rest.
+          (explicit field/header, harness {"projects/<id>/"} key, or the Rivet harness plugin).
         </p>
         <Kv>
           <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />
           <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
           <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
+          <KvRow
+            label="L2.5 Plugin"
+            value="SessionStart reports cwd → hard project_id + Rivet MCP"
+          />
           <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
           <KvRow label="L4 Import" value="Claude / Codex / Cursor transcripts already on disk" />
-          <KvRow label="Project" value="Hard evidence only; cwd is a signal for workers" />
+          <KvRow
+            label="Project"
+            value="Hard evidence only; plugin + wire headers beat cwd scraping"
+          />
         </Kv>
         <Actions style={{ marginTop: 8 }}>
           <Button

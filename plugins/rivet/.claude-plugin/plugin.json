@@ -1,0 +1,8 @@
+{
+  "name": "rivet",
+  "version": "0.1.0",
+  "description": "Report the open project to Rivet and enable local history MCP tools",
+  "author": {
+    "name": "Rivet"
+  }
+}

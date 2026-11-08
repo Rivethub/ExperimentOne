@@ -529,6 +529,7 @@ impl ProxySupervisor {
             &self.config,
             self.paths.harness_claude_dir().as_std_path(),
             self.paths.harness_codex_dir().as_std_path(),
+            self.paths.plugins_dir().as_std_path(),
         )?;
         Ok(HarnessWriteResponse {
             target: result.target,

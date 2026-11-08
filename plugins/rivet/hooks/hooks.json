@@ -1,0 +1,27 @@
+{
+  "description": "Report Claude Code session + cwd to Rivet so traffic gets a hard project_id",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/report-session.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/report-session.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

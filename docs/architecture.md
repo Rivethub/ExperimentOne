@@ -320,14 +320,23 @@ wiki **index** and quota history samples still live in meta files.
 bodies / `body_ref`, sessions (wire or soft), usage, account labels, cwd when
 present, and `capture_quality` (`wire` / `soft` / `imported`).
 
-`project_id` is set only with **hard evidence** — an explicit harness/API
-project field or header, or the harness’s own on-disk project key (Claude
-`~/.claude/projects/<id>/`, Cursor `~/.cursor/projects/<slug>/` as stored).
-Cwd and path text in prompts are signals, not project classifications.
+`project_id` is set only with **hard evidence**:
+- an explicit harness/API project field or header,
+- the harness’s own on-disk project key (Claude `~/.claude/projects/<id>/`,
+  Cursor `~/.cursor/projects/<slug>/` as stored), or
+- a Rivet harness plugin binding (`POST /v1/harness/session`) that maps
+  `session_id` → project (Claude-compatible path encoding of the git root /
+  cwd), joined at ingest before ClickHouse insert
+
+Cwd and path text in prompts alone are signals, not project classifications —
+unless the plugin attested the session’s project.
+
+**Harness plugins** (`plugins/rivet`, `plugins/rivet-codex`) also enable Rivet
+MCP and Claude gateway hint headers. Harness install copies them under
+Application Support and enables `rivet@rivet`.
 
 **Classification** (workers) fills gaps when hard evidence was absent — assign
-or reconcile projects from cwd + content + session affinity. Ingest does not
-guess.
+or reconcile projects from cwd + content + session affinity.
 
 ### Meta files (`{data}/meta/`)
 
