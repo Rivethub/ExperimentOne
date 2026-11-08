@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import type { Status } from "../../lib/types";
 import { Button } from "../../ui";
-import styles from "../../styles/app.module.css";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
 export function RuntimeMcpCard({
@@ -28,7 +27,7 @@ export function RuntimeMcpCard({
     <RuntimePaneCard
       title="MCP"
       statusLabel={enabled ? "enabled" : "off"}
-      statusClass={enabled ? (styles.ok ?? "") : ""}
+      statusTone={enabled ? "ok" : "default"}
       foot={foot}
     >
       <RuntimeKv label="Endpoint" value={status?.mcp_url ?? "—"} />

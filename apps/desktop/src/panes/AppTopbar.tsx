@@ -1,11 +1,16 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { Ellipsis } from "lucide-react";
+import { Button as ShadcnButton } from "#components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "#components/ui/dropdown-menu";
 import type { Page } from "../lib/types";
 import { Button } from "../ui";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
 
 export type AppTopbarQuotaActions = {
-  onRefreshCredentials: () => void;
   onManageCredentials: () => void;
 };
 
@@ -55,121 +60,53 @@ export function AppTopbar({
   runtime,
   data,
 }: AppTopbarProps): React.ReactElement {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const menuId = useId();
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointer = (event: MouseEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", onPointer);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
-
-  useEffect(() => {
-    if (page !== "data") setMenuOpen(false);
-  }, [page]);
-
   return (
-    <header className={styles.topbar}>
+    <header className="flex items-start justify-between gap-4 px-6 pb-3 pt-5">
       <div>
-        <h1>{title}</h1>
-        <div className={styles.sub}>{subtitle}</div>
+        <h1 className="m-0 text-[22px] font-semibold tracking-tight">{title}</h1>
+        <div className="mt-1 text-[13px] text-muted-foreground">{subtitle}</div>
       </div>
-      <div className={styles.topActions}>
+      <div className="flex flex-wrap items-center justify-end gap-2">
         {page !== "wiki" && (
           <Button variant="ghost" disabled={busy} onClick={onRefresh}>
             Refresh
           </Button>
         )}
         {page === "quota" && quota && (
-          <>
-            <Button disabled={busy} onClick={quota.onRefreshCredentials}>
-              Refresh credentials
-            </Button>
-            <Button variant="primary" disabled={busy} onClick={quota.onManageCredentials}>
-              Manage credentials
-            </Button>
-          </>
+          <Button variant="primary" disabled={busy} onClick={quota.onManageCredentials}>
+            Manage credentials
+          </Button>
         )}
         {page === "data" && data && (
-          <div className={styles.topMenu} ref={menuRef}>
-            <Button
-              variant="primary"
-              disabled={busy}
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-              aria-controls={menuId}
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              Export / import
-            </Button>
-            {menuOpen && (
-              <div className={styles.topMenuPanel} id={menuId} role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={styles.topMenuItem}
-                  disabled={busy}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    data.onExport();
-                  }}
-                >
-                  Export .rivetbag
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={styles.topMenuItem}
-                  disabled={busy}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    data.onImport();
-                  }}
-                >
-                  Import .rivetbag
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={styles.topMenuItem}
-                  disabled={busy}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    data.onIngestLocal();
-                  }}
-                >
-                  Import local sessions
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={cx(styles.topMenuItem, !data.canRevealExport ? styles.disabled : "")}
-                  disabled={busy || !data.canRevealExport}
-                  onClick={() => {
-                    setMenuOpen(false);
-                    data.onRevealExport();
-                  }}
-                >
-                  Reveal last export
-                </button>
-              </div>
-            )}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <ShadcnButton variant="default" disabled={busy}>
+                Export / import
+              </ShadcnButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={busy} onSelect={data.onExport}>
+                Export .rivetbag
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={busy} onSelect={data.onImport}>
+                Import .rivetbag
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={busy} onSelect={data.onIngestLocal}>
+                Import local sessions
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={busy || !data.canRevealExport}
+                onSelect={data.onRevealExport}
+              >
+                Reveal last export
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
         {page === "wiki" && wiki && (
           <>
-            <Button disabled={busy} onClick={wiki.onOpenSettings}>
+            <Button variant="ghost" disabled={busy} onClick={wiki.onOpenSettings}>
               {wiki.wikiEnabled ? "Settings" : "Enable wiki"}
             </Button>
             <Button variant="primary" onClick={wiki.onOpenFolder}>
@@ -192,12 +129,32 @@ export function AppTopbar({
                 Start proxy
               </Button>
             )}
-            <Button disabled={busy || !runtime.apiOnline} onClick={runtime.onProxyRestart}>
-              Restart
-            </Button>
-            <Button disabled={busy || !runtime.apiOnline} onClick={runtime.onRunWorkers}>
-              Run workers
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ShadcnButton
+                  variant="ghost"
+                  size="icon"
+                  disabled={busy || !runtime.apiOnline}
+                  aria-label="More runtime actions"
+                >
+                  <Ellipsis />
+                </ShadcnButton>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  disabled={busy || !runtime.apiOnline}
+                  onSelect={runtime.onProxyRestart}
+                >
+                  Restart proxy
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={busy || !runtime.apiOnline}
+                  onSelect={runtime.onRunWorkers}
+                >
+                  Run workers
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </>
         )}
       </div>

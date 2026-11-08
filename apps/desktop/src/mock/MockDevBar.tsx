@@ -8,7 +8,6 @@ import {
 } from "./mode";
 import { resetStore } from "./store";
 import { Button } from "../ui";
-import styles from "../styles/app.module.css";
 
 const SCENARIOS: { id: MockScenario; label: string }[] = [
   { id: "default", label: "Default" },
@@ -25,12 +24,17 @@ export function MockDevBar(): ReactElement | null {
   const current = getMockScenario();
 
   return (
-    <div className={styles.mockDevBar} role="region" aria-label="Mock IPC controls">
-      <strong>Mock IPC</strong>
-      <span className={styles.mockDevBarSep}>·</span>
-      <label>
+    <div
+      className="fixed top-2.5 right-3 z-[80] flex items-center gap-2 rounded-lg border border-orange-500/45 bg-[color-mix(in_srgb,#18181b_92%,#f97316)] px-2.5 py-1.5 text-xs text-foreground shadow-lg"
+      role="region"
+      aria-label="Mock IPC controls"
+    >
+      <strong className="font-semibold tracking-wide">Mock IPC</strong>
+      <span className="opacity-45">·</span>
+      <label className="inline-flex items-center gap-1.5">
         Scenario
         <select
+          className="rounded-md border border-white/12 bg-black/25 px-1.5 py-0.5 text-inherit"
           value={current}
           onChange={(e) => {
             const next = e.target.value;

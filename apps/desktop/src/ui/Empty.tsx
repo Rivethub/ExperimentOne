@@ -1,7 +1,11 @@
 import type { HTMLAttributes, ReactElement } from "react";
-import { cx } from "../styles/cx";
-import styles from "./Empty.module.css";
+import { cn } from "#lib/utils";
 
 export function Empty({ className, ...rest }: HTMLAttributes<HTMLParagraphElement>): ReactElement {
-  return <p className={cx(styles.empty, className)} {...rest} />;
+  return (
+    <p
+      className={cn("m-0 py-2 text-center text-[13px] text-muted-foreground", className)}
+      {...rest}
+    />
+  );
 }

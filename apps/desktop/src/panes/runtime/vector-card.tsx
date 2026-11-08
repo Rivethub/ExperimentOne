@@ -2,7 +2,6 @@ import { formatRelativeIso } from "../../lib/format-utils";
 import { fmt } from "../../lib/provider-utils";
 import { isDefined } from "../../lib/nullish";
 import type { Status } from "../../lib/types";
-import styles from "../../styles/app.module.css";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
 export function RuntimeVectorCard({ status }: { status: Status | null }): React.ReactElement {
@@ -17,7 +16,7 @@ export function RuntimeVectorCard({ status }: { status: Status | null }): React.
     <RuntimePaneCard
       title="Vector worker"
       statusLabel={on ? "on" : "off"}
-      statusClass={on ? (styles.ok ?? "") : ""}
+      statusTone={on ? "ok" : "default"}
     >
       <RuntimeKv label="Embeddings" value={fmt(status?.workers?.embeddings ?? 0)} />
       <RuntimeKv label="Last run" value={formatRelativeIso(cursor)} title={cursor} />

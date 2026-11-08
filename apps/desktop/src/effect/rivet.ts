@@ -1,112 +1,124 @@
-import { Effect } from "effect";
-import type { WikiInfo, WikiPageCard } from "../components/WikiBoard";
-import type { JsonObject } from "../lib/json-types";
+import { Effect, type Schema } from "effect";
+import type { WikiPageCard } from "../components/WikiBoard";
 import type { HarnessInstallTarget } from "../lib/format-utils";
-import type { CatalogProvider } from "../lib/provider-utils";
-import type {
-  Account,
-  BagResult,
-  ConversationSearchResponse,
-  ConversationSummary,
-  HarnessWrite,
-  LocalIngestReport,
-  LoginStatus,
-  QuotaHistory,
-  QuotaSnapshot,
-  SearchMode,
-  Status,
-  TrafficEvent,
-} from "../lib/types";
+import type { JsonObject } from "../lib/json-types";
+import type { LocalIngestReport, SearchMode } from "../lib/types";
 import type { ApiError, BackendUnavailable, IpcError } from "./errors";
 import {
   apiJson,
+  apiJsonSchema,
   apiResult,
   apiText,
   ensureRivetd,
   invokeCommand,
   type SoftHttpResult,
 } from "./ipc";
+import {
+  AccountsSchema,
+  BagResultSchema,
+  ConfigResponseSchema,
+  ConversationSearchResponseSchema,
+  ConversationsSchema,
+  HarnessWriteSchema,
+  LoginStatusSchema,
+  MessageResultSchema,
+  ProvidersResponseSchema,
+  QuotaHistorySchema,
+  QuotaSnapshotSchema,
+  RefreshQuotaResultSchema,
+  StatusSchema,
+  TrafficEventsSchema,
+  UnknownOkSchema,
+  WikiInfoSchema,
+  WikiPageContentSchema,
+  WorkersTickSchema,
+} from "./schemas";
 import { softEffect } from "./soft";
+
+type Status = Schema.Schema.Type<typeof StatusSchema>;
+type Account = Schema.Schema.Type<typeof AccountsSchema>[number];
+type TrafficEvent = Schema.Schema.Type<typeof TrafficEventsSchema>[number];
+type CatalogProvider = Schema.Schema.Type<typeof ProvidersResponseSchema>["providers"][number];
+type QuotaSnapshot = Schema.Schema.Type<typeof QuotaSnapshotSchema>;
+type QuotaHistory = Schema.Schema.Type<typeof QuotaHistorySchema>;
 
 export { ensureRivetd as requireBackend } from "./ipc";
 
 type ApiFx<T> = Effect.Effect<T, ApiError | IpcError>;
 type ApiBackendFx<T> = Effect.Effect<T, ApiError | IpcError | BackendUnavailable>;
 
-export const getStatus = apiJson<Status>("GET", "/v1/status");
-export const getAccounts = apiJson<Account[]>("GET", "/v1/accounts");
-export const getProviders = apiJson<{ providers: CatalogProvider[] }>("GET", "/v1/providers");
-export const getQuota = apiJson<QuotaSnapshot>("GET", "/v1/quota");
-export const getQuotaHistory = (hours: number): ApiFx<QuotaHistory> =>
-  apiJson<QuotaHistory>("GET", `/v1/quota/history?hours=${hours}`);
-export const refreshQuota = apiJson<{
-  ok?: boolean;
-  quota?: QuotaSnapshot;
-  error?: string;
-}>("POST", "/v1/quota/refresh");
+export const getStatus = apiJsonSchema("GET", "/v1/status", StatusSchema);
+export const getAccounts = apiJsonSchema("GET", "/v1/accounts", AccountsSchema);
+export const getProviders = apiJsonSchema("GET", "/v1/providers", ProvidersResponseSchema);
+export const getQuota = apiJsonSchema("GET", "/v1/quota", QuotaSnapshotSchema);
+export const getQuotaHistory = (hours: number) =>
+  apiJsonSchema("GET", `/v1/quota/history?hours=${hours}`, QuotaHistorySchema);
+export const refreshQuota = apiJsonSchema("POST", "/v1/quota/refresh", RefreshQuotaResultSchema);
 
-export const getTrafficRecent = (limit = 200): ApiFx<TrafficEvent[]> =>
-  apiJson<TrafficEvent[]>("GET", `/v1/traffic/recent?limit=${limit}`);
-export const searchTraffic = (q: string, limit = 100): ApiFx<TrafficEvent[]> =>
-  apiJson<TrafficEvent[]>(
+export const getTrafficRecent = (limit = 200) =>
+  apiJsonSchema("GET", `/v1/traffic/recent?limit=${limit}`, TrafficEventsSchema);
+export const searchTraffic = (q: string, limit = 100) =>
+  apiJsonSchema(
     "GET",
     `/v1/traffic/search?limit=${limit}&q=${encodeURIComponent(q.trim())}`,
+    TrafficEventsSchema,
   );
 
 export const listConversations = (limit = 100) =>
-  apiJson<ConversationSummary[]>("GET", `/v1/conversations?limit=${limit}`);
+  apiJsonSchema("GET", `/v1/conversations?limit=${limit}`, ConversationsSchema);
 export const getConversationEvents = (id: string, limit = 500) =>
-  apiJson<TrafficEvent[]>(
+  apiJsonSchema(
     "GET",
     `/v1/conversations/events?limit=${limit}&id=${encodeURIComponent(id)}`,
+    TrafficEventsSchema,
   );
 export const searchConversations = (q: string, mode: SearchMode = "keyword", limit = 100) =>
-  apiJson<ConversationSearchResponse>(
+  apiJsonSchema(
     "GET",
     `/v1/conversations/search?limit=${limit}&mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(q.trim())}`,
+    ConversationSearchResponseSchema,
   );
 
-export const getWiki = apiJson<WikiInfo>("GET", "/v1/wiki");
-export const getWikiPage = (id: string): ApiFx<{ content: string }> =>
-  apiJson<{ content: string }>("GET", `/v1/wiki/page?${new URLSearchParams({ id })}`);
-
+export const getWiki = apiJsonSchema("GET", "/v1/wiki", WikiInfoSchema);
+export const getWikiPage = (id: string) =>
+  apiJsonSchema("GET", `/v1/wiki/page?${new URLSearchParams({ id })}`, WikiPageContentSchema);
 export const proxyAction = (path: "start" | "stop" | "restart"): ApiFx<unknown> =>
-  apiJson("POST", `/v1/proxy/${path}`);
+  apiJsonSchema("POST", `/v1/proxy/${path}`, UnknownOkSchema);
 
 export const startLogin = (
   provider: string,
   method?: "browser" | "device",
 ): ApiFx<{ message?: string; error?: string }> =>
-  apiJson<{ message?: string; error?: string }>("POST", "/v1/accounts/login", {
+  apiJsonSchema("POST", "/v1/accounts/login", MessageResultSchema, {
     provider,
     method,
   });
 
-export const getLoginStatus = apiJson<LoginStatus>("GET", "/v1/accounts/login/status");
-export const cancelLogin = apiJson("POST", "/v1/accounts/login/cancel");
+export const getLoginStatus = apiJsonSchema("GET", "/v1/accounts/login/status", LoginStatusSchema);
+export const cancelLogin = apiJsonSchema("POST", "/v1/accounts/login/cancel", UnknownOkSchema);
 export const importVertex = (path: string): ApiFx<{ message?: string; error?: string }> =>
-  apiJson<{ message?: string; error?: string }>("POST", "/v1/accounts/import/vertex", { path });
+  apiJsonSchema("POST", "/v1/accounts/import/vertex", MessageResultSchema, { path });
 export const removeAccount = (id: string): ApiFx<unknown> =>
-  apiJson("DELETE", `/v1/accounts/${encodeURIComponent(id)}`);
+  apiJsonSchema("DELETE", `/v1/accounts/${encodeURIComponent(id)}`, UnknownOkSchema);
 
 export const writeHarness = (
   target: HarnessInstallTarget,
   mode: "user" | "isolated",
-): ApiFx<HarnessWrite> => apiJson<HarnessWrite>("POST", "/v1/harness/write", { target, mode });
+): ApiFx<Schema.Schema.Type<typeof HarnessWriteSchema>> =>
+  apiJsonSchema("POST", "/v1/harness/write", HarnessWriteSchema, { target, mode });
 export const getClaudeEnv = apiText("GET", "/v1/harness/claude.env");
 export const getCodexToml = apiText("GET", "/v1/harness/codex.toml");
 export const getMcpJson = apiText("GET", "/v1/harness/mcp.json");
 
-export const putConfig = (body: JsonObject): ApiFx<JsonObject> =>
-  apiJson<JsonObject>("PUT", "/v1/config", body);
-export const tickWorkers = apiJson<{ embeddings?: number; wiki_pages?: number }>(
-  "POST",
-  "/v1/workers/tick",
-);
+export const putConfig = (
+  body: JsonObject,
+): ApiFx<Schema.Schema.Type<typeof ConfigResponseSchema>> =>
+  apiJsonSchema("PUT", "/v1/config", ConfigResponseSchema, body);
+export const tickWorkers = apiJsonSchema("POST", "/v1/workers/tick", WorkersTickSchema);
 
-export const exportBag = apiJson<BagResult & { error?: string }>("POST", "/v1/export");
-export const importBag = (path: string): ApiFx<BagResult & { error?: string }> =>
-  apiJson<BagResult & { error?: string }>("POST", "/v1/import", { path });
+export const exportBag = apiJsonSchema("POST", "/v1/export", BagResultSchema);
+export const importBag = (path: string): ApiFx<Schema.Schema.Type<typeof BagResultSchema>> =>
+  apiJsonSchema("POST", "/v1/import", BagResultSchema, { path });
 export const ingestLocal = (
   body: {
     sources?: string[];

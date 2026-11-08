@@ -3,9 +3,15 @@ import { accountDisplay } from "../lib/format-utils";
 import { fmtPct } from "../lib/provider-utils";
 import { isDefined } from "../lib/nullish";
 import type { QuotaAccount } from "../lib/types";
-import { Button } from "../ui";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { Button, Panel } from "../ui";
+import { cn } from "#lib/utils";
+import type { QuotaAccountUx } from "./types";
+
+const icoTone = {
+  claude: "bg-[var(--claude-dim)] text-[var(--claude)]",
+  codex: "bg-[var(--codex-dim)] text-[var(--codex)]",
+  generic: "bg-secondary text-muted-foreground",
+} as const;
 
 export function QuotaProviderCardEmpty({
   name,
@@ -19,23 +25,32 @@ export function QuotaProviderCardEmpty({
   onAddCredentials: () => void;
 }): ReactElement {
   return (
-    <section className={cx(styles.card, styles.quotaEmptyCard)}>
-      <div className={styles.cardHead}>
-        <div className={styles.cardTitle}>
-          <div className={cx(styles.providerIco, styles[icoClass])}>{ico}</div>
-          <div>
-            <h2>{name}</h2>
-            <div className={styles.meta}>No credentials yet</div>
-          </div>
-        </div>
+    <Panel
+      className="mb-0"
+      title={
+        <span className="inline-flex items-center gap-2.5">
+          <span
+            className={cn(
+              "grid size-7 place-items-center rounded-lg text-[13px] font-bold",
+              icoTone[icoClass],
+            )}
+          >
+            {ico}
+          </span>
+          {name}
+        </span>
+      }
+      lede="No credentials yet"
+      actions={
         <Button variant="primary" onClick={onAddCredentials}>
           Add account
         </Button>
-      </div>
-      <p className={styles.quotaEmptyCopy}>
+      }
+    >
+      <p className="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
         Add an account to track live remaining limits and burn for {name}.
       </p>
-    </section>
+    </Panel>
   );
 }
 
@@ -50,16 +65,6 @@ function formatResetAt(resetAt: string | null | undefined): string {
   });
 }
 
-function quotaDotClass(empty: boolean, loaded: boolean): string {
-  if (empty) {
-    return styles.empty ?? "";
-  }
-  if (loaded) {
-    return styles.ok ?? "";
-  }
-  return styles.down ?? "";
-}
-
 function accountRowTitle(a: QuotaAccount): string {
   if (isDefined(a.cooldown_seconds) && a.cooldown_seconds > 0) {
     return `Cooldown ${a.cooldown_seconds}s · ${a.status}`;
@@ -70,9 +75,11 @@ function accountRowTitle(a: QuotaAccount): string {
 export function QuotaProviderAccountList({
   accounts,
   onAddCredentials,
+  onAccountSelect,
 }: {
   accounts: QuotaAccount[];
   onAddCredentials: () => void;
+  onAccountSelect: (a: QuotaAccountUx) => void;
 }): ReactElement {
   const rows = useMemo(
     () =>
@@ -86,41 +93,54 @@ export function QuotaProviderAccountList({
   );
 
   return (
-    <div className={styles.quotaAccounts}>
+    <div className="mt-3 flex flex-col gap-1.5 border-t border-border/60 pt-3">
       {rows.map(({ a, rem, empty }) => (
-        <div
+        <button
           key={a.id}
-          className={cx(
-            styles.quotaAccount,
-            empty ? styles.isEmpty : "",
-            a.loaded ? "" : styles.isDown,
-          )}
+          type="button"
           title={accountRowTitle(a)}
+          className={cn(
+            "flex w-full items-center justify-between gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left",
+            "hover:border-border hover:bg-secondary/40",
+            empty && "border-amber-900/40 bg-amber-950/20",
+            !a.loaded && "opacity-70",
+          )}
+          onClick={() => {
+            onAccountSelect(a);
+          }}
         >
-          <div className={styles.qaMain}>
-            <span className={cx(styles.qaDot, quotaDotClass(empty, a.loaded))} />
-            <span className={styles.qaEmail}>{accountDisplay(a)}</span>
-            {!a.loaded && <span className={styles.qaTag}>unavailable</span>}
-            {empty && <span className={cx(styles.qaTag, styles.empty)}>empty</span>}
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={cn(
+                "size-2 shrink-0 rounded-full",
+                empty ? "bg-amber-400" : a.loaded ? "bg-emerald-400" : "bg-muted-foreground/50",
+              )}
+              aria-hidden
+            />
+            <span className="truncate text-[13px] font-medium">{accountDisplay(a)}</span>
+            {!a.loaded ? (
+              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                unavailable
+              </span>
+            ) : null}
+            {empty ? (
+              <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
+                empty
+              </span>
+            ) : null}
           </div>
-          <div className={styles.qaMeta}>
+          <div className="shrink-0 text-xs text-muted-foreground">
             <span title="Remaining quota for this credential">{fmtPct(rem ?? null)}</span>
-            <span className={styles.qaSep}>·</span>
+            <span className="mx-1 opacity-50">·</span>
             <span title="Next reset">{formatResetAt(a.reset_at)}</span>
           </div>
-        </div>
+        </button>
       ))}
-      <button
-        type="button"
-        className={cx(styles.quotaAccount, styles.emptyRow, styles.quotaAddRow)}
-        onClick={onAddCredentials}
-        aria-label="Add account"
-      >
-        <div className={styles.qaMain}>
-          <span className={cx(styles.qaDot, styles.ok)} />
-          <span className={styles.qaEmail}>Add account</span>
-        </div>
-      </button>
+      <div className="px-1 pt-1">
+        <Button variant="ghost" onClick={onAddCredentials}>
+          Add account
+        </Button>
+      </div>
     </div>
   );
 }

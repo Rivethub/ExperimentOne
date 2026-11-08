@@ -1,10 +1,18 @@
-import { useState, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Brain, ChevronRight, Terminal, Wrench } from "lucide-react";
+import { useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 import { reasoningPreview } from "./timeline";
+import { ToolDiff } from "./ToolDiff";
 import type { TimelineItem } from "./types";
+
+const TRANSCRIPT_REMARK = [remarkGfm, remarkBreaks];
+const TRANSCRIPT_REHYPE = [rehypeSanitize];
 
 function formatJson(value: unknown): string {
   if (typeof value === "string") {
@@ -24,7 +32,9 @@ function formatJson(value: unknown): string {
 function MarkdownBody({ text }: { text: string }) {
   return (
     <div className={styles.t3Markdown}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={TRANSCRIPT_REMARK} rehypePlugins={TRANSCRIPT_REHYPE}>
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -64,61 +74,15 @@ function WorkRow({
         </span>
         <span className={styles.t3RowLabel}>{label}</span>
         {meta ? <span className={styles.t3RowMeta}>{meta}</span> : null}
-        <span className={cx(styles.t3Chevron, open && styles.t3ChevronOpen)} aria-hidden>
-          ›
-        </span>
+        <ChevronRight
+          className={cx(styles.t3Chevron, open && styles.t3ChevronOpen)}
+          size={14}
+          strokeWidth={1.75}
+          aria-hidden
+        />
       </button>
       {open && children ? <div className={styles.t3RowBody}>{children}</div> : null}
     </div>
-  );
-}
-
-function BrainIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-    >
-      <path d="M9.5 4.5a3 3 0 0 0-2.8 4.1A3.5 3.5 0 0 0 5 11.8c0 1.6.9 3 2.3 3.7V17a2 2 0 0 0 2 2h1" />
-      <path d="M14.5 4.5a3 3 0 0 1 2.8 4.1A3.5 3.5 0 0 1 19 11.8c0 1.6-.9 3-2.3 3.7V17a2 2 0 0 1-2 2h-1" />
-      <path d="M12 3v18" />
-    </svg>
-  );
-}
-
-function TerminalIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-    >
-      <rect x="3.5" y="5" width="17" height="14" rx="2" />
-      <path d="M7.5 10.5 10 13l-2.5 2.5" />
-      <path d="M12.5 15.5h4" />
-    </svg>
-  );
-}
-
-function WrenchIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-    >
-      <path d="M14.7 6.3a4 4 0 0 0-5.6 5.6L4 17l3 3 5.1-5.1a4 4 0 0 0 5.6-5.6l-2.5 2.5-2.5-2.5z" />
-    </svg>
   );
 }
 
@@ -146,7 +110,7 @@ function ReasoningItem({ item }: { item: Extract<TimelineItem, { kind: "reasonin
   const [open, setOpen] = useState(false);
   return (
     <WorkRow
-      icon={<BrainIcon />}
+      icon={<Brain size={14} strokeWidth={1.75} />}
       label={open ? "Thought" : reasoningPreview(item.text)}
       open={open}
       onToggle={() => setOpen((v) => !v)}
@@ -165,7 +129,7 @@ function CommandItem({ item }: { item: Extract<TimelineItem, { kind: "command_ex
   const short = oneLine.length > 88 ? `${oneLine.slice(0, 88)}…` : oneLine;
   return (
     <WorkRow
-      icon={<TerminalIcon />}
+      icon={<Terminal size={14} strokeWidth={1.75} />}
       label={<span className={styles.t3CmdLabel}>{short}</span>}
       meta={
         item.exitCode != null ? (
@@ -186,11 +150,21 @@ function CommandItem({ item }: { item: Extract<TimelineItem, { kind: "command_ex
   );
 }
 
+function ToolJsonOrDiff({ label, value }: { label: string; value: unknown }): ReactElement {
+  const diff = <ToolDiff value={value} />;
+  return (
+    <div>
+      <div className={styles.t3ToolCaption}>{label}</div>
+      {diff ?? <pre className={styles.t3ToolPre}>{formatJson(value)}</pre>}
+    </div>
+  );
+}
+
 function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
   const [open, setOpen] = useState(false);
   return (
     <WorkRow
-      icon={<WrenchIcon />}
+      icon={<Wrench size={14} strokeWidth={1.75} />}
       label={item.title}
       meta={item.isError ? <span className={styles.t3Bad}>error</span> : null}
       open={open}
@@ -198,15 +172,9 @@ function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
       tone={item.isError ? "error" : "tool"}
     >
       <div className={styles.t3ToolBlocks}>
-        <div>
-          <div className={styles.t3ToolCaption}>Input</div>
-          <pre className={styles.t3ToolPre}>{formatJson(item.input)}</pre>
-        </div>
+        <ToolJsonOrDiff label="Input" value={item.input} />
         {item.output !== undefined && (
-          <div>
-            <div className={styles.t3ToolCaption}>{item.isError ? "Error" : "Output"}</div>
-            <pre className={styles.t3ToolPre}>{formatJson(item.output)}</pre>
-          </div>
+          <ToolJsonOrDiff label={item.isError ? "Error" : "Output"} value={item.output} />
         )}
       </div>
     </WorkRow>
@@ -239,14 +207,38 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 }
 
 export function TranscriptView({ items }: { items: TimelineItem[] }) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 120,
+    overscan: 8,
+    getItemKey: (index) => items[index]?.id ?? index,
+  });
+
   if (items.length === 0) return null;
+
   return (
-    <div className={styles.t3Timeline}>
-      {items.map((item) => (
-        <div key={item.id} className={styles.t3Item}>
-          <TimelineRow item={item} />
-        </div>
-      ))}
+    <div ref={parentRef} className={styles.t3Timeline}>
+      <div className={styles.t3VirtualInner} style={{ height: virtualizer.getTotalSize() }}>
+        {virtualizer.getVirtualItems().map((row) => {
+          const item = items[row.index]!;
+          const style = {
+            transform: `translateY(${row.start}px)`,
+          } satisfies CSSProperties;
+          return (
+            <div
+              key={row.key}
+              data-index={row.index}
+              ref={virtualizer.measureElement}
+              className={cx(styles.t3Item, styles.t3VirtualRow)}
+              style={style}
+            >
+              <TimelineRow item={item} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

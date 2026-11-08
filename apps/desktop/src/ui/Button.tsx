@@ -1,20 +1,20 @@
 import type { ButtonHTMLAttributes, HTMLAttributes, ReactElement } from "react";
-import { cx } from "../styles/cx";
-import styles from "./Button.module.css";
+import { Button as ShadcnButton } from "#components/ui/button";
+import { cn } from "#lib/utils";
 
-export type ButtonVariant = "default" | "primary" | "ghost" | "danger" | "link" | "provider";
+const variantMap = {
+  default: "outline",
+  primary: "default",
+  ghost: "ghost",
+  danger: "destructive",
+  link: "link",
+  provider: "outline",
+} as const;
+
+export type ButtonVariant = keyof typeof variantMap;
 
 export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
-};
-
-const variantClass: Record<ButtonVariant, string | undefined> = {
-  default: undefined,
-  primary: styles.primary,
-  ghost: styles.ghost,
-  danger: styles.danger,
-  link: styles.link,
-  provider: styles.provider,
 };
 
 export function Button({
@@ -25,13 +25,27 @@ export function Button({
   ...rest
 }: ButtonProps): ReactElement {
   return (
-    <button type={type} className={cx(styles.btn, variantClass[variant], className)} {...rest}>
+    <ShadcnButton
+      type={type}
+      variant={variantMap[variant]}
+      className={cn(
+        variant === "provider" && "h-auto w-full justify-start gap-3 px-3 py-2.5 text-left",
+        variant === "provider" && "[&_strong]:block [&_strong]:font-semibold",
+        className,
+      )}
+      {...rest}
+    >
       {children}
-    </button>
+    </ShadcnButton>
   );
 }
 
 /** Hint line under a provider login label. */
 export function ButtonHint({ className, ...rest }: HTMLAttributes<HTMLSpanElement>): ReactElement {
-  return <span className={cx(styles.providerHint, className)} {...rest} />;
+  return (
+    <span
+      className={cn("mt-0.5 block text-xs font-normal text-muted-foreground", className)}
+      {...rest}
+    />
+  );
 }

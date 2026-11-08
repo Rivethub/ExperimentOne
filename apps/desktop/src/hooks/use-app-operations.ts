@@ -1,417 +1,276 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Effect } from "effect";
-import { useCallback, useRef, useState } from "react";
-import type { WikiInfo } from "../components/WikiBoard";
+import { useCallback, useState } from "react";
+import { refreshWikiAtom } from "../atoms/wiki";
 import { rivetErrorMessage, runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
+import { notify } from "../lib/notify";
+import { queryKeys } from "../lib/query-keys";
 import { pickRivetbag } from "../lib/tauri-utils";
-import type { ConversationSummary, SearchMode, Status, TrafficEvent } from "../lib/types";
+import type { Status } from "../lib/types";
+import { useRivetMutations } from "./use-rivet-mutations";
+
+export type RuntimeLogs = {
+  proxyLog: string;
+  chLog: string;
+};
+
+async function fetchRuntimeLogs(): Promise<RuntimeLogs> {
+  try {
+    const [proxyRes, chRes] = await runApp(
+      Effect.gen(function* loadProxyAndClickhouseLogs() {
+        yield* Rivet.requireBackend;
+        return yield* Effect.all(
+          [softEffect(Rivet.getProxyLog(80)), softEffect(Rivet.getClickhouseLog(80))],
+          { concurrency: "unbounded" },
+        );
+      }),
+    );
+    return {
+      proxyLog: proxyRes?.ok ? (proxyRes.json<{ text?: string }>()?.text ?? "") : "",
+      chLog: chRes?.ok ? (chRes.json<{ text?: string }>()?.text ?? "") : "",
+    };
+  } catch {
+    return { proxyLog: "", chLog: "" };
+  }
+}
 
 export function useAppOperations(opts: {
-  ensureSession: () => Promise<void>;
-  refresh: () => Promise<void>;
-  refreshWiki: () => Promise<void>;
-  setTrafficRows: (rows: TrafficEvent[]) => void;
-  setConversations: (rows: ConversationSummary[]) => void;
-  setSearchModeLabel: (label: string | null) => void;
+  horizon: "1h" | "3h" | "6h";
   setBusy: (v: boolean) => void;
-  setStatusAction: (v: string | null) => void;
-  setError: (v: string | null | ((prev: string | null) => string | null)) => void;
   status: Status | null;
-  wiki: WikiInfo | null;
-  onDataMutated?: () => void;
+  runtimeLogsEnabled: boolean;
 }) {
-  const {
-    refresh,
-    refreshWiki,
-    setTrafficRows,
-    setConversations,
-    setSearchModeLabel,
-    setBusy,
-    setStatusAction,
-    setError,
-    status,
-    wiki,
-    onDataMutated,
-  } = opts;
+  const { horizon, setBusy, status, runtimeLogsEnabled } = opts;
 
-  const [proxyLog, setProxyLog] = useState("");
-  const [chLog, setChLog] = useState("");
-  const [bagNote, setBagNote] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const mutations = useRivetMutations({ horizon });
   const [bagPath, setBagPath] = useState<string | null>(null);
   const [embedModel, setEmbedModel] = useState("");
-  const [listSearching, setListSearching] = useState(false);
-  const searchGen = useRef(0);
   const [wikiModel, setWikiModel] = useState("");
 
+  const logsQuery = useQuery({
+    queryKey: queryKeys.runtimeLogs,
+    queryFn: fetchRuntimeLogs,
+    enabled: runtimeLogsEnabled,
+    refetchInterval: runtimeLogsEnabled ? 10_000 : false,
+  });
+
   const loadLogs = useCallback(async () => {
-    try {
-      const [proxyRes, chRes] = await runApp(
-        Effect.gen(function* loadProxyAndClickhouseLogs() {
-          yield* Rivet.requireBackend;
-          return yield* Effect.all(
-            [softEffect(Rivet.getProxyLog(80)), softEffect(Rivet.getClickhouseLog(80))],
-            {
-              concurrency: "unbounded",
-            },
-          );
-        }),
-      );
-      if (proxyRes?.ok) {
-        setProxyLog(proxyRes.json<{ text?: string }>()?.text ?? "");
-      }
-      if (chRes?.ok) {
-        setChLog(chRes.json<{ text?: string }>()?.text ?? "");
-      }
-    } catch {
-      /* rivetd down */
-    }
-  }, []);
+    await queryClient.invalidateQueries({ queryKey: queryKeys.runtimeLogs });
+  }, [queryClient]);
 
   const proxyAction = useCallback(
     async (path: "start" | "stop" | "restart") => {
+      const toastId = "proxy-action";
       setBusy(true);
-      setStatusAction(
+      notify.loading(
         path === "restart"
           ? "Restarting proxy…"
           : path === "start"
             ? "Starting proxy…"
             : "Stopping proxy…",
+        toastId,
       );
       try {
-        await runApp(
-          Effect.gen(function* () {
-            yield* Rivet.requireBackend;
-            if (path === "restart") {
-              if (status?.proxy_running) {
-                yield* Rivet.proxyAction("stop");
-              }
-              yield* Rivet.proxyAction("start");
-            } else {
-              yield* Rivet.proxyAction(path);
-            }
-          }),
+        if (path === "restart") {
+          if (status?.proxy_running) {
+            await mutations.proxyAction.mutateAsync("stop");
+          }
+          await mutations.proxyAction.mutateAsync("start");
+        } else {
+          await mutations.proxyAction.mutateAsync(path);
+        }
+        notify.dismiss(toastId);
+        notify.success(
+          path === "restart"
+            ? "Proxy restarted"
+            : path === "start"
+              ? "Proxy started"
+              : "Proxy stopped",
         );
-        await refresh();
       } catch (err) {
-        setError(rivetErrorMessage(err));
+        notify.dismiss(toastId);
+        notify.error(rivetErrorMessage(err));
       } finally {
         setBusy(false);
-        setStatusAction(null);
       }
     },
-    [refresh, status?.proxy_running, setBusy, setStatusAction, setError],
+    [mutations.proxyAction, status?.proxy_running, setBusy],
   );
 
-  const copyText = useCallback(
-    async (text: string) => {
-      try {
-        await navigator.clipboard.writeText(text);
-      } catch {
-        setError("Could not copy to clipboard");
-      }
-    },
-    [setError],
-  );
+  const copyText = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      notify.success("Copied to clipboard");
+    } catch {
+      notify.error("Could not copy to clipboard");
+    }
+  }, []);
 
   const exportBag = useCallback(async () => {
     setBusy(true);
     try {
-      const body = await runApp(
-        Effect.gen(function* () {
-          yield* Rivet.requireBackend;
-          return yield* Rivet.exportBag;
-        }),
-      );
+      const body = await mutations.exportBag.mutateAsync();
       if (body.error) throw new Error(body.error);
       setBagPath(body.path);
-      setBagNote(
+      notify.success(
         `Exported ${body.event_count} events → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
       );
-      await refresh();
-      onDataMutated?.();
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
     } catch (err) {
-      setError(rivetErrorMessage(err));
+      notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [refresh, onDataMutated, setBusy, setError]);
+  }, [mutations.exportBag, queryClient, setBusy]);
 
   const importBag = useCallback(async () => {
     const path = await pickRivetbag();
     if (!path) {
-      setError("File picker unavailable — choose a .rivetbag to import");
+      notify.error("File picker unavailable — choose a .rivetbag to import");
       return;
     }
     setBusy(true);
     try {
-      const body = await runApp(
-        Effect.gen(function* () {
-          yield* Rivet.requireBackend;
-          return yield* Rivet.importBag(path);
-        }),
-      );
+      const body = await mutations.importBag.mutateAsync(path);
       if (body.error) throw new Error(body.error);
-      setBagNote(`Imported ${body.event_count} events from ${body.path}`);
-      await refresh();
-      onDataMutated?.();
+      notify.success(`Imported ${body.event_count} events from ${body.path}`);
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
     } catch (err) {
-      setError(rivetErrorMessage(err));
+      notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [refresh, onDataMutated, setBusy, setError]);
+  }, [mutations.importBag, queryClient, setBusy]);
 
   const ingestLocal = useCallback(async () => {
+    const toastId = "ingest-local";
     setBusy(true);
-    setStatusAction("Importing local sessions…");
+    notify.loading("Importing local sessions…", toastId);
     try {
       const body = await runApp(
-        Effect.gen(function* () {
+        Effect.gen(function* importLocalSessions() {
           yield* Rivet.requireBackend;
           return yield* Rivet.ingestLocal({});
         }),
       );
       if (body.error) throw new Error(body.error);
-      setBagNote(
+      notify.dismiss(toastId);
+      notify.success(
         `Imported local sessions — ${body.events_inserted} new, ${body.events_skipped_existing} already present (${body.events_parsed} parsed from ${body.files_scanned} files)`,
       );
-      await refresh();
-      onDataMutated?.();
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
     } catch (err) {
-      setError(rivetErrorMessage(err));
+      notify.dismiss(toastId);
+      notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
-      setStatusAction(null);
     }
-  }, [refresh, onDataMutated, setBusy, setStatusAction, setError]);
-
-  const searchTraffic = useCallback(
-    async (trafficQuery: string) => {
-      setBusy(true);
-      try {
-        const rows = await runApp(
-          Effect.gen(function* () {
-            yield* Rivet.requireBackend;
-            return yield* Rivet.searchTraffic(trafficQuery);
-          }),
-        );
-        setTrafficRows(rows);
-      } catch (err) {
-        setError(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [setTrafficRows, setBusy, setError],
-  );
-
-  const loadConversations = useCallback(async () => {
-    const gen = ++searchGen.current;
-    setListSearching(true);
-    try {
-      const rows = await runApp(
-        Effect.gen(function* () {
-          yield* Rivet.requireBackend;
-          return yield* Rivet.listConversations(100);
-        }),
-      );
-      if (gen !== searchGen.current) return;
-      setConversations(rows);
-      setSearchModeLabel(null);
-    } catch (err) {
-      if (gen !== searchGen.current) return;
-      setError(rivetErrorMessage(err));
-    } finally {
-      if (gen === searchGen.current) setListSearching(false);
-    }
-  }, [setConversations, setSearchModeLabel, setError]);
-
-  const searchConversations = useCallback(
-    async (query: string, mode: SearchMode) => {
-      const gen = ++searchGen.current;
-      setListSearching(true);
-      try {
-        if (!query.trim()) {
-          const rows = await runApp(
-            Effect.gen(function* () {
-              yield* Rivet.requireBackend;
-              return yield* Rivet.listConversations(100);
-            }),
-          );
-          if (gen !== searchGen.current) return;
-          setConversations(rows);
-          setSearchModeLabel(null);
-          return;
-        }
-        const body = await runApp(
-          Effect.gen(function* () {
-            yield* Rivet.requireBackend;
-            return yield* Rivet.searchConversations(query, mode);
-          }),
-        );
-        if (gen !== searchGen.current) return;
-        // Keep prior rows visible until this response lands (leading UI).
-        setConversations(body.results);
-        setSearchModeLabel(
-          body.mode === "vector"
-            ? "vector"
-            : body.mode === "keyword_fallback"
-              ? "keyword fallback"
-              : body.mode === "keyword"
-                ? "keyword"
-                : null,
-        );
-      } catch (err) {
-        if (gen !== searchGen.current) return;
-        setError(rivetErrorMessage(err));
-      } finally {
-        if (gen === searchGen.current) setListSearching(false);
-      }
-    },
-    [setConversations, setSearchModeLabel, setError],
-  );
-
-  const loadConversationEvents = useCallback(
-    async (id: string): Promise<TrafficEvent[]> => {
-      setBusy(true);
-      try {
-        return await runApp(
-          Effect.gen(function* () {
-            yield* Rivet.requireBackend;
-            return yield* Rivet.getConversationEvents(id);
-          }),
-        );
-      } catch (err) {
-        setError(rivetErrorMessage(err));
-        return [];
-      } finally {
-        setBusy(false);
-      }
-    },
-    [setBusy, setError],
-  );
+  }, [queryClient, setBusy]);
 
   const openWiki = useCallback(async () => {
-    const path = wiki?.path ?? status?.wiki_dir ?? null;
+    const path = status?.wiki_dir ?? null;
     if (!path) {
-      setError("Wiki path unknown — is rivetd up?");
+      notify.error("Wiki path unknown — is rivetd up?");
       return;
     }
     const ok = await runApp(Rivet.openWikiDir(path));
     if (ok === null) {
-      setBagNote(`Wiki directory: ${path}`);
       await navigator.clipboard.writeText(path).catch(() => undefined);
+      notify.info(`Wiki directory: ${path}`);
     }
-  }, [wiki, status, setError]);
+  }, [status]);
 
   const revealExport = useCallback(async () => {
     const path = bagPath;
     if (!path) {
-      setError("Export a package first");
+      notify.error("Export a package first");
       return;
     }
     const ok = await runApp(Rivet.revealPath(path));
     if (ok === null) {
-      await copyText(path);
-      setBagNote(`Copied path: ${path}`);
+      await navigator.clipboard.writeText(path).catch(() => undefined);
+      notify.info(`Copied path: ${path}`);
     }
-  }, [bagPath, copyText, setError]);
+  }, [bagPath]);
 
   const saveIntelligence = useCallback(async () => {
     setBusy(true);
     try {
-      await runApp(
-        Effect.gen(function* () {
-          yield* Rivet.requireBackend;
-          yield* Rivet.putConfig({
-            embedding_model: embedModel,
-            wiki_model: wikiModel,
-            capabilities: {
-              vector_search: Boolean(embedModel.trim() || status?.capabilities.vector_search),
-              wiki: Boolean(wikiModel.trim() || status?.capabilities.wiki),
-            },
-          });
-        }),
-      );
-      await refresh();
+      await mutations.putConfig.mutateAsync({
+        embedding_model: embedModel,
+        wiki_model: wikiModel,
+        capabilities: {
+          vector_search: Boolean(embedModel.trim() || status?.capabilities.vector_search),
+          wiki: Boolean(wikiModel.trim() || status?.capabilities.wiki),
+        },
+      });
+      notify.success("Intelligence settings saved");
     } catch (err) {
-      setError(rivetErrorMessage(err));
+      notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [embedModel, wikiModel, status, refresh, setBusy, setError]);
+  }, [embedModel, wikiModel, status, mutations.putConfig, setBusy]);
 
   const toggleCapability = useCallback(
     async (key: "vector_search" | "wiki", value: boolean) => {
       setBusy(true);
       try {
-        await runApp(
-          Effect.gen(function* () {
-            yield* Rivet.requireBackend;
-            yield* Rivet.putConfig({ capabilities: { [key]: value } });
-          }),
-        );
-        await refresh();
-        if (key === "wiki") await refreshWiki();
+        await mutations.putConfig.mutateAsync({ capabilities: { [key]: value } });
+        if (key === "wiki") {
+          try {
+            refreshWikiAtom();
+          } catch {
+            /* soft-fail */
+          }
+        }
       } catch (err) {
-        setError(rivetErrorMessage(err));
+        notify.error(rivetErrorMessage(err));
       } finally {
         setBusy(false);
       }
     },
-    [refresh, refreshWiki, setBusy, setError],
+    [mutations.putConfig, setBusy],
   );
 
   const runWorkers = useCallback(async () => {
+    const toastId = "run-workers";
     setBusy(true);
-    setStatusAction("Updating wiki & vectors…");
+    notify.loading("Updating wiki & vectors…", toastId);
     try {
-      const body = await runApp(
-        Effect.gen(function* () {
-          yield* Rivet.requireBackend;
-          return yield* Rivet.tickWorkers;
-        }),
-      );
-      setBagNote(
+      const body = await mutations.tickWorkers.mutateAsync();
+      notify.dismiss(toastId);
+      notify.success(
         `Workers ran — ${body.embeddings ?? 0} embeddings, ${body.wiki_pages ?? 0} wiki pages`,
       );
-      await refresh();
-      await refreshWiki();
     } catch (err) {
-      setError(rivetErrorMessage(err));
+      notify.dismiss(toastId);
+      notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
-      setStatusAction(null);
     }
-  }, [refresh, refreshWiki, setBusy, setStatusAction, setError]);
+  }, [mutations.tickWorkers, setBusy]);
 
   const hydrateModels = useCallback((embed: string, wikiModelName: string) => {
     setEmbedModel(embed);
     setWikiModel(wikiModelName);
   }, []);
 
-  const clearBagNote = useCallback(() => setBagNote(null), []);
-
   return {
-    proxyLog,
-    chLog,
-    bagNote,
-    clearBagNote,
+    proxyLog: logsQuery.data?.proxyLog ?? "",
+    chLog: logsQuery.data?.chLog ?? "",
     bagPath,
     embedModel,
     wikiModel,
     setWikiModel,
-    listSearching,
     loadLogs,
     proxyAction,
     copyText,
     exportBag,
     importBag,
     ingestLocal,
-    searchTraffic,
-    loadConversations,
-    searchConversations,
-    loadConversationEvents,
     openWiki,
     revealExport,
     saveIntelligence,

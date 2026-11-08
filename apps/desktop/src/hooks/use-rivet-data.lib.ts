@@ -1,10 +1,11 @@
 import { Effect } from "effect";
-import { hasStringMessage, isTransientReachabilityMessage, runApp, softEffect } from "../effect";
+import { hasStringMessage, runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
 import type { CatalogProvider } from "../lib/provider-utils";
 import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
 
 export const QUOTA_TTL_MS = 5 * 60 * 1000;
+export const HOME_REFETCH_MS = 10_000;
 
 export function refreshErrorMessage(err: unknown): string {
   if (err instanceof Error) {
@@ -22,40 +23,6 @@ export type HomeSnapshot = {
   recent: TrafficEvent[] | null;
   providers: { providers?: CatalogProvider[] } | null;
 };
-
-type ApplySnapshotOpts = {
-  trafficQuery: string;
-  setStatus: (v: Status | null) => void;
-  setAccounts: (v: Account[]) => void;
-  setCatalog: (v: CatalogProvider[]) => void;
-  setRecent: (v: TrafficEvent[]) => void;
-  setTrafficRows: (v: TrafficEvent[]) => void;
-  setApiOnline: (v: boolean) => void;
-  setLastSyncedAt: (v: number | null) => void;
-  setError: (v: string | null | ((prev: string | null) => string | null)) => void;
-};
-
-export function applyHomeSnapshot(snapshot: HomeSnapshot, opts: ApplySnapshotOpts): Status {
-  const st = snapshot.status;
-  opts.setStatus(st);
-  if (snapshot.accounts !== null) {
-    opts.setAccounts(snapshot.accounts);
-  }
-  const providerList = snapshot.providers?.providers;
-  if (providerList !== undefined && providerList.length > 0) {
-    opts.setCatalog(providerList);
-  }
-  if (snapshot.recent !== null) {
-    opts.setRecent(snapshot.recent);
-    if (opts.trafficQuery.trim() === "") {
-      opts.setTrafficRows(snapshot.recent);
-    }
-  }
-  opts.setApiOnline(true);
-  opts.setLastSyncedAt(Date.now());
-  opts.setError((prev) => (prev !== null && isTransientReachabilityMessage(prev) ? null : prev));
-  return st;
-}
 
 export function loadHomeSnapshot(): Promise<HomeSnapshot> {
   return runApp(

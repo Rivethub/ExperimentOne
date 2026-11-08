@@ -1,6 +1,5 @@
 import type { HTMLAttributes, ReactElement } from "react";
-import { cx } from "../styles/cx";
-import styles from "./Actions.module.css";
+import { cn } from "#lib/utils";
 
 export type ActionsProps = HTMLAttributes<HTMLDivElement> & {
   /** Add the default top margin used under panel content. */
@@ -16,10 +15,10 @@ export function Actions({
 }: ActionsProps): ReactElement {
   return (
     <div
-      className={cx(
-        styles.actions,
-        spaced && styles.stack,
-        align === "end" && styles.end,
+      className={cn(
+        "flex flex-wrap items-center gap-2",
+        spaced && "mt-3.5",
+        align === "end" && "justify-end",
         className,
       )}
       {...rest}

@@ -1,27 +1,11 @@
 import type { WikiPageCard } from "./WikiBoard";
 import { isDefined } from "../lib/nullish";
+import { formatRelativeTime } from "../lib/relative-time";
 
 const wikiPathCollator = new Intl.Collator(undefined, { sensitivity: "base" });
 
 export function relativeWhen(iso: string): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) {
-    return "—";
-  }
-  const sec = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (sec < 45) {
-    return "just now";
-  }
-  if (sec < 3600) {
-    return `${Math.round(sec / 60)}m ago`;
-  }
-  if (sec < 86_400) {
-    return `${Math.round(sec / 3600)}h ago`;
-  }
-  if (sec < 86_400 * 14) {
-    return `${Math.round(sec / 86_400)}d ago`;
-  }
-  return new Date(t).toLocaleDateString();
+  return formatRelativeTime(iso, { style: "long" });
 }
 
 export function coverTone(key: string): number {

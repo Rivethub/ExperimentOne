@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { Actions, Banner, Button } from "../ui";
+import { Alert, AlertDescription } from "#components/ui/alert";
+import { Actions, Button, Panel } from "../ui";
 import styles from "../styles/app.module.css";
 import { buildWikiProjects, ensureReadmeToc, relativeWhen, coverTone } from "./wiki-board-logic";
 import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wiki-reader-markdown";
@@ -67,25 +68,29 @@ function WikiReader({
   onOpenPage,
 }: WikiReaderProps): ReactElement {
   return (
-    <div className={styles.wikiReader}>
-      <div className={styles.wikiReaderBar}>
-        <button type="button" className={styles.wikiBack} onClick={onClose}>
-          ← Projects
-        </button>
-        <div className={styles.wikiReaderMeta}>
-          <strong>{reader.activeTitle}</strong>
-          <span>
-            {reader.activePath}
-            {reader.activeUpdated !== "" ? ` · ${relativeWhen(reader.activeUpdated)}` : ""}
-            {reader.loadingPage ? " · loading" : ""}
-          </span>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <Button variant="ghost" onClick={onClose}>
+            ← Projects
+          </Button>
+          <div className="mt-1 min-w-0">
+            <strong className="block truncate text-sm">{reader.activeTitle}</strong>
+            <span className="block truncate text-xs text-muted-foreground">
+              {reader.activePath}
+              {reader.activeUpdated !== "" ? ` · ${relativeWhen(reader.activeUpdated)}` : ""}
+              {reader.loadingPage ? " · loading" : ""}
+            </span>
+          </div>
         </div>
         <Button variant="ghost" onClick={onOpenFolder}>
           Reveal
         </Button>
       </div>
       {reader.pageError !== null && reader.pageError !== "" && (
-        <Banner tone="error">{reader.pageError}</Banner>
+        <Alert variant="destructive" className="mx-4 mt-3">
+          <AlertDescription>{reader.pageError}</AlertDescription>
+        </Alert>
       )}
       <article className={styles.wikiDoc}>
         <WikiReaderMarkdown
@@ -118,24 +123,24 @@ function WikiProjectGrid({
 }: WikiGridProps): ReactElement {
   if (projects.length === 0) {
     return (
-      <div className={styles.wikiEmpty}>
-        <div className={styles.wikiEmptyCard}>
-          <strong>No project README yet</strong>
-          <p>Enable the wiki worker or add a README.md to the project folder.</p>
-          <Actions>
-            <Button variant="primary" disabled={busy} onClick={onEnable}>
-              {wikiEnabled ? "Open Settings" : "Enable in Settings"}
-            </Button>
-            <Button onClick={onOpenFolder}>Open folder</Button>
-          </Actions>
-        </div>
-      </div>
+      <Panel
+        className="mx-auto mb-0 max-w-md"
+        title="No project README yet"
+        lede="Enable the wiki worker or add a README.md to the project folder."
+      >
+        <Actions spaced={false}>
+          <Button variant="primary" disabled={busy} onClick={onEnable}>
+            {wikiEnabled ? "Open Settings" : "Enable in Settings"}
+          </Button>
+          <Button onClick={onOpenFolder}>Open folder</Button>
+        </Actions>
+      </Panel>
     );
   }
 
   return (
-    <section className={styles.wikiSection}>
-      <div className={styles.wikiGrid}>
+    <section>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
         {projects.map(({ projectId, label, readme }) => {
           const hue = coverTone(`${projectId}/${label}`);
           const preview = readme.preview !== "" ? readme.preview : "_Empty README_";
@@ -143,27 +148,30 @@ function WikiProjectGrid({
             <button
               key={projectId}
               type="button"
-              className={styles.wikiTile}
+              className="group overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-border/90 hover:bg-secondary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={`Open ${label} README`}
               onClick={() => {
                 onOpenPage(readme);
               }}
             >
               <div
-                className={styles.wikiTileCover}
+                className="relative h-40 overflow-hidden px-3.5 py-3"
                 style={{
                   background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
                 }}
               >
-                <div className={styles.wikiTilePreview} aria-hidden>
+                <div
+                  className="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
+                  aria-hidden
+                >
                   <WikiTilePreviewMarkdown preview={preview} />
                 </div>
               </div>
-              <div className={styles.wikiTileFoot}>
-                <strong>{label}</strong>
-                <span>
+              <div className="border-t border-border px-3.5 py-2.5">
+                <strong className="block truncate text-sm">{label}</strong>
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   README.md
-                  <em>· {relativeWhen(readme.updated_at)}</em>
+                  <em className="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
                 </span>
               </div>
             </button>
@@ -290,8 +298,10 @@ export function WikiBoard({
   }
 
   return (
-    <div className={styles.wikiBoard}>
-      <p className={styles.wikiBoardLede}>One README per project — open it, then follow links.</p>
+    <div className="flex min-h-0 flex-1 flex-col overflow-auto px-6 py-4">
+      <p className="mb-4 max-w-[68ch] text-[13px] text-muted-foreground">
+        One README per project — open it, then follow links.
+      </p>
       <WikiProjectGrid
         projects={projects}
         busy={busy}

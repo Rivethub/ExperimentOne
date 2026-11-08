@@ -15,6 +15,7 @@ import {
   quotaChartLegend,
   quotaPoolEmpty,
 } from "./provider-card-logic";
+import { Panel } from "../ui";
 import styles from "../styles/app.module.css";
 
 export type QuotaProviderCardProps = {
@@ -88,7 +89,7 @@ export function QuotaProviderCard(props: QuotaProviderCardProps): ReactElement {
       : series.eventsInWindow === 0;
 
   return (
-    <section className={styles.card}>
+    <Panel className="mb-0">
       <QuotaProviderCardHeader
         name={name}
         ico={ico}
@@ -121,7 +122,11 @@ export function QuotaProviderCard(props: QuotaProviderCardProps): ReactElement {
         firstEmpty={pq?.first_empty ?? "—"}
         nextReset={pq?.next_reset ?? "—"}
       />
-      <QuotaProviderAccountList accounts={accounts} onAddCredentials={onAddCredentials} />
-    </section>
+      <QuotaProviderAccountList
+        accounts={accounts}
+        onAddCredentials={onAddCredentials}
+        onAccountSelect={onAccountSelect}
+      />
+    </Panel>
   );
 }
