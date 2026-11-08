@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   commit-lint:
     runs-on: ubuntu-latest
@@ -91,6 +98,7 @@ jobs:
         run: bun run typecheck
 
   desktop:
+    name: desktop (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -139,3 +147,27 @@ jobs:
       - name: Check Tauri crate
         working-directory: apps/desktop/src-tauri
         run: cargo check
+
+  # Single required check for branch rules / auto-merge. Keeps protection stable
+  # when matrix legs are renamed or added.
+  CI:
+    if: always() && !cancelled()
+    needs: [commit-lint, rust, sink, desktop-lint, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all jobs to succeed
+        run: |
+          results=(
+            "${{ needs.commit-lint.result }}"
+            "${{ needs.rust.result }}"
+            "${{ needs.sink.result }}"
+            "${{ needs.desktop-lint.result }}"
+            "${{ needs.desktop.result }}"
+          )
+          for r in "${results[@]}"; do
+            if [[ "$r" != "success" ]]; then
+              echo "Required job result was '$r' (want success)"
+              exit 1
+            fi
+          done
+          echo "All required jobs succeeded"
