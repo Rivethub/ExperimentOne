@@ -273,7 +273,7 @@ mod tests {
         assert!(WorkerRole::Compact.tasks().contains(&TASK_COMPACT_SESSION));
         assert!(WorkerRole::Wiki.tasks().contains(&TASK_UPSERT_TOPICS));
         assert_eq!(WorkerRole::All.tasks().len(), 12);
-        assert!(WorkerRole::None.tasks().is_empty());
+        assert_eq!(WorkerRole::None.tasks(), &[] as &[&str]);
         assert_eq!(WorkerRole::parse("none"), WorkerRole::None);
         assert_eq!(WorkerRole::parse("api"), WorkerRole::None);
     }
