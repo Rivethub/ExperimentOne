@@ -75,10 +75,10 @@ rmcp = { version = "3", default-features = false, features = [
 utoipa = { version = "5", features = ["chrono", "uuid"] }
 tower_governor = "0.8"
 axum-prometheus = "0.10"
-opentelemetry = "0.30"
-opentelemetry_sdk = { version = "0.30", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.30", features = ["grpc-tonic"] }
-tracing-opentelemetry = "0.31"
+opentelemetry = "0.32"
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.33"
 
 [workspace.lints.rust]
 unsafe_code = "warn"
