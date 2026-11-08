@@ -9,9 +9,10 @@ members = [
   "crates/rivet-mcp",
   "crates/rivet-export",
   "crates/rivet-runtime",
+  "crates/rivet-cli",
 ]
 exclude = ["apps/desktop/src-tauri", "vendor"]
-default-members = ["crates/rivet-runtime"]
+default-members = ["crates/rivet-runtime", "crates/rivet-cli"]
 
 [workspace.package]
 version = "0.1.0"
@@ -29,8 +30,10 @@ rivet-worker = { path = "crates/rivet-worker" }
 rivet-mcp = { path = "crates/rivet-mcp" }
 rivet-export = { path = "crates/rivet-export" }
 rivet-runtime = { path = "crates/rivet-runtime" }
+rivet-cli = { path = "crates/rivet-cli" }
 
 anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

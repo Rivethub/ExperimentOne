@@ -24,6 +24,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Check control plane
         run: cargo check -p rivet-runtime
+      - name: Check CLI
+        run: cargo check -p rivet-cli
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
       - name: Unit tests

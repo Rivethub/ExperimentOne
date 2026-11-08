@@ -90,10 +90,29 @@ Intelligence → Run workers now.
 
 MCP (`:8742`): `search_history`; `semantic_search` when vectors enabled.
 
+## Agent / CLI setup
+
+Headless install + control plane (no desktop UI):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wSedlacek/Rivet/main/scripts/install.sh | bash
+export PATH="$HOME/.local/bin:$PATH"
+rivet setup
+```
+
+Primary commands: `rivet status`, `rivet doctor`, `rivet login <provider>`,
+`rivet harness write claude`, `rivet demo seed`. Paste
+[docs/agent-setup-prompt.md](docs/agent-setup-prompt.md) into an agent (or run
+`rivet prompt`) for the full drop-in setup script.
+
+Dev: `cargo run -p rivet-cli -- --help`. Installs pull archives from the latest
+GitHub release (asset contract in [docs/packaging.md](docs/packaging.md)).
+
 ## Docs
 
 - [Architecture](docs/architecture.md)
 - [Packaging (macOS / Linux / Windows)](docs/packaging.md)
+- [Agent setup prompt](docs/agent-setup-prompt.md)
 - [ClickHouse](docs/clickhouse.md)
 - [Enterprise](docs/enterprise.md)
 - [Proxy fork](vendor/FORK.md)

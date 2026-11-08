@@ -1,0 +1,24 @@
+[package]
+name = "rivet-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Agent-friendly Rivet setup and control CLI"
+default-run = "rivet"
+
+[[bin]]
+name = "rivet"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+dirs.workspace = true
+flate2 = "1"
+reqwest.workspace = true
+rivet-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tar = "0.4"
+tokio.workspace = true
+zip = { version = "2", default-features = false, features = ["deflate"] }
