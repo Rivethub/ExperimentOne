@@ -8,7 +8,9 @@ export function peekSoftFailure(): unknown {
 }
 
 /** Optional reads — failures become `null` so dashboards can paint partial data. */
-export function softEffect<A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A | null> {
+export function softEffect<A, R = never>(
+  effect: Effect.Effect<A, unknown, R>,
+): Effect.Effect<A | null, never, R> {
   return effect.pipe(
     Effect.tapError((cause) =>
       Effect.sync(() => {

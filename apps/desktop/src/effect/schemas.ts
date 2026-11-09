@@ -7,6 +7,14 @@ const OnboardingStatusSchema = Schema.Struct({
   harness_ready: Schema.Boolean,
 });
 
+const QueueStatsSchema = Schema.Struct({
+  pending: Schema.Finite,
+  running: Schema.Finite,
+  done: Schema.Finite,
+  failed: Schema.Finite,
+  dead: Schema.Finite,
+});
+
 const WorkersSchema = Schema.Struct({
   vector_search: Schema.Boolean,
   wiki: Schema.Boolean,
@@ -14,6 +22,8 @@ const WorkersSchema = Schema.Struct({
   wiki_pages: Schema.Finite,
   vectorize_cursor: Schema.optional(Schema.NullOr(Schema.String)),
   wiki_cursor: Schema.optional(Schema.NullOr(Schema.String)),
+  role: Schema.optional(Schema.String),
+  queue: Schema.optional(QueueStatsSchema),
 });
 
 const CapabilitiesSchema = Schema.Struct({
@@ -169,7 +179,11 @@ export const CaptureEventSchema = Schema.Struct({
   git_repo: Schema.optional(Schema.NullOr(Schema.String)),
   task_id: Schema.optional(Schema.NullOr(Schema.String)),
   turn_id: Schema.optional(Schema.NullOr(Schema.String)),
+  upstream_host: Schema.optional(Schema.NullOr(Schema.String)),
+  attempt_count: Schema.optional(Schema.Finite),
+  stop_reason: Schema.optional(Schema.NullOr(Schema.String)),
   tool_names: Schema.optional(Schema.NullOr(Schema.String)),
+  stream_complete: Schema.optional(Schema.NullOr(Schema.Boolean)),
   request_path: Schema.optional(Schema.NullOr(Schema.String)),
   api_format: Schema.optional(Schema.NullOr(Schema.String)),
   error_type: Schema.optional(Schema.NullOr(Schema.String)),
@@ -293,6 +307,136 @@ export const LoginStartSchema = Schema.Struct({
   provider: Schema.String,
   message: Schema.String,
   hint: Schema.optional(Schema.NullOr(Schema.String)),
+});
+
+export const WikiArchiveListSchema = Schema.Struct({
+  project_id: Schema.String,
+  slug: Schema.String,
+  files: Schema.mutable(Schema.Array(Schema.String)),
+});
+
+export const WikiArchiveBodySchema = Schema.Struct({
+  project_id: Schema.String,
+  slug: Schema.String,
+  file: Schema.String,
+  content: Schema.String,
+});
+
+export const TopicCardSchema = Schema.Struct({
+  slug: Schema.String,
+  title: Schema.String,
+  project_id: Schema.optional(Schema.String),
+  aliases: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  tags: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  event_ids: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  session_ids: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  summary: Schema.optional(Schema.NullOr(Schema.String)),
+  curated: Schema.optional(Schema.Boolean),
+  placement_by: Schema.optional(Schema.Literals(["heuristic", "categorizer", "you"])),
+  decisions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  startup_context: Schema.optional(Schema.NullOr(Schema.String)),
+  kind: Schema.optional(Schema.String),
+  parent_slug: Schema.optional(Schema.NullOr(Schema.String)),
+  updated_at: Schema.String,
+});
+
+export const TopicsSchema = Schema.mutable(Schema.Array(TopicCardSchema));
+
+export const TidyProposalSchema = Schema.Struct({
+  id: Schema.String,
+  action: Schema.String,
+  from_slug: Schema.optional(Schema.NullOr(Schema.String)),
+  to_slug: Schema.optional(Schema.NullOr(Schema.String)),
+  title: Schema.optional(Schema.NullOr(Schema.String)),
+  reason: Schema.String,
+  status: Schema.String,
+  created_at: Schema.String,
+});
+
+export const TidyListSchema = Schema.Struct({
+  proposals: Schema.mutable(Schema.Array(TidyProposalSchema)),
+});
+
+export const TidyDecideSchema = Schema.Struct({
+  proposal: TidyProposalSchema,
+});
+
+export const TagSuggestionSchema = Schema.Struct({
+  id: Schema.String,
+  session_id: Schema.String,
+  tag: Schema.String,
+  status: Schema.String,
+  created_at: Schema.String,
+});
+
+export const TagListSchema = Schema.Struct({
+  suggestions: Schema.mutable(Schema.Array(TagSuggestionSchema)),
+});
+
+export const TagDecideSchema = Schema.Struct({
+  suggestion: TagSuggestionSchema,
+});
+
+export const FlaggedJobSchema = Schema.Struct({
+  job_key: Schema.String,
+  task: Schema.String,
+  status: Schema.String,
+  attempts: Schema.optional(Schema.Finite),
+  last_error: Schema.optional(Schema.NullOr(Schema.String)),
+  updated_at: Schema.optional(Schema.String),
+});
+
+export const FlaggedListSchema = Schema.Struct({
+  flagged: Schema.mutable(Schema.Array(FlaggedJobSchema)),
+});
+
+export const FlaggedRetrySchema = Schema.Struct({
+  ok: Schema.Boolean,
+});
+
+export const MemoryStartupSchema = Schema.Struct({
+  markdown: Schema.String,
+});
+
+export const MemoryStatsSchema = Schema.Struct({
+  events: Schema.Finite,
+  tokens_in: Schema.Finite,
+  tokens_out: Schema.Finite,
+  recent_wire: Schema.Finite,
+  recent_soft: Schema.Finite,
+  topics: Schema.Finite,
+  summaries: Schema.Finite,
+  embeddings: Schema.Finite,
+  cursors: Schema.Struct({
+    vectorize: Schema.optional(Schema.NullOr(Schema.String)),
+    wiki: Schema.optional(Schema.NullOr(Schema.String)),
+    topics: Schema.optional(Schema.NullOr(Schema.String)),
+    classify: Schema.optional(Schema.NullOr(Schema.String)),
+    compact: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
+});
+
+export const LocalSourceReportSchema = Schema.Struct({
+  source: Schema.String,
+  root: Schema.String,
+  files_scanned: Schema.Finite,
+  events_parsed: Schema.Finite,
+});
+
+export const LocalIngestReportSchema = Schema.Struct({
+  dry_run: Schema.Boolean,
+  files_scanned: Schema.Finite,
+  events_parsed: Schema.Finite,
+  events_inserted: Schema.Finite,
+  events_skipped_existing: Schema.Finite,
+  sources: Schema.mutable(Schema.Array(LocalSourceReportSchema)),
+  error: Schema.optional(Schema.String),
+});
+
+export const LogTailSchema = Schema.Struct({
+  kind: Schema.String,
+  path: Schema.String,
+  text: Schema.String,
 });
 
 /** Empty 2xx bodies decode as `undefined`; non-empty bodies stay untyped. */

@@ -1,14 +1,4 @@
 import { isString } from "./guards";
-import type { JsonObject } from "./json-types";
-
-export async function invokeTauri<T>(cmd: string, args?: JsonObject): Promise<T | null> {
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return await invoke<T>(cmd, args);
-  } catch {
-    return null;
-  }
-}
 
 export async function pickRivetbag(): Promise<string | null> {
   try {

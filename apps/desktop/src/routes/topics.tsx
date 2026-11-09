@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Effect } from "effect";
 import { useCallback, useState } from "react";
 import { useApp } from "#app/context";
 import { topicArchiveSlug, topicWikiPageId } from "#components/wiki-board-logic";
-import { runApp } from "#effect";
+import { runApp, softEffect } from "#effect";
 import * as Rivet from "#effect/rivet";
 import { useTopics } from "#hooks";
 import { TopicsPane, type TopicCard, type TopicKnowledge } from "#panes";
@@ -27,34 +28,38 @@ function TopicsPage(): React.ReactElement {
     const projectId = topic.project_id?.trim() || "default";
     const pageId = topicWikiPageId(projectId, topic.slug, topic.kind);
     const archiveSlug = topicArchiveSlug(topic.slug, topic.kind);
-    let body: string | null = null;
-    if (pageId) {
-      try {
-        body = await runApp(
-          Rivet.loadWikiPageContent({
-            id: pageId,
-            project_id: projectId,
-            title: topic.title,
-            path: "",
-            relative_path: "",
-            folder: "",
-            updated_at: topic.updated_at,
-            preview: "",
-          }),
+    return runApp(
+      Effect.gen(function* loadTopicKnowledge() {
+        const [body, archives] = yield* Effect.all(
+          [
+            pageId
+              ? softEffect(
+                  Rivet.loadWikiPageContent({
+                    id: pageId,
+                    project_id: projectId,
+                    title: topic.title,
+                    path: "",
+                    relative_path: "",
+                    folder: "",
+                    updated_at: topic.updated_at,
+                    preview: "",
+                  }),
+                )
+              : Effect.succeed(null),
+            archiveSlug
+              ? softEffect(Rivet.loadWikiArchiveList(archiveSlug, projectId))
+              : Effect.succeed(null),
+          ],
+          { concurrency: "unbounded" },
         );
-      } catch {
-        body = null;
-      }
-    }
-    let archives: string[] = [];
-    if (archiveSlug) {
-      try {
-        archives = await runApp(Rivet.loadWikiArchiveList(archiveSlug, projectId));
-      } catch {
-        archives = [];
-      }
-    }
-    return { body, archives, archiveSlug, projectId };
+        return {
+          body,
+          archives: archives ?? [],
+          archiveSlug,
+          projectId,
+        };
+      }),
+    );
   }, []);
 
   return (

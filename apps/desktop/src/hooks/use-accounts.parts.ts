@@ -158,9 +158,6 @@ export function useAccountsLogin(
       openedLoginUrl.current = null;
       try {
         const body = await mutations.startLogin.mutateAsync({ provider, method });
-        if (body.error !== undefined && body.error !== "") {
-          throw new Error(body.error);
-        }
         setLogin({
           active: true,
           provider,
@@ -237,9 +234,6 @@ export function useAccountsVertex(
     notify.loading("Importing Vertex credentials…", toastId);
     try {
       const body = await mutations.importVertex.mutateAsync(path);
-      if (body.error !== undefined && body.error !== "") {
-        throw new Error(body.error);
-      }
       setLogin({
         active: true,
         provider: "vertex",
@@ -344,36 +338,48 @@ export function useAccountsHarness(
   }, [setBusy]);
 
   const loadClaude = useCallback(async () => {
-    const text = await runApp(
-      Effect.gen(function* loadClaudeHarness() {
-        yield* Rivet.requireBackend;
-        return yield* Rivet.getClaudeEnv;
-      }),
-    );
-    setSnippet(text);
-    setHarnessNote(null);
+    try {
+      const text = await runApp(
+        Effect.gen(function* loadClaudeHarness() {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.getClaudeEnv;
+        }),
+      );
+      setSnippet(text);
+      setHarnessNote(null);
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    }
   }, []);
 
   const loadCodex = useCallback(async () => {
-    const text = await runApp(
-      Effect.gen(function* loadCodexHarness() {
-        yield* Rivet.requireBackend;
-        return yield* Rivet.getCodexToml;
-      }),
-    );
-    setSnippet(text);
-    setHarnessNote(null);
+    try {
+      const text = await runApp(
+        Effect.gen(function* loadCodexHarness() {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.getCodexToml;
+        }),
+      );
+      setSnippet(text);
+      setHarnessNote(null);
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    }
   }, []);
 
   const loadMcp = useCallback(async () => {
-    const text = await runApp(
-      Effect.gen(function* loadMcpHarness() {
-        yield* Rivet.requireBackend;
-        return yield* Rivet.getMcpJson;
-      }),
-    );
-    setSnippet(text);
-    setHarnessNote(null);
+    try {
+      const text = await runApp(
+        Effect.gen(function* loadMcpHarness() {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.getMcpJson;
+        }),
+      );
+      setSnippet(text);
+      setHarnessNote(null);
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    }
   }, []);
 
   return { harnessNote, snippet, writeHarness, writeAllHarnesses, loadClaude, loadCodex, loadMcp };

@@ -13,7 +13,7 @@ type QuotaBundle = {
   history: QuotaHistory | null;
 };
 
-function withBackend<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+function withBackend<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> {
   return runApp(
     Effect.gen(function* runWithBackend() {
       yield* Rivet.requireBackend;

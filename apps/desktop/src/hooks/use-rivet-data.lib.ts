@@ -26,20 +26,7 @@ export type HomeSnapshot = {
 };
 
 export function loadHomeSnapshot(): Promise<HomeSnapshot> {
-  return runApp(
-    Effect.gen(function* fetchHomeSnapshot() {
-      yield* Rivet.requireBackend;
-      return yield* Effect.all(
-        {
-          status: Rivet.getStatus,
-          accounts: softEffect(Rivet.getAccounts),
-          recent: softEffect(Rivet.getCapturesRecent(200)),
-          providers: softEffect(Rivet.getProviders),
-        },
-        { concurrency: "unbounded" },
-      );
-    }),
-  );
+  return runApp(Rivet.homeSnapshot);
 }
 
 export async function pullQuotaBundle(horizon: "1h" | "3h" | "6h"): Promise<{
