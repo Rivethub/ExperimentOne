@@ -1,8 +1,8 @@
 import { isDefined } from "./nullish";
 import { fmt } from "./provider-utils";
-import type { TrafficEvent } from "./types";
+import type { CaptureEvent } from "./types";
 
-export type SplitTrafficBody = {
+export type SplitCaptureBody = {
   request: string;
   response: string | null;
 };
@@ -27,8 +27,8 @@ export function prettyJsonChunk(raw: string): string {
   }
 }
 
-/** Stored traffic bodies are `request\n---\nresponse`. */
-export function splitTrafficBody(raw: string | null | undefined): SplitTrafficBody {
+/** Stored capture bodies are `request\n---\nresponse`. */
+export function splitCaptureBody(raw: string | null | undefined): SplitCaptureBody {
   if (!isDefined(raw) || raw.trim() === "") {
     return { request: "(empty)", response: null };
   }
@@ -42,12 +42,12 @@ export function splitTrafficBody(raw: string | null | undefined): SplitTrafficBo
   return { request: prettyJsonChunk(raw), response: null };
 }
 
-export function filterTrafficRows(
-  rows: TrafficEvent[],
+export function filterCaptureRows(
+  rows: CaptureEvent[],
   provider: string,
   status: "all" | "ok" | "error",
   providerKeyFn: (p: string) => string,
-): TrafficEvent[] {
+): CaptureEvent[] {
   return rows.filter((ev) => {
     if (provider !== "all" && providerKeyFn(ev.provider) !== provider) {
       return false;
@@ -71,7 +71,7 @@ export function filterTrafficRows(
   });
 }
 
-export function trafficTokenLabel(ev: TrafficEvent): string {
+export function captureTokenLabel(ev: CaptureEvent): string {
   const code = ev.status_code ?? 0;
   const failed = code > 0 && (code < 200 || code >= 300);
   if (failed && ev.tokens_in === 0 && ev.tokens_out === 0) {

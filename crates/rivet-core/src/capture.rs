@@ -119,7 +119,7 @@ impl<'de> Deserialize<'de> for ProviderKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
-pub enum TrafficRole {
+pub enum CaptureRole {
     System,
     User,
     Assistant,
@@ -127,9 +127,9 @@ pub enum TrafficRole {
     Unknown,
 }
 
-/// One captured unit of proxy traffic. Safe to export (no credentials).
+/// One captured unit of proxy captures. Safe to export (no credentials).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
-pub struct TrafficEvent {
+pub struct CaptureEvent {
     pub id: Uuid,
     pub ts: DateTime<Utc>,
     pub provider: ProviderKind,
@@ -144,7 +144,7 @@ pub struct TrafficEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
     pub request_id: Option<String>,
-    pub role: TrafficRole,
+    pub role: CaptureRole,
     pub content: Option<String>,
     pub tokens_in: u32,
     pub tokens_out: u32,
@@ -236,7 +236,7 @@ pub struct TrafficEvent {
     pub tool_call_count: u32,
 }
 
-impl TrafficEvent {
+impl CaptureEvent {
     pub fn new(provider: ProviderKind) -> Self {
         Self {
             id: Uuid::new_v4(),
@@ -248,7 +248,7 @@ impl TrafficEvent {
             project_id: None,
             cwd: None,
             request_id: None,
-            role: TrafficRole::Unknown,
+            role: CaptureRole::Unknown,
             content: None,
             tokens_in: 0,
             tokens_out: 0,
@@ -316,7 +316,7 @@ pub struct UsageTotals {
     pub tokens_out: u64,
 }
 
-/// One historical conversation, projected from traffic events sharing a session.
+/// One historical conversation, projected from capture events sharing a session.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct ConversationSummary {
     /// `session_id`, or `event:{uuid}` when the event has no session.
@@ -389,7 +389,7 @@ fn clip_text(raw: &str, max: usize) -> String {
 }
 
 /// Best-effort human title from stored request/response JSON or plain text.
-fn conversation_title_text(ev: &TrafficEvent) -> Option<String> {
+fn conversation_title_text(ev: &CaptureEvent) -> Option<String> {
     let raw = ev.content.as_deref()?.split("\n---\n").next()?.trim();
     if raw.is_empty() {
         return None;
@@ -428,7 +428,7 @@ fn conversation_title_text(ev: &TrafficEvent) -> Option<String> {
     Some(clip_text(raw, 72))
 }
 
-fn conversation_preview_text(ev: &TrafficEvent) -> Option<String> {
+fn conversation_preview_text(ev: &CaptureEvent) -> Option<String> {
     let raw = ev.content.as_deref()?;
     let half = raw.split("\n---\n").nth(1).unwrap_or(raw).trim();
     if half.is_empty() {
@@ -454,15 +454,15 @@ fn conversation_preview_text(ev: &TrafficEvent) -> Option<String> {
     Some(clip_text(half, 120))
 }
 
-/// Group flat traffic events into conversation summaries (newest first).
+/// Group flat capture events into conversation summaries (newest first).
 #[allow(clippy::too_many_lines)]
-pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<ConversationSummary> {
+pub fn conversations_from_events(events: &[CaptureEvent], limit: u32) -> Vec<ConversationSummary> {
     use std::collections::HashMap;
 
     struct Acc<'a> {
-        first: &'a TrafficEvent,
-        last: &'a TrafficEvent,
-        title_src: &'a TrafficEvent,
+        first: &'a CaptureEvent,
+        last: &'a CaptureEvent,
+        title_src: &'a CaptureEvent,
         message_count: u64,
         tokens_in: u64,
         tokens_out: u64,
@@ -533,8 +533,8 @@ pub fn conversations_from_events(events: &[TrafficEvent], limit: u32) -> Vec<Con
                 acc.last = ev;
             }
             // Prefer earliest user message as the title source.
-            let better_title = matches!(ev.role, TrafficRole::User)
-                && (ev.ts <= acc.title_src.ts || !matches!(acc.title_src.role, TrafficRole::User));
+            let better_title = matches!(ev.role, CaptureRole::User)
+                && (ev.ts <= acc.title_src.ts || !matches!(acc.title_src.role, CaptureRole::User));
             if better_title {
                 acc.title_src = ev;
             }
@@ -651,21 +651,21 @@ mod tests {
 
     #[test]
     fn groups_events_by_session_id() {
-        let mut first = TrafficEvent::new(ProviderKind::Claude);
+        let mut first = CaptureEvent::new(ProviderKind::Claude);
         first.session_id = Some("s1".into());
-        first.role = TrafficRole::User;
+        first.role = CaptureRole::User;
         first.content = Some("Hello from user".into());
         first.ts = Utc::now() - Duration::minutes(2);
 
-        let mut second = TrafficEvent::new(ProviderKind::Claude);
+        let mut second = CaptureEvent::new(ProviderKind::Claude);
         second.session_id = Some("s1".into());
-        second.role = TrafficRole::Assistant;
+        second.role = CaptureRole::Assistant;
         second.content = Some("Hi there".into());
         second.ts = Utc::now() - Duration::minutes(1);
 
-        let mut other = TrafficEvent::new(ProviderKind::Codex);
+        let mut other = CaptureEvent::new(ProviderKind::Codex);
         other.session_id = Some("s2".into());
-        other.role = TrafficRole::User;
+        other.role = CaptureRole::User;
         other.content = Some("Other thread".into());
 
         let list = conversations_from_events(&[first, second, other], 10);

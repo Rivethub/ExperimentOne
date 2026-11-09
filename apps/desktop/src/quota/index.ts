@@ -5,7 +5,7 @@ export type {
   ProviderQuotaUx,
   QuotaAccountUx,
   QuotaWindow,
-  TrafficEventUx,
+  CaptureEventUx,
 } from "./types";
 export { AccountConnectCards } from "./AccountConnectCards";
 export { AccountDetailSheet } from "./AccountDetailSheet";

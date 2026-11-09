@@ -1,4 +1,4 @@
-//! Best-effort turn normalization over captured traffic content.
+//! Best-effort turn normalization over captures content.
 //!
 //! Proxy events often store `request\n---\nresponse` JSON. Agents and the UI
 //! prefer discrete user / assistant / tool turns when that shape is parseable.
@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::traffic::{TrafficEvent, TrafficRole};
+use crate::capture::{CaptureEvent, CaptureRole};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -44,9 +44,9 @@ pub struct NormalizedTurn {
     pub tool_result: Option<String>,
 }
 
-/// Split one traffic event into zero or more normalized turns.
+/// Split one capture event into zero or more normalized turns.
 #[must_use]
-pub fn normalize_event_turns(event: &TrafficEvent) -> Vec<NormalizedTurn> {
+pub fn normalize_event_turns(event: &CaptureEvent) -> Vec<NormalizedTurn> {
     let Some(raw) = event.content.as_deref().map(str::trim).filter(|s| !s.is_empty()) else {
         return vec![NormalizedTurn {
             kind: role_to_kind(event.role),
@@ -81,13 +81,13 @@ pub fn normalize_event_turns(event: &TrafficEvent) -> Vec<NormalizedTurn> {
     turns
 }
 
-const fn role_to_kind(role: TrafficRole) -> TurnKind {
+const fn role_to_kind(role: CaptureRole) -> TurnKind {
     match role {
-        TrafficRole::System => TurnKind::System,
-        TrafficRole::User => TurnKind::User,
-        TrafficRole::Assistant => TurnKind::Assistant,
-        TrafficRole::Tool => TurnKind::Tool,
-        TrafficRole::Unknown => TurnKind::Unknown,
+        CaptureRole::System => TurnKind::System,
+        CaptureRole::User => TurnKind::User,
+        CaptureRole::Assistant => TurnKind::Assistant,
+        CaptureRole::Tool => TurnKind::Tool,
+        CaptureRole::Unknown => TurnKind::Unknown,
     }
 }
 
@@ -321,11 +321,11 @@ fn clip(raw: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::traffic::ProviderKind;
+    use crate::capture::ProviderKind;
 
     #[test]
     fn parses_claude_style_messages() {
-        let mut event = TrafficEvent::new(ProviderKind::Claude);
+        let mut event = CaptureEvent::new(ProviderKind::Claude);
         event.content = Some(
             r#"{"messages":[{"role":"user","content":"hello"}]}"#.to_string()
                 + "\n---\n"

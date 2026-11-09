@@ -43,7 +43,7 @@ export function QuotaChart({
     const series: uPlot.Series[] = [
       {},
       {
-        label: legend ?? "Measured traffic burn",
+        label: legend ?? "Measured capture burn",
         stroke: color,
         width: 2,
         fill: `${color}1f`,
@@ -132,7 +132,7 @@ export function QuotaChart({
   if (empty === true) {
     return (
       <div className={cx(styles.chartWrap, styles.chartWrapEmpty)}>
-        <p>{emptyLabel ?? "No captured traffic in this window"}</p>
+        <p>{emptyLabel ?? "No captures in this window"}</p>
       </div>
     );
   }
@@ -142,7 +142,7 @@ export function QuotaChart({
       <div ref={hostRef} className={styles.chartUplotHost} />
       <div className={styles.chartLegend} style={{ color }}>
         <span>
-          <i className={styles.swatch} /> {legend ?? "Measured traffic burn"}
+          <i className={styles.swatch} /> {legend ?? "Measured capture burn"}
         </span>
       </div>
     </div>

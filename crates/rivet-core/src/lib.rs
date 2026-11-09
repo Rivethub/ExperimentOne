@@ -1,9 +1,10 @@
 //! Shared domain types for Rivet.
 //!
-//! "Traffic" / exportable tokens = prompts, completions, usage, session metadata.
+//! "Capture" / exportable tokens = prompts, completions, usage, session metadata.
 //! Credentials and OAuth blobs are never part of export packages.
 
 mod blobs;
+mod capture;
 mod chunk;
 mod config;
 pub mod control_ipc;
@@ -23,10 +24,13 @@ mod redact;
 mod scoring;
 mod session_id;
 mod startup;
-mod traffic;
 mod turns;
 
 pub use blobs::{hydrate_event_content, hydrate_events, read_body_ref, resolve_body_ref};
+pub use capture::{
+    conversations_from_events, CaptureEvent, CaptureQuality, CaptureRole, ConversationSummary,
+    ExportManifest, ProviderKind, UsageTotals,
+};
 pub use chunk::{chunk_text, looks_unembeddable};
 pub use config::{localhost_port_free, Capabilities, RivetConfig};
 pub use control_ipc::{control_endpoint, control_request, control_up, ControlIpcResponse};
@@ -41,7 +45,7 @@ pub use harness::{
 };
 pub use http_guard::{host_is_loopback, origin_allowed};
 pub use ingest_validate::{
-    validate_ingest_batch, validate_traffic_event, IngestValidationError, MAX_CONTENT_BYTES,
+    validate_capture_event, validate_ingest_batch, IngestValidationError, MAX_CONTENT_BYTES,
     MAX_INGEST_BATCH, MAX_TOKENS_FIELD,
 };
 pub use live::{LiveBus, LiveCursor, LiveEvent};
@@ -65,9 +69,5 @@ pub use startup::{
     assemble_startup_memory, assemble_startup_memory_with_workspace, estimate_tokens,
     load_workspace_memory, trim_to_tokens, WorkspaceMemorySection, STARTUP_BUDGET_TOKENS,
     WORKSPACE_MEMORY_FILES,
-};
-pub use traffic::{
-    conversations_from_events, CaptureQuality, ConversationSummary, ExportManifest, ProviderKind,
-    TrafficEvent, TrafficRole, UsageTotals,
 };
 pub use turns::{normalize_event_turns, NormalizedTurn, TurnKind};

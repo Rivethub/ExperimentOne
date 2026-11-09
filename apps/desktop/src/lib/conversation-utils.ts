@@ -1,10 +1,10 @@
-import { turnFromTrafficEvent } from "../transcript/parse";
+import { turnFromCaptureEvent } from "../transcript/parse";
 import { formatRelativeTime } from "./relative-time";
-import { splitTrafficBody, trunc } from "./traffic-utils";
-import type { ConversationSummary, TrafficEvent } from "./types";
+import { splitCaptureBody, trunc } from "./capture-utils";
+import type { ConversationSummary, CaptureEvent } from "./types";
 
-function titleFromEvent(ev: TrafficEvent): string {
-  const turn = turnFromTrafficEvent(ev);
+function titleFromEvent(ev: CaptureEvent): string {
+  const turn = turnFromCaptureEvent(ev);
   const text = turn.parts
     .filter((p) => p.kind === "text" || p.kind === "system")
     .map((p) => ("text" in p ? p.text : ""))
@@ -17,13 +17,13 @@ function titleFromEvent(ev: TrafficEvent): string {
   return trunc(ev.model ?? `${ev.provider} conversation`, 72);
 }
 
-export function conversationIdFor(ev: TrafficEvent): string {
+export function conversationIdFor(ev: CaptureEvent): string {
   const sid = ev.session_id?.trim();
   if (sid) return sid;
   return `event:${ev.id}`;
 }
 
-function isSubagentEvent(ev: TrafficEvent): boolean {
+function isSubagentEvent(ev: CaptureEvent): boolean {
   if (ev.agent_id?.trim()) return true;
   if (ev.parent_session_id?.trim()) return true;
   const cls = (ev.request_class ?? "").trim().toLowerCase();
@@ -31,13 +31,13 @@ function isSubagentEvent(ev: TrafficEvent): boolean {
 }
 
 export function conversationsFromEvents(
-  events: TrafficEvent[],
+  events: CaptureEvent[],
   limit = 100,
 ): ConversationSummary[] {
   type Acc = {
-    first: TrafficEvent;
-    last: TrafficEvent;
-    titleSrc: TrafficEvent;
+    first: CaptureEvent;
+    last: CaptureEvent;
+    titleSrc: CaptureEvent;
     message_count: number;
     tokens_in: number;
     tokens_out: number;
@@ -110,7 +110,7 @@ export function conversationsFromEvents(
 
   const out: ConversationSummary[] = [...byId.entries()].map(([id, acc]) => {
     const title = titleFromEvent(acc.titleSrc);
-    const lastTurn = turnFromTrafficEvent(acc.last);
+    const lastTurn = turnFromCaptureEvent(acc.last);
     const previewText = lastTurn.parts
       .map((p) => {
         if (p.kind === "text" || p.kind === "thinking" || p.kind === "system" || p.kind === "raw") {
@@ -154,15 +154,15 @@ export function conversationsFromEvents(
 }
 
 /** Display text for a transcript bubble (T3-style role message). */
-export function messageTextFor(ev: TrafficEvent): string {
-  const bodies = splitTrafficBody(ev.content);
+export function messageTextFor(ev: CaptureEvent): string {
+  const bodies = splitCaptureBody(ev.content);
   if (ev.role === "assistant" && bodies.response) return bodies.response;
   if (ev.role === "user") return bodies.request;
   if (bodies.response) return `${bodies.request}\n\n---\n\n${bodies.response}`;
   return bodies.request;
 }
 
-export function filterMessages(events: TrafficEvent[], query: string): TrafficEvent[] {
+export function filterMessages(events: CaptureEvent[], query: string): CaptureEvent[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return events;
   return events.filter((ev) => {

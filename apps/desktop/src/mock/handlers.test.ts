@@ -12,7 +12,7 @@ describe("mock IPC handlers", () => {
     expect(res.status).toBe(200);
     const body = JSON.parse(res.body);
     expect(body.ok).toBe(true);
-    expect(body.traffic_backend).toBe("clickhouse");
+    expect(body.capture_backend).toBe("clickhouse");
     expect(body.onboarding.has_accounts).toBe(true);
   });
 
@@ -24,9 +24,9 @@ describe("mock IPC handlers", () => {
     expect(quota.providers.length).toBeGreaterThan(0);
   });
 
-  it("searches traffic and seeds demo events", async () => {
+  it("searches captures and seeds demo events", async () => {
     const search = JSON.parse(
-      (await handleApiRequest("GET", "/v1/traffic/search?limit=20&q=claude", null)).body,
+      (await handleApiRequest("GET", "/v1/captures/search?limit=20&q=claude", null)).body,
     );
     expect(Array.isArray(search)).toBe(true);
     const seed = JSON.parse(

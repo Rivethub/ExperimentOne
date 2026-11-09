@@ -1,11 +1,11 @@
 ---
 name: rivet-history
-description: Search prior Claude/Codex traffic captured by the local Rivet hub (prompts, sessions, usage).
+description: Search prior Claude/Codex captures from the local Rivet hub (prompts, sessions, usage).
 ---
 
 # Rivet history
 
-When the Rivet MCP server `rivet` is available, use it to search prior local traffic
+When the Rivet MCP server `rivet` is available, use it to search prior local captures
 before re-asking for context that may already exist in captured sessions.
 
 Prefer Rivet tools for:

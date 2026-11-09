@@ -217,7 +217,7 @@ export function TopicsPane({
             </div>
             {tree.length === 0 ? (
               <div className={styles.conversationList}>
-                <Empty>No topics yet — capture traffic and run workers to cluster subjects.</Empty>
+                <Empty>No topics yet — capture events and run workers to cluster subjects.</Empty>
               </div>
             ) : (
               <div className={styles.conversationList}>

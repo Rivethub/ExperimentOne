@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { hasStringMessage, runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
 import type { CatalogProvider } from "../lib/provider-utils";
-import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
+import type { Account, QuotaHistory, QuotaSnapshot, Status, CaptureEvent } from "../lib/types";
 
 export const QUOTA_TTL_MS = 5 * 60 * 1000;
 /** Slow safety net — live cursor invalidation covers most updates. */
@@ -21,7 +21,7 @@ export function refreshErrorMessage(err: unknown): string {
 export type HomeSnapshot = {
   status: Status;
   accounts: Account[] | null;
-  recent: TrafficEvent[] | null;
+  recent: CaptureEvent[] | null;
   providers: { providers?: CatalogProvider[] } | null;
 };
 
@@ -33,7 +33,7 @@ export function loadHomeSnapshot(): Promise<HomeSnapshot> {
         {
           status: Rivet.getStatus,
           accounts: softEffect(Rivet.getAccounts),
-          recent: softEffect(Rivet.getTrafficRecent(200)),
+          recent: softEffect(Rivet.getCapturesRecent(200)),
           providers: softEffect(Rivet.getProviders),
         },
         { concurrency: "unbounded" },

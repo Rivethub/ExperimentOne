@@ -8,7 +8,7 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 authors.workspace = true
-description = "ClickHouse traffic + file meta persistence for Rivet"
+description = "ClickHouse captures + file meta persistence for Rivet"
 
 [lints]
 workspace = true

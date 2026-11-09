@@ -6,7 +6,7 @@ import * as Rivet from "../effect/rivet";
 import { notify } from "../lib/notify";
 import { queryKeys } from "../lib/query-keys";
 import type { CatalogProvider } from "../lib/provider-utils";
-import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
+import type { Account, QuotaHistory, QuotaSnapshot, Status, CaptureEvent } from "../lib/types";
 import { useLiveEvents } from "./use-live-events";
 import {
   HOME_REFETCH_MS,
@@ -23,7 +23,7 @@ export type UseRivetDataResult = {
   quota: QuotaSnapshot | null;
   quotaHistory: QuotaHistory | null;
   catalog: CatalogProvider[];
-  recent: TrafficEvent[];
+  recent: CaptureEvent[];
   apiOnline: boolean;
   lastSyncedAt: number | null;
   ensureSession: () => Promise<void>;

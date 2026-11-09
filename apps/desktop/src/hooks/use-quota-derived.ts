@@ -6,7 +6,7 @@ import type {
   ProviderFilter,
   QuotaAccount,
   QuotaSnapshot,
-  TrafficEvent,
+  CaptureEvent,
 } from "../lib/types";
 
 export type UseQuotaDerivedResult = {
@@ -25,7 +25,7 @@ export function useQuotaDerived(opts: {
   catalog: CatalogProvider[];
   accounts: Account[];
   quota: QuotaSnapshot | null;
-  recent: TrafficEvent[];
+  recent: CaptureEvent[];
 }): UseQuotaDerivedResult {
   const { filter, limitBannerHidden, catalog, accounts, quota, recent } = opts;
 

@@ -52,7 +52,7 @@ export function MultiAccountWarnModal({
           </p>
           <p className="m-0">
             Pooling multiple accounts of the same provider may conflict with that provider&apos;s
-            Terms of Service. Rivet does not encourage reselling subscription traffic as a public
+            Terms of Service. Rivet does not encourage reselling subscription captures as a public
             API.
           </p>
         </div>

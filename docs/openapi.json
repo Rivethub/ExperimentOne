@@ -13,6 +13,29 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/v1/captures/recent": {
+      "get": {
+        "tags": [
+          "capture"
+        ],
+        "operationId": "recent",
+        "responses": {
+          "200": {
+            "description": "Recent capture events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CaptureEvent"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/config": {
       "get": {
         "tags": [
@@ -21,7 +44,7 @@
         "operationId": "get_config",
         "responses": {
           "200": {
-            "description": "Public config (no secrets)",
+            "description": "Public config",
             "content": {
               "application/json": {
                 "schema": {
@@ -98,51 +121,6 @@
           }
         }
       }
-    },
-    "/v1/traffic/recent": {
-      "get": {
-        "tags": [
-          "traffic"
-        ],
-        "operationId": "recent",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "description": "Max events (default 200)",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32",
-              "minimum": 0
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "description": "Optional keyword filter",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Recent traffic events",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/TrafficEvent"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     }
   },
   "components": {
@@ -186,7 +164,7 @@
         "properties": {
           "mcp": {
             "type": "boolean",
-            "description": "Keyword/SQL history via MCP always on once traffic exists."
+            "description": "Keyword/SQL history via MCP always on once captures exist."
           },
           "teams": {
             "type": "boolean",
@@ -194,11 +172,303 @@
           },
           "vector_search": {
             "type": "boolean",
-            "description": "Requires an embedding model routed through the proxy (or local lexical fallback)."
+            "description": "Lexical vector search over `ClickHouse` embeddings (on by default locally)."
           },
           "wiki": {
             "type": "boolean",
             "description": "Requires a text-generation model routed through the proxy (or stub wiki pages)."
+          }
+        }
+      },
+      "CaptureEvent": {
+        "type": "object",
+        "description": "One captured unit of proxy captures. Safe to export (no credentials).",
+        "required": [
+          "id",
+          "ts",
+          "provider",
+          "role",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "properties": {
+          "account_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Subagent id from proxy headers (e.g. `x-claude-code-agent-id`). Absent on main turns."
+          },
+          "agent_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Agent type / name when present (`x-claude-code-agent-type`)."
+          },
+          "api_format": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Wire API shape: `anthropic_messages` | `openai_chat` | `openai_responses` | `gemini` | …"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of upstream credential attempts (failover > 1).",
+            "minimum": 0
+          },
+          "auth_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Credential-pool `auth_id` from the winning upstream attempt."
+          },
+          "body_ref": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Relative path under blobs/ when body was spilled to disk."
+          },
+          "cache_creation_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Anthropic cache-creation tokens (also folded into `tokens_in`).",
+            "minimum": 0
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Anthropic / `OpenAI` cache-read tokens (also folded into `tokens_in`).",
+            "minimum": 0
+          },
+          "capture_quality": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CaptureQuality",
+                "description": "Capture fidelity: `wire`, `soft`, or `imported`."
+              }
+            ]
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Working-directory signal when present on wire or local transcript. Soft context for workers —\nnot promoted to `project_id` by itself."
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Short provider error message (redacted/truncated)."
+          },
+          "error_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider error type/code when status ≥ 400 or body is an error envelope."
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Git branch from request `git_state` when present on the wire."
+          },
+          "git_repo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Git repo root / remote from `git_state` when present."
+          },
+          "has_thinking": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "True when thinking/reasoning blocks were present on the wire."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latency_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "media_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Count of image/file/audio/video parts seen in request/response.",
+            "minimum": 0
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "parent_agent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Parent agent id when nested (`x-claude-code-parent-agent-id`)."
+          },
+          "parent_session_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Parent session when child uses its own session id (e.g. `OpenCode` `x-parent-session-id`)."
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hard-evidence project id only: explicit API/header field, or the harness's own project key\n(e.g. Claude/Cursor `projects/<id>/` folder). Never inferred from cwd or prompt text."
+          },
+          "provider": {
+            "$ref": "#/components/schemas/ProviderKind"
+          },
+          "request_class": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Request class: `main` | `subagent` | `workflow` | `compaction` | `auxiliary`."
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Client request path (`/v1/messages`, `/v1/responses`, …)."
+          },
+          "role": {
+            "$ref": "#/components/schemas/CaptureRole"
+          },
+          "session_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "soft_alias": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Soft fingerprint that this wire session supersedes (soft→wire upgrade).\nNot persisted to `ClickHouse` — ingest records it into meta aliases."
+          },
+          "status_code": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "stop_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider stop / finish reason when present."
+          },
+          "stream_complete": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the captured stream looked complete (`[DONE]` / `message_stop`)."
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Task lineage id from headers / body metadata."
+          },
+          "thinking_tokens": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Thinking / reasoning tokens when reported separately.",
+            "minimum": 0
+          },
+          "tokens_in": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tokens_out": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tool_call_count": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of tool/function invocations observed on this turn.",
+            "minimum": 0
+          },
+          "tool_names": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Comma-separated tool names invoked on this turn (wire parse)."
+          },
+          "ts": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "turn_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Turn lineage id from headers / body metadata."
+          },
+          "upstream_host": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Hostname of the winning upstream attempt (credential pool)."
           }
         }
       },
@@ -211,9 +481,19 @@
           "imported"
         ]
       },
+      "CaptureRole": {
+        "type": "string",
+        "enum": [
+          "system",
+          "user",
+          "assistant",
+          "tool",
+          "unknown"
+        ]
+      },
       "ConversationSummary": {
         "type": "object",
-        "description": "One historical conversation, projected from traffic events sharing a session.",
+        "description": "One historical conversation, projected from capture events sharing a session.",
         "required": [
           "id",
           "title",
@@ -225,6 +505,26 @@
           "tokens_out"
         ],
         "properties": {
+          "agent_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct subagent ids observed in this conversation (from proxy headers)."
+          },
+          "api_format": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Latest observed API format."
+          },
+          "cache_read_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of cache-read tokens across the conversation.",
+            "minimum": 0
+          },
           "capture_quality": {
             "oneOf": [
               {
@@ -243,9 +543,28 @@
             ],
             "description": "Latest captured cwd signal for the conversation (not a classified project)."
           },
+          "error_events": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Events with an error envelope / non-success capture.",
+            "minimum": 0
+          },
+          "git_branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Latest git branch signal."
+          },
           "id": {
             "type": "string",
             "description": "`session_id`, or `event:{uuid}` when the event has no session."
+          },
+          "media_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of media parts across the conversation.",
+            "minimum": 0
           },
           "message_count": {
             "type": "integer",
@@ -277,6 +596,24 @@
             "type": "string",
             "format": "date-time"
           },
+          "subagent_events": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Events tagged as subagent / workflow turns.",
+            "minimum": 0
+          },
+          "thinking_events": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Events that included thinking/reasoning on the wire.",
+            "minimum": 0
+          },
+          "thinking_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Sum of thinking / reasoning tokens across the conversation.",
+            "minimum": 0
+          },
           "title": {
             "type": "string"
           },
@@ -290,6 +627,13 @@
             "format": "int64",
             "minimum": 0
           },
+          "tool_names": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Distinct tool names observed on the wire."
+          },
           "updated_at": {
             "type": "string",
             "format": "date-time"
@@ -301,17 +645,17 @@
         "description": "Cheap snapshot for long-poll / Tauri watchers (no stream required).",
         "required": [
           "wiki_revision",
-          "traffic_events",
+          "capture_events",
           "observed_at"
         ],
         "properties": {
-          "observed_at": {
-            "type": "string"
-          },
-          "traffic_events": {
+          "capture_events": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "observed_at": {
+            "type": "string"
           },
           "wiki_revision": {
             "type": "integer",
@@ -340,7 +684,7 @@
         "required": [
           "proxy_running",
           "has_accounts",
-          "has_traffic",
+          "has_captures",
           "harness_ready"
         ],
         "properties": {
@@ -350,7 +694,7 @@
           "has_accounts": {
             "type": "boolean"
           },
-          "has_traffic": {
+          "has_captures": {
             "type": "boolean"
           },
           "proxy_running": {
@@ -388,10 +732,7 @@
           "access_key_hint",
           "management_configured",
           "capabilities",
-          "wiki_project_id",
-          "rate_limit_rps",
-          "rate_limit_burst",
-          "metrics_enabled"
+          "wiki_project_id"
         ],
         "properties": {
           "access_key_hint": {
@@ -429,20 +770,7 @@
             "format": "int32",
             "minimum": 0
           },
-          "metrics_enabled": {
-            "type": "boolean"
-          },
           "proxy_port": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "rate_limit_burst": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "rate_limit_rps": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
@@ -469,7 +797,7 @@
           "capabilities",
           "usage",
           "account_count",
-          "traffic_backend",
+          "capture_backend",
           "wiki_dir",
           "warnings",
           "onboarding",
@@ -486,6 +814,9 @@
           },
           "capabilities": {
             "$ref": "#/components/schemas/Capabilities"
+          },
+          "capture_backend": {
+            "type": "string"
           },
           "embedding_model": {
             "type": [
@@ -507,9 +838,6 @@
           },
           "proxy_running": {
             "type": "boolean"
-          },
-          "traffic_backend": {
-            "type": "string"
           },
           "usage": {
             "$ref": "#/components/schemas/UsageTotals"
@@ -534,132 +862,6 @@
             "$ref": "#/components/schemas/WorkersStatus"
           }
         }
-      },
-      "TrafficEvent": {
-        "type": "object",
-        "description": "One captured unit of proxy traffic. Safe to export (no credentials).",
-        "required": [
-          "id",
-          "ts",
-          "provider",
-          "role",
-          "tokens_in",
-          "tokens_out"
-        ],
-        "properties": {
-          "account_label": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "body_ref": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Relative path under blobs/ when body was spilled to disk."
-          },
-          "capture_quality": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/CaptureQuality",
-                "description": "Capture fidelity: `wire`, `soft`, or `imported`."
-              }
-            ]
-          },
-          "content": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "cwd": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Working-directory signal when present on wire or local transcript. Soft context for workers —\nnot promoted to `project_id` by itself."
-          },
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "latency_ms": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "minimum": 0
-          },
-          "model": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "project_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Hard-evidence project id only: explicit API/header field, or the harness's own project key\n(e.g. Claude/Cursor `projects/<id>/` folder). Never inferred from cwd or prompt text."
-          },
-          "provider": {
-            "$ref": "#/components/schemas/ProviderKind"
-          },
-          "request_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "role": {
-            "$ref": "#/components/schemas/TrafficRole"
-          },
-          "session_id": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status_code": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32",
-            "minimum": 0
-          },
-          "tokens_in": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "tokens_out": {
-            "type": "integer",
-            "format": "int32",
-            "minimum": 0
-          },
-          "ts": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "TrafficRole": {
-        "type": "string",
-        "enum": [
-          "system",
-          "user",
-          "assistant",
-          "tool",
-          "unknown"
-        ]
       },
       "UsageTotals": {
         "type": "object",
@@ -692,13 +894,22 @@
           "vector_search",
           "wiki",
           "embeddings",
-          "wiki_pages"
+          "wiki_pages",
+          "role",
+          "queue"
         ],
         "properties": {
           "embeddings": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "queue": {
+            "type": "object"
+          },
+          "role": {
+            "type": "string",
+            "description": "Role this process claims (`RIVET_WORKER_ROLE`)."
           },
           "vector_search": {
             "type": "boolean"
@@ -733,8 +944,8 @@
       "description": "Status, config, and session bootstrap"
     },
     {
-      "name": "traffic",
-      "description": "Captured traffic queries"
+      "name": "capture",
+      "description": "Capture event queries"
     },
     {
       "name": "live",

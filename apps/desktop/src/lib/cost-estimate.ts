@@ -1,4 +1,4 @@
-import type { TrafficEventUx } from "../quota/types";
+import type { CaptureEventUx } from "../quota/types";
 import { providerKey } from "./provider-utils";
 
 /** Labeled list-price estimates — not billing truth. */
@@ -40,7 +40,7 @@ export function estimateCostUsd(provider: string, tokensIn: number, tokensOut: n
 
 export function costForProviderEvents(
   provider: string,
-  events: TrafficEventUx[],
+  events: CaptureEventUx[],
 ): { usd: number; note: string } {
   let tin = 0;
   let tout = 0;

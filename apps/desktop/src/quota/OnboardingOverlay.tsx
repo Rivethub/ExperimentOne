@@ -54,7 +54,7 @@ export function OnboardingOverlay({
       <div className="w-full max-w-md rounded-xl border border-border bg-card px-5 py-5 shadow-lg">
         <h2 className="m-0 text-lg font-semibold tracking-tight">Welcome to Rivet</h2>
         <p className="mt-1.5 text-[13px] leading-snug text-muted-foreground">
-          Finish these steps so traffic and limits show up in the app.
+          Finish these steps so captures and limits show up in the app.
         </p>
         <ol className="mt-4 flex list-none flex-col gap-2.5 p-0">
           {steps.map((s) => (
@@ -95,7 +95,9 @@ export function OnboardingOverlay({
         </ol>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
           <span className="text-xs text-muted-foreground">
-            {onboarding.has_traffic ? "Traffic captured" : "No traffic yet — start the proxy first"}
+            {onboarding.has_captures
+              ? "Captures recorded"
+              : "No captures yet — start the proxy first"}
           </span>
           <Button variant="ghost" onClick={onDismiss}>
             Dismiss

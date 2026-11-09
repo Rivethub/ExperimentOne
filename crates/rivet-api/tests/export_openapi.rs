@@ -23,7 +23,7 @@ fn openapi_includes_core_contracts() {
     for needle in [
         "StatusResponse",
         "PublicConfig",
-        "TrafficEvent",
+        "CaptureEvent",
         "LiveCursor",
         "/v1/status",
         "/v1/live",

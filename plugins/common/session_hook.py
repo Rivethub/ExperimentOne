@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Optional harness metadata for Rivet — never a traffic ingress path.
+"""Optional harness metadata for Rivet — never a capture ingress path.
 
 Live capture is proxy-only (`rivetsink` → `/v1/ingest`). This hook only:
   - binds session_id → cwd/provider (so ingest can attach project_id)

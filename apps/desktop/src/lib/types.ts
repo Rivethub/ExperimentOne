@@ -14,7 +14,7 @@ export type Status = {
   mcp_url: string;
   access_key_hint: string;
   account_count: number;
-  traffic_backend?: string;
+  capture_backend?: string;
   wiki_dir?: string;
   embedding_model?: string | null;
   wiki_model?: string | null;
@@ -130,7 +130,7 @@ export type HarnessWrite = {
   mode?: string;
 };
 
-export type TrafficEvent = {
+export type CaptureEvent = {
   id: string;
   ts: string;
   provider: string;

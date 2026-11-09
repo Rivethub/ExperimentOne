@@ -99,7 +99,7 @@ export async function handleApiRequest(
   if (m === "GET" && base === "/v1/live") {
     return ok({
       wiki_revision: s.wiki?.revision ?? 0,
-      traffic_events: s.traffic.length,
+      capture_events: s.captures.length,
       observed_at: new Date().toISOString(),
     });
   }
@@ -138,9 +138,9 @@ export async function handleApiRequest(
         project_id: "default",
         aliases: [],
         tags: ["security"],
-        event_ids: s.traffic.slice(0, 3).map((e) => e.id),
-        session_ids: [...new Set(s.traffic.map((e) => e.session_id).filter(Boolean))].slice(0, 3),
-        summary: "Mock topic clustered from demo traffic.",
+        event_ids: s.captures.slice(0, 3).map((e) => e.id),
+        session_ids: [...new Set(s.captures.map((e) => e.session_id).filter(Boolean))].slice(0, 3),
+        summary: "Mock topic clustered from demo captures.",
         curated: false,
         kind: "work",
         parent_slug: null,
@@ -166,7 +166,7 @@ export async function handleApiRequest(
         project_id: "default",
         aliases: ["analytics"],
         tags: [],
-        event_ids: s.traffic.slice(0, 2).map((e) => e.id),
+        event_ids: s.captures.slice(0, 2).map((e) => e.id),
         session_ids: [],
         summary: "Storage and ingest discussions.",
         curated: true,
@@ -273,23 +273,23 @@ export async function handleApiRequest(
   }
   if (m === "GET" && base === "/v1/memory/stats") {
     return ok({
-      events: s.traffic.length,
+      events: s.captures.length,
       topics: 2,
       summaries: 0,
-      embeddings: Math.min(s.traffic.length, 12),
+      embeddings: Math.min(s.captures.length, 12),
     });
   }
 
-  // Traffic / conversations
-  if (m === "GET" && base === "/v1/traffic/recent") {
+  // Captures / conversations
+  if (m === "GET" && base === "/v1/captures/recent") {
     const limit = Number(q.get("limit") ?? "200") || 200;
-    return ok(s.traffic.slice(0, limit));
+    return ok(s.captures.slice(0, limit));
   }
-  if (m === "GET" && base === "/v1/traffic/search") {
+  if (m === "GET" && base === "/v1/captures/search") {
     const needle = (q.get("q") ?? "").trim().toLowerCase();
     const limit = Number(q.get("limit") ?? "100") || 100;
-    if (!needle) return ok(s.traffic.slice(0, limit));
-    const hits = s.traffic.filter((ev) => {
+    if (!needle) return ok(s.captures.slice(0, limit));
+    const hits = s.captures.filter((ev) => {
       const hay =
         `${ev.content ?? ""} ${ev.model ?? ""} ${ev.account_label ?? ""} ${ev.provider} ${ev.session_id ?? ""}`.toLowerCase();
       return hay.includes(needle);
@@ -299,14 +299,14 @@ export async function handleApiRequest(
   if (m === "GET" && base === "/v1/conversations") {
     const { conversationsFromEvents } = await import("../lib/conversation-utils");
     const limit = Number(q.get("limit") ?? "100") || 100;
-    return ok(conversationsFromEvents(s.traffic, limit));
+    return ok(conversationsFromEvents(s.captures, limit));
   }
   if (m === "GET" && base === "/v1/conversations/events") {
     const { conversationIdFor } = await import("../lib/conversation-utils");
     const id = (q.get("id") ?? "").trim();
     const limit = Number(q.get("limit") ?? "500") || 500;
     if (!id) return ok([]);
-    const hits = s.traffic
+    const hits = s.captures
       .filter((ev) => conversationIdFor(ev) === id)
       .slice()
       .sort((a, b) => +new Date(a.ts) - +new Date(b.ts))
@@ -319,9 +319,9 @@ export async function handleApiRequest(
     const limit = Number(q.get("limit") ?? "100") || 100;
     const mode = (q.get("mode") ?? "keyword").toLowerCase();
     if (!needle) {
-      return ok({ mode: "list", results: conversationsFromEvents(s.traffic, limit) });
+      return ok({ mode: "list", results: conversationsFromEvents(s.captures, limit) });
     }
-    const hits = s.traffic.filter((ev) => {
+    const hits = s.captures.filter((ev) => {
       const hay =
         `${ev.content ?? ""} ${ev.model ?? ""} ${ev.account_label ?? ""} ${ev.provider} ${ev.session_id ?? ""}`.toLowerCase();
       return hay.includes(needle);
@@ -334,11 +334,11 @@ export async function handleApiRequest(
     });
   }
   if (m === "POST" && base === "/v1/demo/seed") {
-    if (s.traffic.length === 0) {
-      const { seedTraffic } = await import("./fixtures");
-      s.traffic = seedTraffic("default");
+    if (s.captures.length === 0) {
+      const { seedCaptures } = await import("./fixtures");
+      s.captures = seedCaptures("default");
     } else {
-      s.traffic = [
+      s.captures = [
         {
           id: crypto.randomUUID(),
           ts: new Date().toISOString(),
@@ -352,7 +352,7 @@ export async function handleApiRequest(
           account_label: s.accounts[0]?.label ?? "mock",
           latency_ms: 512,
         },
-        ...s.traffic,
+        ...s.captures,
       ];
     }
     return ok({ note: "Mock demo seed", inserted: 1, force: false });
@@ -454,7 +454,7 @@ export async function handleApiRequest(
   }
   if (m === "POST" && base === "/v1/workers/tick") {
     return ok({
-      embeddings: Math.min(s.traffic.length, 12),
+      embeddings: Math.min(s.captures.length, 12),
       wiki_pages: s.wiki.pages.length,
     });
   }
@@ -529,8 +529,8 @@ export async function handleApiRequest(
       .filter((id) => id.length > 0);
     const events =
       ids.length === 0
-        ? s.traffic
-        : s.traffic.filter((ev) => {
+        ? s.captures
+        : s.captures.filter((ev) => {
             const sid = ev.session_id?.trim();
             const convId = sid && sid.length > 0 ? sid : `event:${ev.id}`;
             return ids.includes(convId);
@@ -557,7 +557,7 @@ export async function handleApiRequest(
     const path = bodyObj.path ?? "/mock/import.rivetbag";
     const inserted = 5;
     for (let i = 0; i < inserted; i++) {
-      s.traffic.unshift({
+      s.captures.unshift({
         id: crypto.randomUUID(),
         ts: new Date(Date.now() - i * 1000).toISOString(),
         provider: "codex",
@@ -581,7 +581,7 @@ export async function handleApiRequest(
   if (m === "POST" && base === "/v1/ingest/local") {
     const inserted = 3;
     for (let i = 0; i < inserted; i++) {
-      s.traffic.unshift({
+      s.captures.unshift({
         id: crypto.randomUUID(),
         ts: new Date(Date.now() - i * 1000).toISOString(),
         provider: i % 2 === 0 ? "claude" : "codex",
@@ -642,7 +642,7 @@ export async function handleApiRequest(
       text: [
         "[mock] ClickHouse HTTP :8123",
         "[mock] database rivet ready",
-        `[mock] traffic_events rows≈${s.traffic.length}`,
+        `[mock] capture_events rows≈${s.captures.length}`,
       ].join("\n"),
     });
   }

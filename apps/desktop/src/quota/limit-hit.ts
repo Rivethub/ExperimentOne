@@ -1,6 +1,6 @@
 import { providerKey } from "../lib/provider-utils";
 import { isDefined } from "../lib/nullish";
-import type { LimitHitInfo, ProviderQuotaUx, QuotaAccountUx, TrafficEventUx } from "./types";
+import type { LimitHitInfo, ProviderQuotaUx, QuotaAccountUx, CaptureEventUx } from "./types";
 
 function poolSaysEmpty(pe: string): boolean {
   return (
@@ -48,7 +48,7 @@ function quotaPoolHit(pq: ProviderQuotaUx): boolean {
 export function detectLimitHit(
   pq: ProviderQuotaUx | null,
   accounts: QuotaAccountUx[],
-  recent: TrafficEventUx[],
+  recent: CaptureEventUx[],
   provider?: string,
 ): LimitHitInfo | null {
   const filteredRecent =

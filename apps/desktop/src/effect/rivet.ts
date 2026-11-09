@@ -28,7 +28,7 @@ import {
   QuotaSnapshotSchema,
   RefreshQuotaResultSchema,
   StatusSchema,
-  TrafficEventsSchema,
+  CaptureEventsSchema,
   UnknownOkSchema,
   WikiInfoSchema,
   WikiPageContentSchema,
@@ -38,7 +38,7 @@ import { softEffect } from "./soft";
 
 type Status = Schema.Schema.Type<typeof StatusSchema>;
 type Account = Schema.Schema.Type<typeof AccountsSchema>[number];
-type TrafficEvent = Schema.Schema.Type<typeof TrafficEventsSchema>[number];
+type CaptureEvent = Schema.Schema.Type<typeof CaptureEventsSchema>[number];
 type CatalogProvider = Schema.Schema.Type<typeof ProvidersResponseSchema>["providers"][number];
 type QuotaSnapshot = Schema.Schema.Type<typeof QuotaSnapshotSchema>;
 type QuotaHistory = Schema.Schema.Type<typeof QuotaHistorySchema>;
@@ -56,13 +56,13 @@ export const getQuotaHistory = (hours: number) =>
   apiJsonSchema("GET", `/v1/quota/history?hours=${hours}`, QuotaHistorySchema);
 export const refreshQuota = apiJsonSchema("POST", "/v1/quota/refresh", RefreshQuotaResultSchema);
 
-export const getTrafficRecent = (limit = 200) =>
-  apiJsonSchema("GET", `/v1/traffic/recent?limit=${limit}`, TrafficEventsSchema);
-export const searchTraffic = (q: string, limit = 100) =>
+export const getCapturesRecent = (limit = 200) =>
+  apiJsonSchema("GET", `/v1/captures/recent?limit=${limit}`, CaptureEventsSchema);
+export const searchCaptures = (q: string, limit = 100) =>
   apiJsonSchema(
     "GET",
-    `/v1/traffic/search?limit=${limit}&q=${encodeURIComponent(q.trim())}`,
-    TrafficEventsSchema,
+    `/v1/captures/search?limit=${limit}&q=${encodeURIComponent(q.trim())}`,
+    CaptureEventsSchema,
   );
 
 export const listConversations = (limit = 100) =>
@@ -71,7 +71,7 @@ export const getConversationEvents = (id: string, limit = 500) =>
   apiJsonSchema(
     "GET",
     `/v1/conversations/events?limit=${limit}&id=${encodeURIComponent(id)}`,
-    TrafficEventsSchema,
+    CaptureEventsSchema,
   );
 export const searchConversations = (q: string, mode: SearchMode = "keyword", limit = 100) =>
   apiJsonSchema(
@@ -263,7 +263,7 @@ export const revealPath = (path: string): Effect.Effect<boolean | null> =>
 export type RefreshSnapshot = {
   status: Status;
   accounts: Account[];
-  recent: TrafficEvent[];
+  recent: CaptureEvent[];
   providers: { providers: CatalogProvider[] };
   quotaBundle: [QuotaSnapshot, QuotaHistory] | null;
 };
@@ -279,7 +279,7 @@ export const refreshSnapshot = (opts: {
       [
         getStatus,
         getAccounts,
-        getTrafficRecent(200),
+        getCapturesRecent(200),
         getProviders,
         opts.includeQuota
           ? Effect.all([getQuota, getQuotaHistory(opts.historyHours)], { concurrency: "unbounded" })

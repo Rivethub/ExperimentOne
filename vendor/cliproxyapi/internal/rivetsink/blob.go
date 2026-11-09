@@ -47,7 +47,7 @@ func (w *Wrapper) spillBody(eventID, full string) (rel string, ok bool) {
 	}
 	now := time.Now().UTC()
 	rel = filepath.ToSlash(filepath.Join(
-		"traffic",
+		"capture",
 		fmt.Sprintf("%04d", now.Year()),
 		fmt.Sprintf("%02d", int(now.Month())),
 		fmt.Sprintf("%02d", now.Day()),
@@ -73,7 +73,7 @@ func (w *Wrapper) openSpill(eventID string) (file *os.File, rel, abs string, err
 	}
 	now := time.Now().UTC()
 	rel = filepath.ToSlash(filepath.Join(
-		"traffic",
+		"capture",
 		fmt.Sprintf("%04d", now.Year()),
 		fmt.Sprintf("%02d", int(now.Month())),
 		fmt.Sprintf("%02d", now.Day()),

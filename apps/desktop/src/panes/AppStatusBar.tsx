@@ -108,10 +108,10 @@ export function AppStatusBar({
         />
         <span
           className="inline-flex max-w-none shrink-0 cursor-default items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md border-0 bg-transparent px-1.5 py-1 text-[11.5px] text-muted-foreground @max-[720px]:hidden"
-          title="Traffic store backend"
+          title="Capture store backend"
         >
           <span className="size-[7px] shrink-0 rounded-full bg-emerald-400 shadow-[0_0_0_2px_rgba(52,211,153,0.16)]" />
-          <span className="@max-[860px]:hidden">{status?.traffic_backend ?? "clickhouse"}</span>
+          <span className="@max-[860px]:hidden">{status?.capture_backend ?? "clickhouse"}</span>
           <span className="hidden @max-[860px]:inline">ch</span>
         </span>
       </div>

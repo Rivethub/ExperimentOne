@@ -96,15 +96,16 @@ enum Commands {
         #[command(subcommand)]
         action: HarnessCmd,
     },
-    /// Seed demo traffic for UI / smoke tests.
+    /// Seed demo captures for UI / smoke tests.
     Demo {
         #[command(subcommand)]
         action: DemoCmd,
     },
-    /// Recent traffic events.
-    Traffic {
+    /// Recent capture events.
+    #[command(name = "captures", visible_alias = "traffic")]
+    Captures {
         #[command(subcommand)]
-        action: TrafficCmd,
+        action: CapturesCmd,
     },
     /// Kick background workers.
     Workers {
@@ -116,13 +117,13 @@ enum Commands {
         #[command(subcommand)]
         action: ConfigCmd,
     },
-    /// Export traffic bag (no credentials).
+    /// Export capture bag (no credentials).
     Export {
         /// Limit export to these conversation ids (session ids or `event:{uuid}`). Repeatable.
         #[arg(long = "conversation", value_name = "ID")]
         conversations: Vec<String>,
     },
-    /// Import a .rivetbag traffic package.
+    /// Import a .rivetbag capture package.
     Import { path: String },
     /// Ingest local harness transcripts already on disk (Claude Code / Codex).
     Ingest {
@@ -161,7 +162,7 @@ enum DemoCmd {
 }
 
 #[derive(Subcommand, Debug)]
-enum TrafficCmd {
+enum CapturesCmd {
     Recent,
 }
 
@@ -323,9 +324,9 @@ async fn run() -> Result<()> {
                 print_value(&v, cli.json);
             },
         },
-        Commands::Traffic { action } => match action {
-            TrafficCmd::Recent => {
-                let v = client.get_value("/v1/traffic/recent").await?;
+        Commands::Captures { action } => match action {
+            CapturesCmd::Recent => {
+                let v = client.get_value("/v1/captures/recent").await?;
                 print_value(&v, cli.json);
             },
         },
@@ -436,7 +437,7 @@ async fn cmd_setup(
     println!("Rivet is up at {}", client.base());
     if let Some(onboarding) = status.get("onboarding") {
         println!("Onboarding:");
-        for key in ["proxy_running", "has_accounts", "harness_ready", "has_traffic"] {
+        for key in ["proxy_running", "has_accounts", "harness_ready", "has_captures"] {
             let ok = onboarding.get(key).and_then(|v| v.as_bool()).unwrap_or(false);
             println!("  {}: {}", key, if ok { "ok" } else { "needed" });
         }

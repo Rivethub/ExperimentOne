@@ -27,7 +27,7 @@ import type {
   QuotaAccount,
   QuotaHistory,
   QuotaSnapshot,
-  TrafficEvent,
+  CaptureEvent,
 } from "../lib/types";
 
 export type QuotaPaneProps = {
@@ -50,7 +50,7 @@ export type QuotaPaneProps = {
   quotaHistory: QuotaHistory | null;
   visibleProviders: string[];
   providerQuota: (provider: string) => ProviderQuota | null;
-  recent: TrafficEvent[];
+  recent: CaptureEvent[];
   accountsFor: (provider: string) => QuotaAccount[];
   onAddCredentials: () => void;
   onAccountSelect: (account: QuotaAccountUx) => void;
@@ -234,7 +234,7 @@ export function QuotaPane({
           }
         >
           <p className="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
-            Add a provider account to track remaining limits and burn from captured traffic.
+            Add a provider account to track remaining limits and burn from captures.
           </p>
         </Panel>
       )}

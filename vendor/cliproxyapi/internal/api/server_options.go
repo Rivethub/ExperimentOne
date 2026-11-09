@@ -38,7 +38,7 @@ func defaultRequestLoggerFactory(cfg *config.Config, configPath string) logging.
 	logsDir := logging.ResolveLogDirectory(cfg)
 	logger := logging.NewFileRequestLogger(cfg.RequestLog, logsDir, configDir, cfg.ErrorLogsMaxFiles)
 	logger.SetHomeEnabled(cfg != nil && cfg.Home.Enabled)
-	// Rivet fork: when RIVET_INGEST_URL is set, dual-write traffic metadata to Rivet.
+	// Rivet fork: when RIVET_INGEST_URL is set, dual-write capture metadata to Rivet.
 	return rivetsink.Wrap(logger)
 }
 

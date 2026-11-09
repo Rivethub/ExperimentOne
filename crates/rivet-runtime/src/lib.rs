@@ -16,7 +16,7 @@ use rivet_api::ApiState;
 use rivet_core::LiveBus;
 use rivet_ingest::IngestState;
 use rivet_mcp::McpState;
-use rivet_store::{ClickHouseTrafficStore, LocalStores, NatsJobStore};
+use rivet_store::{ClickHouseCaptureStore, LocalStores, NatsJobStore};
 use rivet_worker::WorkerPool;
 use tokio::sync::RwLock;
 use tracing::info;
@@ -118,7 +118,7 @@ impl Runtime {
             tracing::warn!(?err, "nats ensure_schema failed (will retry on enqueue)");
         }
 
-        let mut clickhouse_url = ClickHouseTrafficStore::from_env_url();
+        let mut clickhouse_url = ClickHouseCaptureStore::from_env_url();
         match self.clickhouse.start_if_available() {
             Ok(true) => {
                 let url = self.clickhouse.http_url();
@@ -145,7 +145,7 @@ impl Runtime {
             },
         }
 
-        let (store, ch) = self.stores.traffic_store_with_clickhouse(clickhouse_url.clone())?;
+        let (store, ch) = self.stores.capture_store_with_clickhouse(clickhouse_url.clone())?;
         if let Err(err) = ch.ensure_schema().await {
             tracing::warn!(?err, "clickhouse ensure_schema failed (will retry on insert)");
         } else {
@@ -157,7 +157,7 @@ impl Runtime {
         let config = Arc::new(RwLock::new(self.config.clone()));
         let live = LiveBus::new(256);
 
-        let traffic_backend = "clickhouse";
+        let capture_backend = "clickhouse";
         let wiki_revision = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let worker = Arc::new(WorkerPool::new(
             store.clone(),
@@ -178,7 +178,7 @@ impl Runtime {
             control: self.proxy.clone(),
             paths: self.paths.clone(),
             meta: meta.clone(),
-            traffic_backend,
+            capture_backend,
             workers: Some(worker.clone()),
             wiki_revision,
             live: live.clone(),
@@ -308,7 +308,7 @@ fn ensure_wiki_seed(paths: &rivet_core::RivetPaths) -> Result<()> {
     if !readme.exists() {
         std::fs::write(
             readme.as_std_path(),
-            "# Rivet wiki\n\nEmpty project wiki. Enable the wiki capability (or set `wiki_model`) to auto-update this tree from traffic.\n",
+            "# Rivet wiki\n\nEmpty project wiki. Enable the wiki capability (or set `wiki_model`) to auto-update this tree from captures.\n",
         )?;
     }
     Ok(())

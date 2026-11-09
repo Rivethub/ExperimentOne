@@ -15,7 +15,7 @@ export async function pickRivetbag(): Promise<string | null> {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const selected = await open({
       multiple: false,
-      filters: [{ name: "Rivet traffic", extensions: ["rivetbag"] }],
+      filters: [{ name: "Rivet captures", extensions: ["rivetbag"] }],
     });
     if (isString(selected)) {
       return selected;

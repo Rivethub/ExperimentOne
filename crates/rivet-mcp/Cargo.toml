@@ -8,7 +8,7 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 authors.workspace = true
-description = "MCP server for querying Rivet traffic history"
+description = "MCP server for querying Rivet capture history"
 
 [lints]
 workspace = true

@@ -5,7 +5,7 @@ export function quotaMetricModeTitle(id: MetricMode): string {
     return "Subscription windows + remaining history";
   }
   if (id === "tokens") {
-    return "Token burn from captured traffic";
+    return "Token burn from captures";
   }
   return "Estimated API-equivalent cost (labeled rates)";
 }

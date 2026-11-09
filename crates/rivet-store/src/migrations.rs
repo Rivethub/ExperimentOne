@@ -99,6 +99,12 @@ ALTER TABLE traffic_events
   ADD COLUMN IF NOT EXISTS tool_call_count UInt32 DEFAULT 0
 ",
     },
+    Migration {
+        version: 6,
+        name: "rename_traffic_events_to_capture_events",
+        // Applied only when `traffic_events` still exists (see `run`).
+        sql: "RENAME TABLE traffic_events TO capture_events",
+    },
 ];
 
 const SCHEMA_MIGRATIONS_DDL: &str = r"
@@ -113,6 +119,19 @@ ORDER BY version
 #[derive(Debug, clickhouse::Row, serde::Deserialize)]
 struct VersionRow {
     version: u32,
+}
+
+#[derive(Debug, clickhouse::Row, serde::Deserialize)]
+struct NameRow {
+    #[allow(dead_code)]
+    name: String,
+}
+
+async fn table_exists(client: &Client, name: &str) -> Result<bool> {
+    #[allow(clippy::literal_string_with_formatting_args)]
+    let sql = "SELECT name FROM system.tables WHERE database = currentDatabase() AND name = {name:String}";
+    let rows = client.query(sql).param("name", name).fetch_all::<NameRow>().await?;
+    Ok(!rows.is_empty())
 }
 
 /// Apply all pending migrations against the `rivet` database.
@@ -132,11 +151,30 @@ pub async fn run(client: &Client) -> Result<u32> {
             continue;
         }
         info!(version = migration.version, name = migration.name, "applying clickhouse migration");
-        client
-            .query(migration.sql)
-            .execute()
-            .await
-            .with_context(|| format!("migration {} ({})", migration.version, migration.name))?;
+
+        if migration.version == 6 {
+            // Existing/fresh after v1–5: rename. Already renamed: no-op.
+            let has_old = table_exists(client, "traffic_events").await?;
+            let has_new = table_exists(client, "capture_events").await?;
+            if has_old && !has_new {
+                client.query(migration.sql).execute().await.with_context(|| {
+                    format!("migration {} ({})", migration.version, migration.name)
+                })?;
+            } else if !has_new {
+                anyhow::bail!(
+                    "migration {} ({}): neither traffic_events nor capture_events exists after earlier migrations",
+                    migration.version,
+                    migration.name
+                );
+            }
+        } else {
+            client
+                .query(migration.sql)
+                .execute()
+                .await
+                .with_context(|| format!("migration {} ({})", migration.version, migration.name))?;
+        }
+
         // ClickHouse `{name:Type}` binds — not Rust `format!` args.
         #[allow(clippy::literal_string_with_formatting_args)]
         let insert_sql =

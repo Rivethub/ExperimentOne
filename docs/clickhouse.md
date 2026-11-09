@@ -1,6 +1,6 @@
 # ClickHouse (local sidecar)
 
-Rivet uses ClickHouse as the **sole traffic store**. The desktop/runtime boots a
+Rivet uses ClickHouse as the **sole capture store**. The desktop/runtime boots a
 bundled `clickhouse` binary when present, or connects to `RIVET_CLICKHOUSE_URL`.
 
 ## Boot
@@ -8,11 +8,11 @@ bundled `clickhouse` binary when present, or connects to `RIVET_CLICKHOUSE_URL`.
 1. Resolve binary (`RIVET_CLICKHOUSE_BIN`, sidecar next to the app, or PATH)
 2. Write `config.xml` under the Rivet data dir
 3. Start `clickhouse server`
-4. `CREATE DATABASE rivet` + `traffic_events` MergeTree
+4. `CREATE DATABASE rivet` + `capture_events` MergeTree
 5. All ingest / recent / search / export / MCP keyword reads go through CH
 
 ```bash
-# status.traffic_backend → "clickhouse"
+# status.capture_backend → "clickhouse"
 echo $RIVET_CLICKHOUSE_URL   # optional remote/override, e.g. http://127.0.0.1:8123
 ```
 

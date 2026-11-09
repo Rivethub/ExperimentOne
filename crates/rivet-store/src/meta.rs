@@ -692,7 +692,7 @@ impl MetaStore {
         Ok(out)
     }
 
-    /// For fused traffic hits: expand via covering summaries' DAG (siblings + children).
+    /// For fused capture hits: expand via covering summaries' DAG (siblings + children).
     pub fn expand_events_via_lineage(
         &self,
         event_ids: &[String],

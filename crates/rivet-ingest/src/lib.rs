@@ -1,4 +1,4 @@
-//! Receives traffic events from the rivet-proxy sidecar.
+//! Receives capture events from the rivet-proxy sidecar.
 
 use std::sync::Arc;
 
@@ -12,25 +12,25 @@ use axum::{
     Json, Router,
 };
 use rivet_core::{
-    canonicalize_session_id, native_session_id, normalize_event_turns, validate_ingest_batch,
-    validate_traffic_event, LiveBus, LiveEvent, TrafficEvent, TurnKind,
+    canonicalize_session_id, native_session_id, normalize_event_turns, validate_capture_event,
+    validate_ingest_batch, CaptureEvent, LiveBus, LiveEvent, TurnKind,
 };
 use rivet_store::{
-    MetaStore, NatsJobStore, TrafficStore, WorkerJob, PRIORITY_CLASSIFY, TASK_SYNTHESIZE_TOOL,
+    CaptureStore, MetaStore, NatsJobStore, WorkerJob, PRIORITY_CLASSIFY, TASK_SYNTHESIZE_TOOL,
 };
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 #[derive(Clone)]
 pub struct IngestState {
-    pub store: Arc<dyn TrafficStore>,
+    pub store: Arc<dyn CaptureStore>,
     /// Shared with the proxy via `RIVET_INGEST_KEY` (usually `proxy_access_key`).
     pub ingest_key: String,
     /// Optional session→project map filled by harness plugins.
     pub meta: Option<Arc<MetaStore>>,
     /// NATS `JetStream` job plane for live embed / classify enqueue after insert.
     pub jobs: Option<Arc<NatsJobStore>>,
-    /// Optional live bus so the control API can push traffic updates.
+    /// Optional live bus so the control API can push capture updates.
     pub live: Option<LiveBus>,
 }
 
@@ -42,7 +42,7 @@ impl std::fmt::Debug for IngestState {
 
 #[derive(Debug, Deserialize)]
 pub struct IngestBatch {
-    pub events: Vec<TrafficEvent>,
+    pub events: Vec<CaptureEvent>,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,13 +84,13 @@ pub fn router(state: IngestState) -> Router {
         .with_state(state)
 }
 
-fn canonicalize_event_session(event: &mut TrafficEvent) {
+fn canonicalize_event_session(event: &mut CaptureEvent) {
     if let Some(canonical) = canonicalize_session_id(event.provider, event.session_id.as_deref()) {
         event.session_id = Some(canonical);
     }
 }
 
-fn enrich_from_session_map(meta: &MetaStore, event: &mut TrafficEvent) {
+fn enrich_from_session_map(meta: &MetaStore, event: &mut CaptureEvent) {
     let Some(session_id) = event.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
     else {
         return;
@@ -120,7 +120,7 @@ fn enrich_from_session_map(meta: &MetaStore, event: &mut TrafficEvent) {
     }
 }
 
-fn prepare_ingest_event(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
+fn prepare_ingest_event(meta: Option<&MetaStore>, event: &mut CaptureEvent) {
     canonicalize_event_session(event);
     if let Some(meta) = meta {
         enrich_from_session_map(meta, event);
@@ -132,7 +132,7 @@ fn prepare_ingest_event(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
 }
 
 /// Persist soft→wire alias when the proxy reports a soft fingerprint alongside a hard id.
-fn record_soft_wire_alias(meta: &MetaStore, event: &TrafficEvent) {
+fn record_soft_wire_alias(meta: &MetaStore, event: &CaptureEvent) {
     let Some(soft) = event.soft_alias.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
     else {
         return;
@@ -149,7 +149,7 @@ fn record_soft_wire_alias(meta: &MetaStore, event: &TrafficEvent) {
 }
 
 /// Soft→wire upgrade: remap soft session ids via meta aliases; bump quality when hard.
-fn upgrade_soft_session(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
+fn upgrade_soft_session(meta: Option<&MetaStore>, event: &mut CaptureEvent) {
     if let Some(soft) =
         event.session_id.as_deref().map(str::trim).filter(|s| s.starts_with("soft:"))
     {
@@ -174,7 +174,7 @@ fn upgrade_soft_session(meta: Option<&MetaStore>, event: &mut TrafficEvent) {
     }
 }
 
-fn jobs_for_events(events: &[TrafficEvent]) -> Vec<WorkerJob> {
+fn jobs_for_events(events: &[CaptureEvent]) -> Vec<WorkerJob> {
     let mut jobs = Vec::with_capacity(events.len().saturating_mul(2));
     let mut classified = std::collections::HashSet::new();
     for event in events {
@@ -206,7 +206,7 @@ fn jobs_for_events(events: &[TrafficEvent]) -> Vec<WorkerJob> {
     jobs
 }
 
-fn needs_tool_synth(event: &TrafficEvent) -> bool {
+fn needs_tool_synth(event: &CaptureEvent) -> bool {
     normalize_event_turns(event).iter().any(|t| {
         t.tool_name.as_deref().is_some_and(|n| !n.is_empty())
             && (t.kind == TurnKind::Tool || t.tool_args.as_deref().is_some_and(|a| !a.is_empty()))
@@ -214,7 +214,7 @@ fn needs_tool_synth(event: &TrafficEvent) -> bool {
     })
 }
 
-async fn enqueue_followups(jobs: Option<&NatsJobStore>, events: &[TrafficEvent]) {
+async fn enqueue_followups(jobs: Option<&NatsJobStore>, events: &[CaptureEvent]) {
     let Some(jobs_store) = jobs else {
         return;
     };
@@ -234,9 +234,9 @@ fn reject_validation(err: &rivet_core::IngestValidationError) -> Response {
 
 async fn ingest_one(
     State(state): State<IngestState>,
-    Json(mut event): Json<TrafficEvent>,
+    Json(mut event): Json<CaptureEvent>,
 ) -> Response {
-    if let Err(err) = validate_traffic_event(&event) {
+    if let Err(err) = validate_capture_event(&event) {
         return reject_validation(&err);
     }
     prepare_ingest_event(state.meta.as_deref(), &mut event);
@@ -246,7 +246,7 @@ async fn ingest_one(
     }
     enqueue_followups(state.jobs.as_deref(), std::slice::from_ref(&event)).await;
     if let Some(live) = state.live.as_ref() {
-        live.publish(LiveEvent::Traffic { count: 1 });
+        live.publish(LiveEvent::Capture { count: 1 });
     }
     StatusCode::ACCEPTED.into_response()
 }
@@ -270,7 +270,7 @@ async fn ingest_batch(
     enqueue_followups(state.jobs.as_deref(), &events).await;
     if n > 0 {
         if let Some(live) = state.live.as_ref() {
-            live.publish(LiveEvent::Traffic { count: n });
+            live.publish(LiveEvent::Capture { count: n });
         }
     }
     StatusCode::ACCEPTED.into_response()

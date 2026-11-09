@@ -2,7 +2,7 @@
 
 use chrono::{Duration, Utc};
 
-use crate::TrafficEvent;
+use crate::CaptureEvent;
 
 /// Hard caps so a buggy proxy cannot blow up `ClickHouse` / memory.
 pub const MAX_INGEST_BATCH: usize = 2_000;
@@ -27,8 +27,8 @@ impl std::fmt::Display for IngestValidationError {
 
 impl std::error::Error for IngestValidationError {}
 
-/// Validate one traffic event before persistence.
-pub fn validate_traffic_event(event: &TrafficEvent) -> Result<(), IngestValidationError> {
+/// Validate one capture event before persistence.
+pub fn validate_capture_event(event: &CaptureEvent) -> Result<(), IngestValidationError> {
     if event.provider.as_str().is_empty() {
         return Err(IngestValidationError { index: None, message: "provider is required".into() });
     }
@@ -64,7 +64,7 @@ pub fn validate_traffic_event(event: &TrafficEvent) -> Result<(), IngestValidati
 }
 
 /// Validate a whole ingest batch (size + per-event rules).
-pub fn validate_ingest_batch(events: &[TrafficEvent]) -> Result<(), IngestValidationError> {
+pub fn validate_ingest_batch(events: &[CaptureEvent]) -> Result<(), IngestValidationError> {
     if events.len() > MAX_INGEST_BATCH {
         return Err(IngestValidationError {
             index: None,
@@ -72,7 +72,7 @@ pub fn validate_ingest_batch(events: &[TrafficEvent]) -> Result<(), IngestValida
         });
     }
     for (i, event) in events.iter().enumerate() {
-        validate_traffic_event(event).map_err(|mut err| {
+        validate_capture_event(event).map_err(|mut err| {
             err.index = Some(i);
             err
         })?;
@@ -83,25 +83,25 @@ pub fn validate_ingest_batch(events: &[TrafficEvent]) -> Result<(), IngestValida
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProviderKind, TrafficEvent};
+    use crate::{CaptureEvent, ProviderKind};
 
     #[test]
     fn rejects_oversized_batch() {
         let events: Vec<_> =
-            (0..=MAX_INGEST_BATCH).map(|_| TrafficEvent::new(ProviderKind::Claude)).collect();
+            (0..=MAX_INGEST_BATCH).map(|_| CaptureEvent::new(ProviderKind::Claude)).collect();
         assert!(validate_ingest_batch(&events).is_err());
     }
 
     #[test]
     fn rejects_huge_content() {
-        let mut ev = TrafficEvent::new(ProviderKind::Claude);
+        let mut ev = CaptureEvent::new(ProviderKind::Claude);
         ev.content = Some("x".repeat(MAX_CONTENT_BYTES + 1));
-        assert!(validate_traffic_event(&ev).is_err());
+        assert!(validate_capture_event(&ev).is_err());
     }
 
     #[test]
     fn accepts_normal_event() {
-        let ev = TrafficEvent::new(ProviderKind::Claude);
-        assert!(validate_traffic_event(&ev).is_ok());
+        let ev = CaptureEvent::new(ProviderKind::Claude);
+        assert!(validate_capture_event(&ev).is_ok());
     }
 }

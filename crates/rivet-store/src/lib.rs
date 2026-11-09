@@ -1,4 +1,4 @@
-//! Persistence layer — `ClickHouse` for traffic + embeddings, NATS `JetStream` for
+//! Persistence layer — `ClickHouse` for captures + embeddings, NATS `JetStream` for
 //! jobs, JSON files for meta.
 
 #![recursion_limit = "256"]
@@ -14,13 +14,13 @@ mod redacting;
 use anyhow::Result;
 use async_trait::async_trait;
 use rivet_core::{
-    conversations_from_events, ConversationSummary, RivetPaths, TrafficEvent, UsageTotals,
+    conversations_from_events, CaptureEvent, ConversationSummary, RivetPaths, UsageTotals,
 };
 use std::sync::Arc;
 use tracing::info;
 
 pub use clickhouse::{
-    ClickHouseTrafficStore, EmbeddingSearchHit, EMBEDDINGS_DDL, TRAFFIC_EVENTS_DDL,
+    ClickHouseCaptureStore, EmbeddingSearchHit, CAPTURE_EVENTS_DDL, EMBEDDINGS_DDL,
 };
 pub use hybrid::{
     fuse_event_id_arms, fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query,
@@ -42,14 +42,14 @@ pub use nats_jobs::{ClaimedJob, NatsJobStore, STREAM_DEAD, STREAM_JOBS};
 pub use redacting::RedactingStore;
 
 #[async_trait]
-pub trait TrafficStore: Send + Sync {
-    async fn insert_event(&self, event: &TrafficEvent) -> Result<()>;
-    async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()>;
-    async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>>;
-    async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<TrafficEvent>>;
-    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>>;
+pub trait CaptureStore: Send + Sync {
+    async fn insert_event(&self, event: &CaptureEvent) -> Result<()>;
+    async fn insert_batch(&self, events: &[CaptureEvent]) -> Result<()>;
+    async fn recent(&self, limit: u32) -> Result<Vec<CaptureEvent>>;
+    async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<CaptureEvent>>;
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<CaptureEvent>>;
     async fn usage_totals(&self) -> Result<UsageTotals>;
-    async fn export_all(&self) -> Result<Vec<TrafficEvent>>;
+    async fn export_all(&self) -> Result<Vec<CaptureEvent>>;
 
     /// Events for the given conversation ids (session ids or `event:{uuid}`), chronological.
     ///
@@ -57,7 +57,7 @@ pub trait TrafficStore: Send + Sync {
     async fn export_for_conversations(
         &self,
         conversation_ids: &[String],
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         use std::collections::HashSet;
 
         let mut out = Vec::new();
@@ -88,7 +88,7 @@ pub trait TrafficStore: Send + Sync {
         &self,
         conversation_id: &str,
         limit: u32,
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         let id = conversation_id.trim();
         if id.is_empty() {
             return Ok(Vec::new());
@@ -97,7 +97,7 @@ pub trait TrafficStore: Send + Sync {
             return self.get_by_ids(&[event_id.to_string()]).await;
         }
         let events = self.recent(limit.saturating_mul(8).clamp(100, 5000)).await?;
-        let mut matched: Vec<TrafficEvent> =
+        let mut matched: Vec<CaptureEvent> =
             events.into_iter().filter(|e| e.conversation_id() == id).collect();
         matched.sort_by_key(|event| event.ts);
         matched.truncate(limit.max(1) as usize);
@@ -127,22 +127,22 @@ impl LocalStores {
         Ok(Self { meta: Arc::new(MetaStore::open(paths)?) })
     }
 
-    /// `ClickHouse` traffic (redacted on write) plus the raw CH client for embeddings.
-    pub fn traffic_store(&self) -> Result<(Arc<dyn TrafficStore>, Arc<ClickHouseTrafficStore>)> {
-        self.traffic_store_with_clickhouse(ClickHouseTrafficStore::from_env_url())
+    /// `ClickHouse` captures (redacted on write) plus the raw CH client for embeddings.
+    pub fn capture_store(&self) -> Result<(Arc<dyn CaptureStore>, Arc<ClickHouseCaptureStore>)> {
+        self.capture_store_with_clickhouse(ClickHouseCaptureStore::from_env_url())
     }
 
-    pub fn traffic_store_with_clickhouse(
+    pub fn capture_store_with_clickhouse(
         &self,
         clickhouse_url: Option<String>,
-    ) -> Result<(Arc<dyn TrafficStore>, Arc<ClickHouseTrafficStore>)> {
+    ) -> Result<(Arc<dyn CaptureStore>, Arc<ClickHouseCaptureStore>)> {
         let url = clickhouse_url.ok_or_else(|| {
             anyhow::anyhow!(
                 "ClickHouse required: set RIVET_CLICKHOUSE_URL or ship the clickhouse sidecar"
             )
         })?;
-        let ch = Arc::new(ClickHouseTrafficStore::new(&url)?);
-        info!(%url, "ClickHouse traffic store enabled");
+        let ch = Arc::new(ClickHouseCaptureStore::new(&url)?);
+        info!(%url, "ClickHouse captures store enabled");
         Ok((Arc::new(RedactingStore::new(ch.clone())), ch))
     }
 }

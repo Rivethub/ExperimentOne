@@ -8,7 +8,7 @@ use crate::paths::RivetPaths;
 #[allow(clippy::struct_excessive_bools)] // Serde feature flags map 1:1 to config fields.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct Capabilities {
-    /// Keyword/SQL history via MCP always on once traffic exists.
+    /// Keyword/SQL history via MCP always on once captures exist.
     pub mcp: bool,
     /// Lexical vector search over `ClickHouse` embeddings (on by default locally).
     pub vector_search: bool,

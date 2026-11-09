@@ -13,10 +13,10 @@ use rivet_core::{LiveCursor, LiveEvent};
 use crate::ApiState;
 
 pub async fn live_cursor(State(state): State<ApiState>) -> Json<LiveCursor> {
-    let traffic_events = state.store.usage_totals().await.map_or(0, |u| u.events);
+    let capture_events = state.store.usage_totals().await.map_or(0, |u| u.events);
     Json(LiveCursor {
         wiki_revision: state.wiki_revision.load(std::sync::atomic::Ordering::SeqCst),
-        traffic_events,
+        capture_events,
         observed_at: Utc::now().to_rfc3339(),
     })
 }
