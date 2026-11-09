@@ -1,138 +1,150 @@
-import type { ComponentProps, JSX, ParentProps } from "solid-js";
-import { Show, splitProps } from "solid-js";
+import type { ComponentProps, ValidComponent } from "solid-js";
+import { Show, mergeProps, splitProps } from "solid-js";
 import { Dialog as DialogPrimitive } from "@kobalte/core/dialog";
-import { X } from "lucide-solid";
-import { cn } from "#lib/utils";
-import { Button } from "#components/ui/button";
 
-function Dialog(props: ComponentProps<typeof DialogPrimitive>) {
+import { cx } from "#lib/cva";
+
+export const DialogPortal = DialogPrimitive.Portal;
+
+export type DialogProps = ComponentProps<typeof DialogPrimitive>;
+
+export const Dialog = (props: DialogProps) => {
   return <DialogPrimitive data-slot="dialog" {...props} />;
-}
+};
 
-function DialogTrigger(props: ComponentProps<typeof DialogPrimitive.Trigger>) {
+export type DialogTriggerProps<T extends ValidComponent = "button"> = ComponentProps<
+  typeof DialogPrimitive.Trigger<T>
+>;
+
+export const DialogTrigger = <T extends ValidComponent = "button">(
+  props: DialogTriggerProps<T>,
+) => {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
-}
+};
 
-function DialogPortal(props: ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
-}
+export type DialogCloseButtonProps<T extends ValidComponent = "button"> = ComponentProps<
+  typeof DialogPrimitive.CloseButton<T>
+>;
 
-function DialogClose(props: ComponentProps<typeof DialogPrimitive.CloseButton>) {
+export const DialogCloseButton = <T extends ValidComponent = "button">(
+  props: DialogCloseButtonProps<T>,
+) => {
   return <DialogPrimitive.CloseButton data-slot="dialog-close" {...props} />;
-}
+};
 
-function DialogOverlay(props: ComponentProps<typeof DialogPrimitive.Overlay>) {
-  const [local, rest] = splitProps(props, ["class"]);
-  return (
-    <DialogPrimitive.Overlay
-      data-slot="dialog-overlay"
-      class={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:animate-in data-[expanded]:fade-in-0",
-        local.class,
-      )}
-      {...rest}
-    />
+export type DialogContentProps<T extends ValidComponent = "div"> = ComponentProps<
+  typeof DialogPrimitive.Content<T>
+> & {
+  showCloseButton?: boolean;
+};
+
+export const DialogContent = <T extends ValidComponent = "div">(props: DialogContentProps<T>) => {
+  const merge = mergeProps(
+    {
+      showCloseButton: true,
+    } as DialogContentProps,
+    props,
   );
-}
+  const [, rest] = splitProps(merge, ["class", "children", "showCloseButton"]);
 
-function DialogContent(
-  props: ComponentProps<typeof DialogPrimitive.Content> & {
-    showCloseButton?: boolean;
-  },
-) {
-  const [local, rest] = splitProps(props, ["class", "children", "showCloseButton"]);
   return (
-    <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay
+        data-slot="dialog-overlay"
+        class="data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 fixed inset-0 z-50 bg-black/50"
+      />
       <DialogPrimitive.Content
         data-slot="dialog-content"
-        class={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[closed]:animate-out data-[closed]:fade-out-0 data-[closed]:zoom-out-95 data-[expanded]:animate-in data-[expanded]:fade-in-0 data-[expanded]:zoom-in-95 sm:max-w-lg",
-          local.class,
+        class={cx(
+          "bg-background data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 data-[closed]:zoom-out-95 data-[expanded]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          props.class,
         )}
         {...rest}
       >
-        {local.children}
-        <Show when={local.showCloseButton !== false}>
+        {props.children}
+        <Show when={merge.showCloseButton}>
           <DialogPrimitive.CloseButton
-            data-slot="dialog-close"
-            class="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[expanded]:bg-accent data-[expanded]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            aria-label="Close"
+            class="focus-visible:ring-ring absolute top-4 right-4 rounded-xs opacity-70 transition-[opacity,box-shadow] duration-200 hover:opacity-100 focus-visible:ring-2 focus-visible:outline-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
-            <X />
-            <span class="sr-only">Close</span>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18 6L6 18M6 6l12 12"
+              />
+            </svg>
           </DialogPrimitive.CloseButton>
         </Show>
       </DialogPrimitive.Content>
-    </DialogPortal>
+    </DialogPrimitive.Portal>
   );
-}
+};
 
-function DialogHeader(props: JSX.HTMLAttributes<HTMLDivElement>) {
-  const [local, rest] = splitProps(props, ["class"]);
+/** @deprecated Prefer DialogCloseButton */
+export const DialogClose = DialogCloseButton;
+
+export type DialogHeaderProps = ComponentProps<"div">;
+
+export const DialogHeader = (props: DialogHeaderProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="dialog-header"
-      class={cn("flex flex-col gap-2 text-center sm:text-left", local.class)}
+      class={cx("flex flex-col gap-2 text-center sm:text-left", props.class)}
       {...rest}
     />
   );
-}
+};
 
-function DialogFooter(
-  props: ParentProps<
-    JSX.HTMLAttributes<HTMLDivElement> & {
-      showCloseButton?: boolean;
-    }
-  >,
-) {
-  const [local, rest] = splitProps(props, ["class", "showCloseButton", "children"]);
+export type DialogFooterProps = ComponentProps<"div">;
+
+export const DialogFooter = (props: DialogFooterProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="dialog-footer"
-      class={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", local.class)}
+      class={cx("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", props.class)}
       {...rest}
-    >
-      {local.children}
-      <Show when={local.showCloseButton}>
-        <DialogPrimitive.CloseButton as={Button} variant="outline">
-          Close
-        </DialogPrimitive.CloseButton>
-      </Show>
-    </div>
+    />
   );
-}
+};
 
-function DialogTitle(props: ComponentProps<typeof DialogPrimitive.Title>) {
-  const [local, rest] = splitProps(props, ["class"]);
+export type DialogTitleProps<T extends ValidComponent = "h2"> = ComponentProps<
+  typeof DialogPrimitive.Title<T>
+>;
+
+export const DialogTitle = <T extends ValidComponent = "h2">(props: DialogTitleProps<T>) => {
+  const [, rest] = splitProps(props as DialogTitleProps, ["class"]);
+
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      class={cn("text-lg leading-none font-semibold", local.class)}
+      class={cx("text-lg leading-none font-semibold", props.class)}
       {...rest}
     />
   );
-}
+};
 
-function DialogDescription(props: ComponentProps<typeof DialogPrimitive.Description>) {
-  const [local, rest] = splitProps(props, ["class"]);
+export type DialogDescriptionProps<T extends ValidComponent = "p"> = ComponentProps<
+  typeof DialogPrimitive.Description<T>
+>;
+
+export const DialogDescription = <T extends ValidComponent = "p">(
+  props: DialogDescriptionProps<T>,
+) => {
+  const [, rest] = splitProps(props as DialogDescriptionProps, ["class"]);
+
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      class={cn("text-sm text-muted-foreground", local.class)}
+      class={cx("text-muted-foreground text-sm", props.class)}
       {...rest}
     />
   );
-}
-
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
 };

@@ -111,13 +111,16 @@ export function HarnessTab({
         >
           Install into ~/.cursor
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <ShadcnButton variant="ghost" size="icon" aria-label="More harness actions">
-              <Ellipsis />
-            </ShadcnButton>
+        <DropdownMenu placement="bottom-end">
+          <DropdownMenuTrigger
+            as={ShadcnButton}
+            variant="ghost"
+            size="icon"
+            aria-label="More harness actions"
+          >
+            <Ellipsis />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent>
             <DropdownMenuItem disabled={harness.busy} onSelect={harness.onLoadClaude}>
               Copy Claude snippet
             </DropdownMenuItem>

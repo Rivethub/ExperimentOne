@@ -57,13 +57,16 @@ export function LimitRecoveryBanner(props: {
             >
               Refresh credentials
             </ShadcnButton>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ShadcnButton size="icon-sm" variant="ghost" aria-label="More recovery actions">
-                  <Ellipsis />
-                </ShadcnButton>
+            <DropdownMenu placement="bottom-end">
+              <DropdownMenuTrigger
+                as={ShadcnButton}
+                size="icon-sm"
+                variant="ghost"
+                aria-label="More recovery actions"
+              >
+                <Ellipsis />
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => props.onSwitchAccount()}>
                   Switch account
                 </DropdownMenuItem>

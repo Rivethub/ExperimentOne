@@ -77,13 +77,11 @@ export function AppTopbar(props: AppTopbarProps): JSX.Element {
         </Show>
         <Show when={props.page === "data" && props.data}>
           {(data) => (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <ShadcnButton variant="default" disabled={props.busy}>
-                  Export / import
-                </ShadcnButton>
+            <DropdownMenu placement="bottom-end">
+              <DropdownMenuTrigger as={ShadcnButton} variant="default" disabled={props.busy}>
+                Export / import
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent>
                 <DropdownMenuItem disabled={props.busy} onSelect={() => data().onExport()}>
                   Export all .rivetbag
                 </DropdownMenuItem>
@@ -135,18 +133,17 @@ export function AppTopbar(props: AppTopbarProps): JSX.Element {
                   Stop proxy
                 </Button>
               </Show>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <ShadcnButton
-                    variant="ghost"
-                    size="icon"
-                    disabled={props.busy || !runtime().apiOnline}
-                    aria-label="More runtime actions"
-                  >
-                    <Ellipsis />
-                  </ShadcnButton>
+              <DropdownMenu placement="bottom-end">
+                <DropdownMenuTrigger
+                  as={ShadcnButton}
+                  variant="ghost"
+                  size="icon"
+                  disabled={props.busy || !runtime().apiOnline}
+                  aria-label="More runtime actions"
+                >
+                  <Ellipsis />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent>
                   <DropdownMenuItem
                     disabled={props.busy || !runtime().apiOnline}
                     onSelect={() => runtime().onProxyRestart()}

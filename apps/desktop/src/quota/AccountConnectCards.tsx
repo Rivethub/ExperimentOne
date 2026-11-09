@@ -100,20 +100,19 @@ export function AccountConnectCards({
                       {q?.plan ?? "Plan unknown"}
                     </div>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <ShadcnButton
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        class="size-8 shrink-0 text-muted-foreground opacity-70 hover:opacity-100"
-                        aria-label={`Actions for ${displayEmail}`}
-                        disabled={busy}
-                      >
-                        <Ellipsis />
-                      </ShadcnButton>
+                  <DropdownMenu placement="bottom-end">
+                    <DropdownMenuTrigger
+                      as={ShadcnButton}
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      class="size-8 shrink-0 text-muted-foreground opacity-70 hover:opacity-100"
+                      aria-label={`Actions for ${displayEmail}`}
+                      disabled={busy}
+                    >
+                      <Ellipsis />
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
+                    <DropdownMenuContent>
                       <DropdownMenuItem
                         disabled={busy || loginActive}
                         onSelect={() => onReconnect(id)}
