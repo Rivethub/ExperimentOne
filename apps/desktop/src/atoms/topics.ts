@@ -33,10 +33,9 @@ const fetchTopics = Effect.gen(function* loadTopicsSnapshot() {
 /**
  * Topics + tidy/tags/flagged — polls while the topics route keeps the atom mounted.
  */
-export const topicsAtom = appRuntime.atom(fetchTopics).pipe(
-  Atom.withRefresh("2 seconds"),
-  Atom.withLabel("rivet:topics"),
-);
+export const topicsAtom = appRuntime
+  .atom(fetchTopics)
+  .pipe(Atom.withRefresh("2 seconds"), Atom.withLabel("rivet:topics"));
 
 export function refreshTopicsAtom(): void {
   appAtomRegistry.refresh(topicsAtom);

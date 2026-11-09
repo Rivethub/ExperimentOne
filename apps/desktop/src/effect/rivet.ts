@@ -75,8 +75,8 @@ export const getProviders = apiJsonSchema("GET", "/v1/providers", ProvidersRespo
 export const getQuota = apiJsonSchema("GET", "/v1/quota", QuotaSnapshotSchema);
 export const getQuotaHistory = (hours: number) =>
   apiJsonSchema("GET", `/v1/quota/history?hours=${hours}`, QuotaHistorySchema);
-export const refreshQuota: ApiFx<Schema.Schema.Type<typeof RefreshQuotaResultSchema>> =
-  Effect.gen(function* runRefreshQuota() {
+export const refreshQuota: ApiFx<Schema.Schema.Type<typeof RefreshQuotaResultSchema>> = Effect.gen(
+  function* runRefreshQuota() {
     const body = yield* apiJsonSchema("POST", "/v1/quota/refresh", RefreshQuotaResultSchema);
     if (body.error !== undefined && body.error !== "" && body.ok === false) {
       return yield* new ApiError({
@@ -87,7 +87,8 @@ export const refreshQuota: ApiFx<Schema.Schema.Type<typeof RefreshQuotaResultSch
       });
     }
     return body;
-  });
+  },
+);
 
 export const getCapturesRecent = (limit = 200) =>
   apiJsonSchema("GET", `/v1/captures/recent?limit=${limit}`, CaptureEventsSchema);
@@ -142,11 +143,7 @@ export type TagSuggestion = Schema.Schema.Type<typeof TagListSchema>["suggestion
 export type FlaggedJob = Schema.Schema.Type<typeof FlaggedListSchema>["flagged"][number];
 
 export const listTopics = (q = "", limit = 100): ApiFx<TopicCard[]> =>
-  apiJsonSchema(
-    "GET",
-    `/v1/topics?limit=${limit}&q=${encodeURIComponent(q.trim())}`,
-    TopicsSchema,
-  );
+  apiJsonSchema("GET", `/v1/topics?limit=${limit}&q=${encodeURIComponent(q.trim())}`, TopicsSchema);
 export const getTopic = (slug: string): ApiFx<TopicCard> =>
   apiJsonSchema("GET", `/v1/topics/item?${new URLSearchParams({ slug })}`, TopicCardSchema);
 
@@ -199,9 +196,7 @@ export const startLogin = (
 
 export const getLoginStatus = apiJsonSchema("GET", "/v1/accounts/login/status", LoginStatusSchema);
 export const cancelLogin = apiJsonSchema("POST", "/v1/accounts/login/cancel", UnknownOkSchema);
-export const importVertex = (
-  path: string,
-): ApiFx<Schema.Schema.Type<typeof MessageResultSchema>> =>
+export const importVertex = (path: string): ApiFx<Schema.Schema.Type<typeof MessageResultSchema>> =>
   Effect.gen(function* runImportVertex() {
     const body = yield* apiJsonSchema("POST", "/v1/accounts/import/vertex", MessageResultSchema, {
       path,
@@ -275,14 +270,10 @@ export const getProxyLog = (lines = 80): ApiFx<LogTail> =>
 export const getClickhouseLog = (lines = 80): ApiFx<LogTail> =>
   apiJsonSchema("GET", `/v1/logs/clickhouse?lines=${lines}`, LogTailSchema);
 
-export const openWikiDir = (
-  path: string,
-): Effect.Effect<boolean | null, never, RivetIpc> =>
+export const openWikiDir = (path: string): Effect.Effect<boolean | null, never, RivetIpc> =>
   softEffect(invokeCommand<boolean>("open_wiki_dir", { path }));
 
-export const revealPath = (
-  path: string,
-): Effect.Effect<boolean | null, never, RivetIpc> =>
+export const revealPath = (path: string): Effect.Effect<boolean | null, never, RivetIpc> =>
   softEffect(invokeCommand<boolean>("reveal_path", { path }));
 
 export type HomeSnapshot = {

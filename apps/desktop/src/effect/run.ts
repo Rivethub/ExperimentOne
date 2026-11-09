@@ -12,9 +12,7 @@ export function runApp<A, E, R>(effect: Effect.Effect<A, E, R>): Promise<A> {
 export async function runAppExit<A, E, R>(
   effect: Effect.Effect<A, E, R>,
 ): Promise<{ ok: true; value: A } | { ok: false; error: string }> {
-  const exit = await Effect.runPromiseExit(
-    Effect.provide(effect, AppLive) as Effect.Effect<A, E>,
-  );
+  const exit = await Effect.runPromiseExit(Effect.provide(effect, AppLive) as Effect.Effect<A, E>);
   if (Exit.isSuccess(exit)) {
     return { ok: true, value: exit.value };
   }
