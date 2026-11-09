@@ -21,12 +21,7 @@ function navTo(page: Page, settingsTab: SettingsTab) {
   return { to: "/settings/$tab" as const, params: { tab: settingsTab } };
 }
 
-export function AppSidebar({
-  page,
-  settingsTab,
-  accountCount,
-  captureEventCount,
-}: AppSidebarProps): JSX.Element {
+export function AppSidebar(props: AppSidebarProps): JSX.Element {
   return (
     <aside
       class={cn(
@@ -44,40 +39,39 @@ export function AppSidebar({
         </div>
       </div>
       {NAV.map((item) => {
-        const link = navTo(item.id === "settings" ? "settings" : item.id, settingsTab);
+        const link = () => navTo(item.id === "settings" ? "settings" : item.id, props.settingsTab);
         const Icon = item.icon;
-        const active = page === item.id;
         return (
           <div class="flex flex-col gap-0.5">
             <Link
-              {...link}
+              {...link()}
               class={cn(
                 "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2.5 py-2.5 text-left no-underline transition-[background,color] duration-100",
-                active
+                props.page === item.id
                   ? "bg-zinc-800 text-foreground"
                   : "text-muted-foreground hover:bg-accent hover:text-foreground",
               )}
             >
               <Icon class="size-4 shrink-0 opacity-85" size={16} strokeWidth={1.75} aria-hidden />
               {item.label}
-              {item.id === "settings" && accountCount > 0 && (
+              {item.id === "settings" && props.accountCount > 0 && (
                 <Badge
                   variant="secondary"
                   class="ml-auto min-w-[18px] border-0 bg-zinc-800 px-1.5 py-px text-[11px] tabular-nums text-muted-foreground"
                 >
-                  {accountCount}
+                  {props.accountCount}
                 </Badge>
               )}
-              {item.id === "data" && captureEventCount > 0 && (
+              {item.id === "data" && props.captureEventCount > 0 && (
                 <Badge
                   variant="secondary"
                   class="ml-auto min-w-[18px] border-0 bg-zinc-800 px-1.5 py-px text-[11px] tabular-nums text-muted-foreground"
                 >
-                  {captureEventCount > 99 ? "99+" : captureEventCount}
+                  {props.captureEventCount > 99 ? "99+" : props.captureEventCount}
                 </Badge>
               )}
             </Link>
-            {item.id === "settings" && page === "settings" && (
+            {item.id === "settings" && props.page === "settings" && (
               <div
                 class="flex flex-col gap-px py-0.5 pr-0 pb-1.5 pl-[26px]"
                 role="navigation"
@@ -89,7 +83,7 @@ export function AppSidebar({
                     params={{ tab: tab.id }}
                     class={cn(
                       "cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-[12.5px] no-underline",
-                      settingsTab === tab.id
+                      props.settingsTab === tab.id
                         ? "bg-zinc-900 text-foreground"
                         : "text-muted-foreground/80 hover:bg-accent hover:text-foreground",
                     )}
