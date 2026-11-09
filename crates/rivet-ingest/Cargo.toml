@@ -8,7 +8,7 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 authors.workspace = true
-description = "HTTP ingest endpoint for rivet-proxy traffic events"
+description = "HTTP ingest endpoint for rivet-proxy capture events"
 
 [lints]
 workspace = true

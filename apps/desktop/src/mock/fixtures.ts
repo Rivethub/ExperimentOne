@@ -1,5 +1,5 @@
 import type { CatalogProvider } from "../lib/provider-utils";
-import type { Account, QuotaHistory, QuotaSnapshot, Status, TrafficEvent } from "../lib/types";
+import type { Account, QuotaHistory, QuotaSnapshot, Status, CaptureEvent } from "../lib/types";
 import type { QuotaAccountUx } from "../quota";
 import type { WikiInfo } from "../components/WikiBoard";
 import type { MockScenario } from "./mode";
@@ -342,10 +342,10 @@ function codexAssistantTurn(opts: {
   });
 }
 
-export function seedTraffic(scenario: MockScenario): TrafficEvent[] {
+export function seedCaptures(scenario: MockScenario): CaptureEvent[] {
   if (scenario === "empty" || scenario === "fresh") return [];
   const limitHit = scenario === "limit-hit";
-  const rows: TrafficEvent[] = [];
+  const rows: CaptureEvent[] = [];
   const models = [
     { provider: "claude", model: "claude-sonnet-4-5", account: "alice@example.com" },
     { provider: "claude", model: "claude-opus-4", account: "bob@example.com" },
@@ -549,7 +549,7 @@ export function seedWiki(): WikiInfo {
         relative_path: "README.md",
         folder: "",
         updated_at: now,
-        preview: "Local AI proxy — traffic hub and quota board.",
+        preview: "Local AI proxy — capture hub and quota board.",
       },
       {
         id: "rivet/architecture",
@@ -559,7 +559,7 @@ export function seedWiki(): WikiInfo {
         relative_path: "architecture.md",
         folder: "",
         updated_at: hoursAgo(5),
-        preview: "ClickHouse traffic, file meta, Tauri IPC.",
+        preview: "ClickHouse captures, file meta, Tauri IPC.",
       },
       {
         id: "demo/README",
@@ -588,7 +588,7 @@ export function seedWiki(): WikiInfo {
 export function wikiPageBodies(): Record<string, string> {
   return {
     "rivet/README": `# Rivet\n\nLocal AI proxy — see [Architecture](architecture.md).\n`,
-    "rivet/architecture": `# Architecture\n\n- ClickHouse traffic\n- File meta under \`meta/\`\n- Desktop GUI over Tauri IPC\n`,
+    "rivet/architecture": `# Architecture\n\n- ClickHouse captures\n- File meta under \`meta/\`\n- Desktop GUI over Tauri IPC\n`,
     "demo/README": `# Demo\n\nMock wiki page for browser-only UI work.\n`,
     "rivet/topics/oauth-pkce": `<!-- rivet:knowledge -->\n# OAuth PKCE\n\nCurrently, Rivet uses PKCE for local login flows.\n`,
   };
@@ -613,7 +613,7 @@ export function seedStatus(
   scenario: MockScenario,
   opts: {
     accounts: Account[];
-    traffic: TrafficEvent[];
+    captures: CaptureEvent[];
     proxyRunning: boolean;
     wikiEnabled: boolean;
     vectorEnabled: boolean;
@@ -621,9 +621,9 @@ export function seedStatus(
     wikiModel: string | null;
   },
 ): Status {
-  const events = opts.traffic.length;
-  const tokens_in = opts.traffic.reduce((s, e) => s + e.tokens_in, 0);
-  const tokens_out = opts.traffic.reduce((s, e) => s + e.tokens_out, 0);
+  const events = opts.captures.length;
+  const tokens_in = opts.captures.reduce((s, e) => s + e.tokens_in, 0);
+  const tokens_out = opts.captures.reduce((s, e) => s + e.tokens_out, 0);
   const hasAccounts = opts.accounts.length > 0;
   return {
     ok: true,
@@ -632,7 +632,7 @@ export function seedStatus(
     mcp_url: "http://127.0.0.1:8742/mcp",
     access_key_hint: "mock…key",
     account_count: opts.accounts.length,
-    traffic_backend: "clickhouse",
+    capture_backend: "clickhouse",
     wiki_dir: "/mock/Rivet/wiki",
     embedding_model: opts.embedModel,
     wiki_model: opts.wikiModel,
@@ -641,7 +641,7 @@ export function seedStatus(
     onboarding: {
       proxy_running: opts.proxyRunning,
       has_accounts: hasAccounts,
-      has_traffic: events > 0,
+      has_captures: events > 0,
       harness_ready: hasAccounts && opts.proxyRunning,
     },
     workers: {
@@ -649,7 +649,7 @@ export function seedStatus(
       wiki: opts.wikiEnabled,
       embeddings: Math.min(events, 24),
       wiki_pages: 3,
-      vectorize_cursor: events > 0 ? (opts.traffic[0]?.id ?? null) : null,
+      vectorize_cursor: events > 0 ? (opts.captures[0]?.id ?? null) : null,
       wiki_cursor: "demo/README",
       role: "all",
       queue: {

@@ -4,9 +4,9 @@
 //! (explicit fields / harness project keys). Workers classify when evidence was
 //! missing — never promote cwd alone to a project at capture time.
 //!
-//! - **Vectorize**: embeds traffic content as local lexical 64-d vectors into
+//! - **Vectorize**: embeds capture content as local lexical 64-d vectors into
 //!   `ClickHouse` HNSW (`LEXICAL_SPACE`).
-//! - **Wiki**: traffic markdown tree + knowledge extract (patch → bound →
+//! - **Wiki**: capture markdown tree + knowledge extract (patch → bound →
 //!   archive → consolidate/recompile) when `wiki_model` is set.
 //! - **Topics**: durable keyword topics with event/session citations in meta.
 //! - **Classify**: backfill session→project bindings from cwd when missing.
@@ -30,12 +30,12 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use rivet_core::{
     chunk_text, hydrate_events, lexical_embed, looks_unembeddable, normalize_event_turns,
-    project_id_from_cwd, LiveBus, LiveEvent, RivetConfig, RivetPaths, TrafficEvent, TrafficRole,
+    project_id_from_cwd, LiveBus, LiveEvent, RivetConfig, RivetPaths, CaptureEvent, CaptureRole,
     TurnKind, LEXICAL_SPACE,
 };
 use rivet_store::{
-    ClaimedJob, ClickHouseTrafficStore, MetaStore, NatsJobStore, PlacementBy, SessionBinding,
-    SummaryKind, SummaryMeta, TidyProposal, TopicMeta, TrafficStore, WikiPageMeta, WorkerJob,
+    ClaimedJob, ClickHouseCaptureStore, MetaStore, NatsJobStore, PlacementBy, SessionBinding,
+    SummaryKind, SummaryMeta, TidyProposal, TopicMeta, CaptureStore, WikiPageMeta, WorkerJob,
     WorkerRole, COMPACT_PIPELINE_VERSION, PRIORITY_BACKFILL, PRIORITY_CLASSIFY,
     PRIORITY_LIVE_COMPACT, PRIORITY_WIKI, TASK_CLASSIFY_SESSION, TASK_COMPACT_SESSION,
     TASK_CONSOLIDATE_WIKI, TASK_EMBED_EVENT, TASK_ENQUEUE_IDLE, TASK_ENQUEUE_UNEMBEDDED,
@@ -49,8 +49,8 @@ use tracing::{debug, info, warn};
 pub use wiki_fs::{reconcile_wiki_dir, spawn_wiki_watcher};
 
 pub struct WorkerPool {
-    store: Arc<dyn TrafficStore>,
-    ch: Arc<ClickHouseTrafficStore>,
+    store: Arc<dyn CaptureStore>,
+    ch: Arc<ClickHouseCaptureStore>,
     jobs: Arc<NatsJobStore>,
     meta: Arc<MetaStore>,
     paths: RivetPaths,
@@ -69,8 +69,8 @@ impl std::fmt::Debug for WorkerPool {
 impl WorkerPool {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        store: Arc<dyn TrafficStore>,
-        ch: Arc<ClickHouseTrafficStore>,
+        store: Arc<dyn CaptureStore>,
+        ch: Arc<ClickHouseCaptureStore>,
         jobs: Arc<NatsJobStore>,
         meta: Arc<MetaStore>,
         paths: RivetPaths,
@@ -508,7 +508,7 @@ impl WorkerPool {
         } else {
             self.meta.covered_event_ids(session_id)?
         };
-        let uncovered: Vec<TrafficEvent> =
+        let uncovered: Vec<CaptureEvent> =
             events.iter().filter(|e| !covered.contains(&e.id.to_string())).cloned().collect();
         let has_root = self
             .meta
@@ -656,7 +656,7 @@ impl WorkerPool {
         &self,
         cfg: &RivetConfig,
         session_id: &str,
-        events: &[TrafficEvent],
+        events: &[CaptureEvent],
         project_id: Option<&str>,
         model: Option<&str>,
         start_idx: usize,
@@ -785,7 +785,7 @@ impl WorkerPool {
         &self,
         cfg: &RivetConfig,
         session_id: &str,
-        events: &[TrafficEvent],
+        events: &[CaptureEvent],
         branch_ids: &[String],
         project_id: Option<String>,
         model: Option<String>,
@@ -907,7 +907,7 @@ impl WorkerPool {
         &self,
         cfg: &RivetConfig,
         model: &str,
-        event: &TrafficEvent,
+        event: &CaptureEvent,
         tool: &rivet_core::NormalizedTurn,
     ) -> Result<()> {
         let name = tool.tool_name.as_deref().unwrap_or("tool");
@@ -2036,7 +2036,7 @@ impl WorkerPool {
         Ok(text)
     }
 
-    /// Cluster recent traffic into durable topics (preserves curated fields).
+    /// Cluster recent captures into durable topics (preserves curated fields).
     async fn upsert_topics(&self, cfg: &RivetConfig) -> Result<()> {
         let mut recent = self.store.recent(200).await?;
         hydrate_events(&self.paths, &mut recent);
@@ -2114,7 +2114,7 @@ impl WorkerPool {
         toc.push(("Models".into(), "models.md".into()));
 
         // --- Sessions ---
-        let mut by_session: BTreeMap<String, Vec<&TrafficEvent>> = BTreeMap::new();
+        let mut by_session: BTreeMap<String, Vec<&CaptureEvent>> = BTreeMap::new();
         for e in &recent {
             let key = e.session_id.clone().unwrap_or_else(|| "(no-session)".into());
             by_session.entry(key).or_default().push(e);
@@ -2186,7 +2186,7 @@ impl WorkerPool {
             toc.push((title.clone(), rel));
         }
         if topics.is_empty() {
-            topics_index.push_str("\n_No topics yet — capture more traffic._\n");
+            topics_index.push_str("\n_No topics yet — capture more events._\n");
         }
         self.write_wiki_page(project, "topics/index", "Topics", "topics/index.md", &topics_index)?;
         toc.push(("Topics".into(), "topics/index.md".into()));
@@ -2224,8 +2224,8 @@ impl WorkerPool {
             toc.push(("Summaries".into(), "summaries/index.md".into()));
         }
 
-        // --- Providers (any prox-supported id seen in traffic) ---
-        let mut by_provider: BTreeMap<String, Vec<&TrafficEvent>> = BTreeMap::new();
+        // --- Providers (any prox-supported id seen in captures) ---
+        let mut by_provider: BTreeMap<String, Vec<&CaptureEvent>> = BTreeMap::new();
         for e in &recent {
             let key = rivet_core::normalize_provider_id(&provider_key(e));
             by_provider.entry(key).or_default().push(e);
@@ -2233,7 +2233,7 @@ impl WorkerPool {
         for (name, events) in &by_provider {
             let slug = slugify(name);
             let rel = format!("providers/{slug}.md");
-            let title = format!("{name} traffic");
+            let title = format!("{name} captures");
             let mut body = format!("# {name}\n\n_{} recent events_\n\n", events.len());
             for e in events.iter().take(40) {
                 let _ = writeln!(body, "- {}", format_event_line(e));
@@ -2242,7 +2242,7 @@ impl WorkerPool {
             toc.push((title, rel));
         }
 
-        // --- Optional LLM overview via local proxy (at most hourly, only on new traffic) ---
+        // --- Optional LLM overview via local proxy (at most hourly, only on new captures) ---
         if let Some(model) = cfg.wiki_model.as_deref() {
             let fingerprint = format!("{}:{}", totals.events, totals.tokens_in + totals.tokens_out);
             let last_fp = self.meta.job_cursor("wiki_llm_fp").ok().flatten();
@@ -2254,8 +2254,8 @@ impl WorkerPool {
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|d| d.with_timezone(&Utc));
             let stale_hour = last_at.is_none_or(|t| Utc::now() - t > chrono::Duration::hours(1));
-            let traffic_changed = last_fp.as_deref() != Some(fingerprint.as_str());
-            if traffic_changed && stale_hour && totals.events > 0 {
+            let captures_changed = last_fp.as_deref() != Some(fingerprint.as_str());
+            if captures_changed && stale_hour && totals.events > 0 {
                 match self.generate_llm_overview(cfg, model, &recent, &totals).await {
                     Ok(markdown) => {
                         self.write_wiki_page(
@@ -2299,7 +2299,7 @@ impl WorkerPool {
             Utc::now().format("%Y-%m-%d %H:%M UTC")
         );
         readme.push('\n');
-        readme.push_str("## Traffic snapshot\n\n");
+        readme.push_str("## Capture snapshot\n\n");
         let _ = writeln!(readme, "- Events: **{}**", totals.events);
         let _ = writeln!(readme, "- Tokens in: **{}**", totals.tokens_in);
         let _ = writeln!(readme, "- Tokens out: **{}**", totals.tokens_out);
@@ -2307,7 +2307,7 @@ impl WorkerPool {
         let _ = writeln!(readme, "- Embeddings: **{emb_n}**\n");
         readme.push_str("## Table of contents\n\n");
         if toc.is_empty() {
-            readme.push_str("_No pages yet — capture traffic to populate this wiki._\n");
+            readme.push_str("_No pages yet — capture events to populate this wiki._\n");
         } else {
             for (title, rel) in &toc {
                 let _ = writeln!(readme, "- [{title}]({rel})");
@@ -2328,7 +2328,7 @@ impl WorkerPool {
         &self,
         cfg: &RivetConfig,
         model: &str,
-        recent: &[TrafficEvent],
+        recent: &[CaptureEvent],
         totals: &rivet_core::UsageTotals,
     ) -> Result<String> {
         let mut digest = String::new();
@@ -2337,12 +2337,12 @@ impl WorkerPool {
             "Totals: {} events, {} tokens in, {} tokens out.\n",
             totals.events, totals.tokens_in, totals.tokens_out
         );
-        digest.push_str("\nRecent traffic:\n");
+        digest.push_str("\nRecent captures:\n");
         for e in recent.iter().take(40) {
             let _ = writeln!(digest, "{}", format_event_line(e));
         }
         let prompt =
-            format!("{}\n\nTraffic digest:\n{digest}", prompts::WIKI_EXTRACT_SYSTEM_PROMPT);
+            format!("{}\n\nCapture digest:\n{digest}", prompts::WIKI_EXTRACT_SYSTEM_PROMPT);
         let content = self
             .chat_prompt(cfg, model, "wiki-worker", prompts::WIKI_MERGE_SYSTEM_PROMPT, &prompt)
             .await?;
@@ -2506,7 +2506,7 @@ fn parse_recompile_response(
     })
 }
 
-fn format_event_line(event: &TrafficEvent) -> String {
+fn format_event_line(event: &CaptureEvent) -> String {
     let preview = event
         .content
         .as_deref()
@@ -2532,15 +2532,15 @@ fn format_event_line(event: &TrafficEvent) -> String {
     )
 }
 
-fn provider_key(event: &TrafficEvent) -> String {
+fn provider_key(event: &CaptureEvent) -> String {
     serde_json::to_value(event.provider)
         .ok()
         .and_then(|v| v.as_str().map(str::to_string))
         .unwrap_or_else(|| "other".into())
 }
 
-fn cluster_topics(events: &[TrafficEvent]) -> BTreeMap<String, Vec<&TrafficEvent>> {
-    let mut buckets: HashMap<String, Vec<&TrafficEvent>> = HashMap::new();
+fn cluster_topics(events: &[CaptureEvent]) -> BTreeMap<String, Vec<&CaptureEvent>> {
+    let mut buckets: HashMap<String, Vec<&CaptureEvent>> = HashMap::new();
     for event in events {
         let text = event.content.as_deref().unwrap_or("");
         let mut counts: HashMap<String, usize> = HashMap::new();
@@ -2683,14 +2683,14 @@ fn relative_wiki_path(paths: &RivetPaths, absolute: &std::path::Path) -> String 
         .to_string()
 }
 
-fn batch_digest(events: &[TrafficEvent]) -> String {
+fn batch_digest(events: &[CaptureEvent]) -> String {
     // Prefer user/assistant prose; demote pure tool noise to the end.
     let mut work = Vec::new();
     let mut tools = Vec::new();
     for (i, e) in events.iter().enumerate() {
         let line =
             format!("[#{:02} {}]\n{}", i + 1, e.ts.format("%Y-%m-%dT%H:%M"), format_event_line(e));
-        if matches!(e.role, TrafficRole::Tool) {
+        if matches!(e.role, CaptureRole::Tool) {
             tools.push(line);
         } else {
             work.push(line);
@@ -2733,7 +2733,7 @@ fn work_first_strip(body: &str) -> String {
     }
 }
 
-fn fallback_bullet_digest(events: &[TrafficEvent]) -> String {
+fn fallback_bullet_digest(events: &[CaptureEvent]) -> String {
     let mut body = String::from("## Recent activity\n\n");
     for event in events.iter().rev().take(12) {
         let _ = writeln!(body, "- {}", format_event_line(event));

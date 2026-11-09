@@ -20,7 +20,7 @@ use rivet_core::{
     hydrate_event_content, hydrate_events, lexical_embed, normalize_event_turns, RivetConfig,
     RivetPaths, LEXICAL_SPACE,
 };
-use rivet_store::{ClickHouseTrafficStore, MetaStore, TrafficStore};
+use rivet_store::{ClickHouseCaptureStore, MetaStore, CaptureStore};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager,
     tower::{StreamableHttpServerConfig, StreamableHttpService},
@@ -40,8 +40,8 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 
 #[derive(Clone)]
 pub struct McpState {
-    pub store: Arc<dyn TrafficStore>,
-    pub ch: Arc<ClickHouseTrafficStore>,
+    pub store: Arc<dyn CaptureStore>,
+    pub ch: Arc<ClickHouseCaptureStore>,
     pub config: Arc<RwLock<RivetConfig>>,
     pub meta: Arc<MetaStore>,
     pub paths: RivetPaths,
@@ -88,7 +88,7 @@ const fn default_browse_limit() -> u32 {
 #[derive(Debug, Serialize)]
 pub struct SearchResponse {
     pub mode: &'static str,
-    pub results: Vec<rivet_core::TrafficEvent>,
+    pub results: Vec<rivet_core::CaptureEvent>,
 }
 
 #[derive(Clone)]
@@ -165,7 +165,7 @@ impl RivetMcp {
         }
     }
 
-    #[tool(description = "Hydrate a traffic event or conversation with full bodies")]
+    #[tool(description = "Hydrate a capture event or conversation with full bodies")]
     async fn get_full(
         &self,
         Parameters(args): Parameters<IdArgs>,
@@ -217,7 +217,7 @@ impl ServerHandler for RivetMcp {
             .with_server_info(Implementation::new("rivet", env!("CARGO_PKG_VERSION")))
             .with_protocol_version(ProtocolVersion::V_2025_03_26)
             .with_instructions(
-                "Query Rivet-captured AI traffic. Tools: search_history, semantic_search, \
+                "Query Rivet-captured AI captures. Tools: search_history, semantic_search, \
                  topic_search, topic_get, get_full, browse_session, memory_stats. \
                  Hybrid conversation search and memory startup inject are control API routes \
                  (/v1/conversations/search?mode=hybrid, /v1/memory/startup).",
@@ -381,7 +381,7 @@ async fn do_memory_stats(state: &McpState) -> Result<serde_json::Value, ()> {
     Ok(json!({
         "topics": topics,
         "wiki_pages": wiki,
-        "traffic_events": totals.events,
+        "capture_events": totals.events,
         "tokens_in": totals.tokens_in,
         "tokens_out": totals.tokens_out,
         "embeddings": embeddings,

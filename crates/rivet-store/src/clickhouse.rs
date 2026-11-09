@@ -1,4 +1,4 @@
-//! `ClickHouse` traffic store — sole persistence for captured events + embeddings.
+//! `ClickHouse` capture store — sole persistence for captured events + embeddings.
 //!
 //! Query strings use `ClickHouse` `{name:Type}` bind params (not Rust `format!`).
 
@@ -11,22 +11,22 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use clickhouse::{Client, Row};
 use rivet_core::{
-    CaptureQuality, ProviderKind, TrafficEvent, TrafficRole, UsageTotals, LEXICAL_EMBED_DIMS,
+    CaptureQuality, ProviderKind, CaptureEvent, CaptureRole, UsageTotals, LEXICAL_EMBED_DIMS,
     LEXICAL_SPACE,
 };
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::TrafficStore;
+use crate::CaptureStore;
 
-/// Canonical traffic DDL (also embedded in [`crate::migrations`]).
-pub const TRAFFIC_EVENTS_DDL: &str = crate::migrations::MIGRATIONS[0].sql;
+/// Historical v1 create DDL (table later renamed to `capture_events` in migration 6).
+pub const CAPTURE_EVENTS_DDL: &str = crate::migrations::MIGRATIONS[0].sql;
 
 /// Canonical embeddings DDL (also embedded in [`crate::migrations`]).
 pub const EMBEDDINGS_DDL: &str = crate::migrations::MIGRATIONS[3].sql;
 
-/// One ANN hit from [`ClickHouseTrafficStore::search_embeddings`].
+/// One ANN hit from [`ClickHouseCaptureStore::search_embeddings`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct EmbeddingSearchHit {
     pub event_id: String,
@@ -35,7 +35,7 @@ pub struct EmbeddingSearchHit {
 }
 
 #[derive(Debug, Clone, Row, Serialize, Deserialize)]
-struct TrafficEventRow {
+struct CaptureEventRow {
     id: Uuid,
     #[serde(with = "clickhouse::serde::chrono::datetime64::millis")]
     ts: DateTime<Utc>,
@@ -81,8 +81,8 @@ struct TrafficEventRow {
     tool_call_count: u32,
 }
 
-impl TrafficEventRow {
-    fn from_event(event: &TrafficEvent) -> Result<Self> {
+impl CaptureEventRow {
+    fn from_event(event: &CaptureEvent) -> Result<Self> {
         let role = serde_json::to_value(event.role)?.as_str().unwrap_or("unknown").to_string();
         Ok(Self {
             id: event.id,
@@ -130,15 +130,15 @@ impl TrafficEventRow {
         })
     }
 
-    fn into_event(self) -> TrafficEvent {
+    fn into_event(self) -> CaptureEvent {
         let role = match self.role.as_str() {
-            "system" => TrafficRole::System,
-            "user" => TrafficRole::User,
-            "assistant" => TrafficRole::Assistant,
-            "tool" => TrafficRole::Tool,
-            _ => TrafficRole::Unknown,
+            "system" => CaptureRole::System,
+            "user" => CaptureRole::User,
+            "assistant" => CaptureRole::Assistant,
+            "tool" => CaptureRole::Tool,
+            _ => CaptureRole::Unknown,
         };
-        TrafficEvent {
+        CaptureEvent {
             id: self.id,
             ts: self.ts,
             provider: ProviderKind::parse(&self.provider),
@@ -218,20 +218,20 @@ struct EmbeddingHitRow {
     distance: f32,
 }
 
-/// Official `ClickHouse` HTTP client wrapper for Rivet traffic + embeddings.
+/// Official `ClickHouse` HTTP client wrapper for Rivet captures + embeddings.
 #[derive(Clone)]
-pub struct ClickHouseTrafficStore {
+pub struct ClickHouseCaptureStore {
     client: Client,
     url: String,
 }
 
-impl std::fmt::Debug for ClickHouseTrafficStore {
+impl std::fmt::Debug for ClickHouseCaptureStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClickHouseTrafficStore").field("url", &self.url).finish_non_exhaustive()
+        f.debug_struct("ClickHouseCaptureStore").field("url", &self.url).finish_non_exhaustive()
     }
 }
 
-impl ClickHouseTrafficStore {
+impl ClickHouseCaptureStore {
     pub fn new(http_base: impl AsRef<str>) -> Result<Self> {
         let url = normalize_http_url(http_base.as_ref());
         let client = Client::default()
@@ -388,19 +388,19 @@ impl ClickHouseTrafficStore {
         Ok(hits)
     }
 
-    async fn fetch_events(&self, sql: &str) -> Result<Vec<TrafficEvent>> {
-        let rows = self.client.query(sql).fetch_all::<TrafficEventRow>().await?;
-        Ok(rows.into_iter().map(TrafficEventRow::into_event).collect())
+    async fn fetch_events(&self, sql: &str) -> Result<Vec<CaptureEvent>> {
+        let rows = self.client.query(sql).fetch_all::<CaptureEventRow>().await?;
+        Ok(rows.into_iter().map(CaptureEventRow::into_event).collect())
     }
 
     async fn fetch_events_bound(
         &self,
         sql: &str,
         bind: impl FnOnce(clickhouse::query::Query) -> clickhouse::query::Query,
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         let query = bind(self.client.query(sql));
-        let rows = query.fetch_all::<TrafficEventRow>().await?;
-        Ok(rows.into_iter().map(TrafficEventRow::into_event).collect())
+        let rows = query.fetch_all::<CaptureEventRow>().await?;
+        Ok(rows.into_iter().map(CaptureEventRow::into_event).collect())
     }
 }
 
@@ -413,27 +413,27 @@ fn normalize_http_url(raw: &str) -> String {
     }
 }
 
-const EVENT_SELECT: &str = "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality, agent_id, parent_agent_id, parent_session_id, request_class, agent_type, cache_read_tokens, cache_creation_tokens, thinking_tokens, git_branch, git_repo, task_id, turn_id, upstream_host, attempt_count, stop_reason, tool_names, stream_complete, request_path, api_format, error_type, error_message, auth_id, has_thinking, media_count, tool_call_count FROM traffic_events";
+const EVENT_SELECT: &str = "SELECT id, ts, provider, account_label, model, session_id, project_id, cwd, request_id, role, content, tokens_in, tokens_out, latency_ms, status_code, body_ref, capture_quality, agent_id, parent_agent_id, parent_session_id, request_class, agent_type, cache_read_tokens, cache_creation_tokens, thinking_tokens, git_branch, git_repo, task_id, turn_id, upstream_host, attempt_count, stop_reason, tool_names, stream_complete, request_path, api_format, error_type, error_message, auth_id, has_thinking, media_count, tool_call_count FROM capture_events";
 
 #[async_trait]
-impl TrafficStore for ClickHouseTrafficStore {
-    async fn insert_event(&self, event: &TrafficEvent) -> Result<()> {
+impl CaptureStore for ClickHouseCaptureStore {
+    async fn insert_event(&self, event: &CaptureEvent) -> Result<()> {
         self.insert_batch(std::slice::from_ref(event)).await
     }
 
-    async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()> {
+    async fn insert_batch(&self, events: &[CaptureEvent]) -> Result<()> {
         if events.is_empty() {
             return Ok(());
         }
-        let mut insert = self.client.insert::<TrafficEventRow>("traffic_events").await?;
+        let mut insert = self.client.insert::<CaptureEventRow>("capture_events").await?;
         for event in events {
-            insert.write(&TrafficEventRow::from_event(event)?).await?;
+            insert.write(&CaptureEventRow::from_event(event)?).await?;
         }
         insert.end().await?;
         Ok(())
     }
 
-    async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>> {
+    async fn recent(&self, limit: u32) -> Result<Vec<CaptureEvent>> {
         let limit = limit.clamp(1, 5000);
         self.fetch_events_bound(
             &format!("{EVENT_SELECT} ORDER BY ts DESC LIMIT {{limit:UInt32}}"),
@@ -442,7 +442,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         .await
     }
 
-    async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
+    async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<CaptureEvent>> {
         let limit = limit.clamp(1, 5000);
         let q = query.trim();
         if q.is_empty() {
@@ -465,7 +465,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         &self,
         conversation_id: &str,
         limit: u32,
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         let limit = limit.clamp(1, 5000);
         let id = conversation_id.trim();
         if id.is_empty() {
@@ -491,7 +491,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         .await
     }
 
-    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<CaptureEvent>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -510,7 +510,7 @@ impl TrafficStore for ClickHouseTrafficStore {
         let row = self
             .client
             .query(
-                "SELECT count() AS events, sum(tokens_in) AS tokens_in, sum(tokens_out) AS tokens_out FROM traffic_events",
+                "SELECT count() AS events, sum(tokens_in) AS tokens_in, sum(tokens_out) AS tokens_out FROM capture_events",
             )
             .fetch_one::<UsageTotalsRow>()
             .await
@@ -518,14 +518,14 @@ impl TrafficStore for ClickHouseTrafficStore {
         Ok(UsageTotals { events: row.events, tokens_in: row.tokens_in, tokens_out: row.tokens_out })
     }
 
-    async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
+    async fn export_all(&self) -> Result<Vec<CaptureEvent>> {
         self.fetch_events(&format!("{EVENT_SELECT} ORDER BY ts ASC")).await
     }
 
     async fn export_for_conversations(
         &self,
         conversation_ids: &[String],
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         let mut session_ids = Vec::new();
         let mut event_ids = Vec::new();
         for raw in conversation_ids {

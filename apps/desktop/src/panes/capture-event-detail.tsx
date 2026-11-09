@@ -5,22 +5,22 @@ import {
   type CatalogProvider,
 } from "../lib/provider-utils";
 import { isDefined } from "../lib/nullish";
-import { splitTrafficBody, trafficTokenLabel, trunc } from "../lib/traffic-utils";
-import type { TrafficEvent } from "../lib/types";
+import { splitCaptureBody, captureTokenLabel, trunc } from "../lib/capture-utils";
+import type { CaptureEvent } from "../lib/types";
 import { Button, Pill, Snippet } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
 
-export function TrafficEventDetail({
+export function CaptureEventDetail({
   event,
   catalog,
   onClose,
 }: {
-  event: TrafficEvent;
+  event: CaptureEvent;
   catalog: CatalogProvider[];
   onClose: () => void;
 }): React.ReactElement {
-  const bodies = splitTrafficBody(event.content);
+  const bodies = splitCaptureBody(event.content);
   const providerId = providerKey(event.provider);
 
   return (
@@ -79,16 +79,16 @@ export function TrafficEventDetail({
   );
 }
 
-export function TrafficEventRow({
+export function CaptureEventRow({
   ev,
   catalog,
   selected,
   onSelect,
 }: {
-  ev: TrafficEvent;
+  ev: CaptureEvent;
   catalog: CatalogProvider[];
   selected: boolean;
-  onSelect: (ev: TrafficEvent) => void;
+  onSelect: (ev: CaptureEvent) => void;
 }): React.ReactElement {
   const providerId = providerKey(ev.provider);
   const color = providerColor(providerId, catalog);
@@ -97,7 +97,7 @@ export function TrafficEventRow({
 
   return (
     <button
-      className={cx(styles.trafficRow, selected ? styles.active : "")}
+      className={cx(styles.captureRow, selected ? styles.active : "")}
       onClick={() => {
         onSelect(ev);
       }}
@@ -108,7 +108,7 @@ export function TrafficEventRow({
           minute: "2-digit",
         })}
       </span>
-      <span className={styles.trafficProvider}>
+      <span className={styles.captureProvider}>
         <Pill
           style={{
             background: `${color}22`,
@@ -120,7 +120,7 @@ export function TrafficEventRow({
         {showBadStatus && <Pill tone="bad">{statusCode}</Pill>}
       </span>
       <span className={styles.mono}>{ev.model ?? "—"}</span>
-      <span className={cx(styles.mono, styles.trafficTokens)}>{trafficTokenLabel(ev)}</span>
+      <span className={cx(styles.mono, styles.captureTokens)}>{captureTokenLabel(ev)}</span>
       <span className={styles.preview}>{trunc(ev.content, 80)}</span>
     </button>
   );

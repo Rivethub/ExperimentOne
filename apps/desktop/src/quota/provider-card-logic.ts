@@ -36,9 +36,9 @@ export function quotaCapLabel(metricMode: MetricMode, pq: ProviderQuota | null):
     return "labeled estimate";
   }
   if (pq !== null) {
-    return "live + traffic burn";
+    return "live + capture burn";
   }
-  return "from captured traffic";
+  return "from captures";
 }
 
 export function quotaChartLegend(metricMode: MetricMode): string {
@@ -46,9 +46,9 @@ export function quotaChartLegend(metricMode: MetricMode): string {
     return "Account remaining % (historical)";
   }
   if (metricMode === "cost") {
-    return "Traffic volume (for cost context)";
+    return "Capture volume (for cost context)";
   }
-  return "Measured traffic burn";
+  return "Measured capture burn";
 }
 
 export function quotaPoolEmpty(pq: ProviderQuota | null, seriesEmptyAt: string): string {

@@ -6,7 +6,7 @@ import {
   seedQuotaAccounts,
   seedQuotaHistory,
   seedStatus,
-  seedTraffic,
+  seedCaptures,
   seedWiki,
   wikiArchiveBodies,
   wikiArchiveIndex,
@@ -23,7 +23,7 @@ export type MockStore = {
   wikiModel: string | null;
   quotaAccounts: ReturnType<typeof seedQuotaAccounts>;
   accounts: ReturnType<typeof accountsFromQuota>;
-  traffic: ReturnType<typeof seedTraffic>;
+  captures: ReturnType<typeof seedCaptures>;
   wiki: ReturnType<typeof seedWiki>;
   wikiBodies: Record<string, string>;
   wikiArchives: Record<string, string[]>;
@@ -52,7 +52,7 @@ export function resetStore(scenario?: MockScenario): MockStore {
 function createStore(scenario: MockScenario): MockStore {
   const quotaAccounts = seedQuotaAccounts(scenario);
   const accounts = accountsFromQuota(quotaAccounts);
-  const traffic = seedTraffic(scenario);
+  const captures = seedCaptures(scenario);
   const proxyRunning = scenario !== "fresh";
   const wikiEnabled = scenario !== "fresh";
   const vectorEnabled = scenario === "default" || scenario === "limit-hit";
@@ -65,7 +65,7 @@ function createStore(scenario: MockScenario): MockStore {
     wikiModel: wikiEnabled ? "claude-sonnet-4-5" : null,
     quotaAccounts,
     accounts,
-    traffic,
+    captures,
     wiki: seedWiki(),
     wikiBodies: wikiPageBodies(),
     wikiArchives: wikiArchiveIndex(),
@@ -85,7 +85,7 @@ export function rebuildDerivedQuota(): void {
 export function currentStatus(snapshot: MockStore): Status {
   return seedStatus(snapshot.scenario, {
     accounts: snapshot.accounts,
-    traffic: snapshot.traffic,
+    captures: snapshot.captures,
     proxyRunning: snapshot.proxyRunning,
     wikiEnabled: snapshot.wikiEnabled,
     vectorEnabled: snapshot.vectorEnabled,

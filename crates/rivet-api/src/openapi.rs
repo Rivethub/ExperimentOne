@@ -5,7 +5,7 @@ use utoipa::OpenApi;
 use crate::{
     AccountInfo, LocalSession, OnboardingStatus, PublicConfig, StatusResponse, WorkersStatus,
 };
-use rivet_core::{Capabilities, ConversationSummary, LiveCursor, TrafficEvent, UsageTotals};
+use rivet_core::{Capabilities, ConversationSummary, LiveCursor, CaptureEvent, UsageTotals};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -31,13 +31,13 @@ use rivet_core::{Capabilities, ConversationSummary, LiveCursor, TrafficEvent, Us
         AccountInfo,
         Capabilities,
         UsageTotals,
-        TrafficEvent,
+        CaptureEvent,
         ConversationSummary,
         LiveCursor,
     )),
     tags(
         (name = "control", description = "Status, config, and session bootstrap"),
-        (name = "traffic", description = "Captured traffic queries"),
+        (name = "capture", description = "Capture event queries"),
         (name = "live", description = "Live cursor / SSE refresh"),
     )
 )]

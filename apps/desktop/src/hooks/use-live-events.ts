@@ -7,7 +7,7 @@ import { queryKeys } from "../lib/query-keys";
 
 type LiveCursor = {
   wiki_revision: number;
-  traffic_events: number;
+  capture_events: number;
   observed_at: string;
 };
 
@@ -30,7 +30,7 @@ export function useLiveEvents(enabled = true): void {
       if (prev == null) {
         return;
       }
-      if (cursor.traffic_events !== prev.traffic_events) {
+      if (cursor.capture_events !== prev.capture_events) {
         void queryClient.invalidateQueries({ queryKey: queryKeys.home });
       }
       if (cursor.wiki_revision !== prev.wiki_revision) {

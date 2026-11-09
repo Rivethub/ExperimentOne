@@ -8,7 +8,7 @@ export type AppSidebarProps = {
   page: Page;
   settingsTab: SettingsTab;
   accountCount: number;
-  trafficEventCount: number;
+  captureEventCount: number;
 };
 
 function navTo(page: Page, settingsTab: SettingsTab) {
@@ -24,7 +24,7 @@ export function AppSidebar({
   page,
   settingsTab,
   accountCount,
-  trafficEventCount,
+  captureEventCount,
 }: AppSidebarProps): React.ReactElement {
   return (
     <aside
@@ -72,12 +72,12 @@ export function AppSidebar({
                   {accountCount}
                 </Badge>
               )}
-              {item.id === "data" && trafficEventCount > 0 && (
+              {item.id === "data" && captureEventCount > 0 && (
                 <Badge
                   variant="secondary"
                   className="ml-auto min-w-[18px] border-0 bg-zinc-800 px-1.5 py-px text-[11px] tabular-nums text-muted-foreground"
                 >
-                  {trafficEventCount > 99 ? "99+" : trafficEventCount}
+                  {captureEventCount > 99 ? "99+" : captureEventCount}
                 </Badge>
               )}
             </Link>

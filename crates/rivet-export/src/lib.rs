@@ -1,4 +1,4 @@
-//! `.rivetbag` = tar + gzip of traffic JSON (+ optional wiki/embeddings later).
+//! `.rivetbag` = tar + gzip of capture JSON (+ optional wiki/embeddings later).
 //! Also imports local Claude Code / Codex / Cursor transcripts already on disk.
 //! Never includes OAuth, API keys, or proxy access secrets.
 
@@ -19,29 +19,29 @@ use chrono::Utc;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use rivet_core::{ExportManifest, TrafficEvent};
-use rivet_store::TrafficStore;
+use rivet_core::{ExportManifest, CaptureEvent};
+use rivet_store::CaptureStore;
 use tar::{Archive, Builder};
 
-pub async fn export_bag(store: Arc<dyn TrafficStore>, out_path: &Path) -> Result<ExportManifest> {
+pub async fn export_bag(store: Arc<dyn CaptureStore>, out_path: &Path) -> Result<ExportManifest> {
     export_bag_with_paths(store, out_path, None, None).await
 }
 
-/// Export traffic for specific conversations (session ids or `event:{uuid}`).
+/// Export captures for specific conversations (session ids or `event:{uuid}`).
 pub async fn export_bag_for_conversations(
-    store: Arc<dyn TrafficStore>,
+    store: Arc<dyn CaptureStore>,
     out_path: &Path,
     conversation_ids: &[String],
 ) -> Result<ExportManifest> {
     export_bag_with_paths(store, out_path, None, Some(conversation_ids)).await
 }
 
-/// Export traffic; when `paths` is set, hydrate `body_ref` blobs into `content` first.
+/// Export captures; when `paths` is set, hydrate `body_ref` blobs into `content` first.
 ///
 /// When `conversation_ids` is `Some`, only events for those conversations are packaged.
 /// An empty slice yields an empty bag (still a valid `.rivetbag`).
 pub async fn export_bag_with_paths(
-    store: Arc<dyn TrafficStore>,
+    store: Arc<dyn CaptureStore>,
     out_path: &Path,
     paths: Option<&rivet_core::RivetPaths>,
     conversation_ids: Option<&[String]>,
@@ -54,10 +54,10 @@ pub async fn export_bag_with_paths(
         rivet_core::hydrate_events(paths, &mut events);
     }
     let note = conversation_ids.map_or_else(
-        || "Rivet traffic export — credentials excluded".into(),
+        || "Rivet capture export — credentials excluded".into(),
         |ids| {
             format!(
-                "Rivet traffic export — {} conversation{} — credentials excluded",
+                "Rivet capture export — {} conversation{} — credentials excluded",
                 ids.len(),
                 if ids.len() == 1 { "" } else { "s" }
             )
@@ -80,19 +80,19 @@ pub async fn export_bag_with_paths(
     append_bytes(&mut builder, "manifest.json", &manifest_bytes)?;
 
     let events_bytes = serde_json::to_vec(&events)?;
-    append_bytes(&mut builder, "traffic_events.json", &events_bytes)?;
+    append_bytes(&mut builder, "capture_events.json", &events_bytes)?;
 
     builder.finish()?;
     Ok(manifest)
 }
 
-pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<TrafficEvent>)> {
+pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<CaptureEvent>)> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let dec = GzDecoder::new(file);
     let mut archive = Archive::new(dec);
 
     let mut manifest: Option<ExportManifest> = None;
-    let mut events: Option<Vec<TrafficEvent>> = None;
+    let mut events: Option<Vec<CaptureEvent>> = None;
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -101,7 +101,12 @@ pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<TrafficEvent>)> {
         entry.read_to_end(&mut buf)?;
         match name.as_str() {
             "manifest.json" => manifest = Some(serde_json::from_slice(&buf)?),
-            "traffic_events.json" => events = Some(serde_json::from_slice(&buf)?),
+            // Prefer the new name; still accept legacy bags.
+            "capture_events.json" | "traffic_events.json" => {
+                if events.is_none() || name == "capture_events.json" {
+                    events = Some(serde_json::from_slice(&buf)?);
+                }
+            }
             other => tracing::debug!(other, "skipping unknown bag entry"),
         }
     }
@@ -114,12 +119,12 @@ pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<TrafficEvent>)> {
             ExportManifest::SCHEMA_VERSION
         );
     }
-    let events = events.context("traffic_events.json missing from rivetbag")?;
+    let events = events.context("capture_events.json (or legacy traffic_events.json) missing from rivetbag")?;
     Ok((manifest, events))
 }
 
 pub async fn import_into_store(
-    store: Arc<dyn TrafficStore>,
+    store: Arc<dyn CaptureStore>,
     path: &Path,
 ) -> Result<ExportManifest> {
     let (manifest, events) = import_bag(path)?;
@@ -144,27 +149,27 @@ mod tests {
     use std::sync::Mutex;
 
     struct MemStore {
-        events: Mutex<Vec<TrafficEvent>>,
+        events: Mutex<Vec<CaptureEvent>>,
     }
 
     #[async_trait]
-    impl TrafficStore for MemStore {
-        async fn insert_event(&self, event: &TrafficEvent) -> Result<()> {
+    impl CaptureStore for MemStore {
+        async fn insert_event(&self, event: &CaptureEvent) -> Result<()> {
             self.events.lock().unwrap().push(event.clone());
             Ok(())
         }
-        async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()> {
+        async fn insert_batch(&self, events: &[CaptureEvent]) -> Result<()> {
             self.events.lock().unwrap().extend_from_slice(events);
             Ok(())
         }
-        async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>> {
+        async fn recent(&self, limit: u32) -> Result<Vec<CaptureEvent>> {
             let ev = self.events.lock().unwrap();
             Ok(ev.iter().rev().take(limit as usize).cloned().collect())
         }
-        async fn search_keyword(&self, _q: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
+        async fn search_keyword(&self, _q: &str, limit: u32) -> Result<Vec<CaptureEvent>> {
             self.recent(limit).await
         }
-        async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+        async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<CaptureEvent>> {
             let set: std::collections::HashSet<_> = ids.iter().cloned().collect();
             Ok(self
                 .events
@@ -175,7 +180,7 @@ mod tests {
                 .cloned()
                 .collect())
         }
-        async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
+        async fn export_all(&self) -> Result<Vec<CaptureEvent>> {
             Ok(self.events.lock().unwrap().clone())
         }
         async fn usage_totals(&self) -> Result<UsageTotals> {
@@ -185,10 +190,10 @@ mod tests {
 
     #[tokio::test]
     async fn rivetbag_roundtrip_preserves_redacted_content() {
-        let mut ev = TrafficEvent::new(ProviderKind::Claude);
+        let mut ev = CaptureEvent::new(ProviderKind::Claude);
         ev.content = Some("hello Authorization: Bearer sk-secret1234567890".into());
         rivet_core::redact_event(&mut ev);
-        let store: Arc<dyn TrafficStore> = Arc::new(MemStore { events: Mutex::new(vec![ev]) });
+        let store: Arc<dyn CaptureStore> = Arc::new(MemStore { events: Mutex::new(vec![ev]) });
         let dir = std::env::temp_dir().join(format!(
             "rivet-export-test-{}",
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
@@ -208,13 +213,13 @@ mod tests {
 
     #[tokio::test]
     async fn selective_export_keeps_only_requested_conversations() {
-        let mut keep = TrafficEvent::new(ProviderKind::Claude);
+        let mut keep = CaptureEvent::new(ProviderKind::Claude);
         keep.session_id = Some("keep-me".into());
         keep.content = Some("keep".into());
-        let mut drop = TrafficEvent::new(ProviderKind::Codex);
+        let mut drop = CaptureEvent::new(ProviderKind::Codex);
         drop.session_id = Some("drop-me".into());
         drop.content = Some("drop".into());
-        let store: Arc<dyn TrafficStore> =
+        let store: Arc<dyn CaptureStore> =
             Arc::new(MemStore { events: Mutex::new(vec![keep.clone(), drop]) });
         let dir = std::env::temp_dir().join(format!(
             "rivet-export-filter-{}",
@@ -234,13 +239,13 @@ mod tests {
 
     #[tokio::test]
     async fn selective_export_includes_soft_and_hard_session_ids() {
-        let mut hard = TrafficEvent::new(ProviderKind::Claude);
+        let mut hard = CaptureEvent::new(ProviderKind::Claude);
         hard.session_id = Some("wire-session".into());
         hard.content = Some("hard".into());
-        let mut soft = TrafficEvent::new(ProviderKind::Claude);
+        let mut soft = CaptureEvent::new(ProviderKind::Claude);
         soft.session_id = Some("soft:fingerprint".into());
         soft.content = Some("soft".into());
-        let store: Arc<dyn TrafficStore> =
+        let store: Arc<dyn CaptureStore> =
             Arc::new(MemStore { events: Mutex::new(vec![hard.clone(), soft.clone()]) });
         let dir = std::env::temp_dir().join(format!(
             "rivet-export-soft-{}",
@@ -256,6 +261,48 @@ mod tests {
             events.iter().filter_map(|e| e.session_id.clone()).collect();
         assert!(sessions.contains("wire-session"));
         assert!(sessions.contains("soft:fingerprint"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn import_bag_accepts_legacy_traffic_events_json() {
+        let mut ev = CaptureEvent::new(ProviderKind::Claude);
+        ev.content = Some("legacy bag".into());
+        let events = vec![ev];
+        let manifest = ExportManifest {
+            schema_version: ExportManifest::SCHEMA_VERSION,
+            created_at: Utc::now(),
+            event_count: 1,
+            includes_embeddings: false,
+            includes_wiki: false,
+            note: Some("legacy".into()),
+        };
+
+        let dir = std::env::temp_dir().join(format!(
+            "rivet-export-legacy-{}",
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("legacy.rivetbag");
+        {
+            let file = File::create(&path).unwrap();
+            let enc = GzEncoder::new(file, Compression::default());
+            let mut builder = Builder::new(enc);
+            append_bytes(&mut builder, "manifest.json", &serde_json::to_vec_pretty(&manifest).unwrap())
+                .unwrap();
+            append_bytes(
+                &mut builder,
+                "traffic_events.json",
+                &serde_json::to_vec(&events).unwrap(),
+            )
+            .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let (m2, imported) = import_bag(&path).unwrap();
+        assert_eq!(m2.event_count, 1);
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].content.as_deref(), Some("legacy bag"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

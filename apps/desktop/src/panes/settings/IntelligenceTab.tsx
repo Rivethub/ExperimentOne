@@ -77,7 +77,7 @@ export function IntelligenceTab({
       />
       <ToggleRow
         title="Wiki worker"
-        description="Keep the markdown tree updated from captured traffic."
+        description="Keep the markdown tree updated from captures."
         on={wikiOn}
         disabled={intelligence.busy}
         onToggle={() => {

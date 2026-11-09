@@ -1,4 +1,4 @@
-//! Import local harness transcripts (Claude Code / Codex / Cursor) into Rivet traffic.
+//! Import local harness transcripts (Claude Code / Codex / Cursor) into Rivet captures.
 //! Read-only observation of files those tools already write — no harness plugins.
 
 use std::fs::{self, File};
@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rivet_core::{redact_event, CaptureQuality, ProviderKind, TrafficEvent, TrafficRole};
-use rivet_store::TrafficStore;
+use rivet_core::{redact_event, CaptureQuality, ProviderKind, CaptureEvent, CaptureRole};
+use rivet_store::CaptureStore;
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -73,7 +73,7 @@ pub struct LocalIngestReport {
 }
 
 pub async fn ingest_local(
-    store: Arc<dyn TrafficStore>,
+    store: Arc<dyn CaptureStore>,
     opts: LocalIngestOptions,
 ) -> Result<LocalIngestReport> {
     let sources = if opts.sources.is_empty() {
@@ -243,7 +243,7 @@ fn collect_cursor_transcripts(root: &Path, visit: &mut dyn FnMut(&Path)) {
     }
 }
 
-fn parse_claude_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
+fn parse_claude_jsonl(path: &Path, limit: usize) -> Result<Vec<CaptureEvent>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let reader = BufReader::new(file);
     // Hard evidence: Claude's on-disk project key under ~/.claude/projects/<id>/.
@@ -270,12 +270,12 @@ fn parse_claude_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
     Ok(out)
 }
 
-fn claude_line_to_event(v: &Value) -> Option<TrafficEvent> {
+fn claude_line_to_event(v: &Value) -> Option<CaptureEvent> {
     let ty = v.get("type")?.as_str()?;
     let role = match ty {
-        "user" => TrafficRole::User,
-        "assistant" => TrafficRole::Assistant,
-        "system" => TrafficRole::System,
+        "user" => CaptureRole::User,
+        "assistant" => CaptureRole::Assistant,
+        "system" => CaptureRole::System,
         _ => return None,
     };
     let message = v.get("message")?;
@@ -313,7 +313,7 @@ fn claude_line_to_event(v: &Value) -> Option<TrafficEvent> {
 
     let (tokens_in, tokens_out) = usage_from_claude(message.get("usage"));
 
-    Some(TrafficEvent {
+    Some(CaptureEvent {
         id,
         ts,
         provider: ProviderKind::Claude,
@@ -360,7 +360,7 @@ fn claude_line_to_event(v: &Value) -> Option<TrafficEvent> {
     })
 }
 
-fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
+fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<CaptureEvent>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let reader = BufReader::new(file);
     let session_id = cursor_session_id(path);
@@ -382,10 +382,10 @@ fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
         };
         let role_str = v.get("role").and_then(|x| x.as_str()).unwrap_or("");
         let role = match role_str {
-            "user" => TrafficRole::User,
-            "assistant" => TrafficRole::Assistant,
-            "system" => TrafficRole::System,
-            "tool" => TrafficRole::Tool,
+            "user" => CaptureRole::User,
+            "assistant" => CaptureRole::Assistant,
+            "system" => CaptureRole::System,
+            "tool" => CaptureRole::Tool,
             _ => continue,
         };
         let message = v.get("message").unwrap_or(&v);
@@ -399,7 +399,7 @@ fn parse_cursor_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
         let ts = extract_timestamp_from_text(&content).or(file_mtime).unwrap_or_else(Utc::now)
             + chrono::Duration::milliseconds(i64::try_from(idx).unwrap_or(i64::MAX));
         let id = stable_id(&format!("cursor:{session_id}:{idx}:{role_str}"));
-        out.push(TrafficEvent {
+        out.push(CaptureEvent {
             id,
             ts,
             provider: ProviderKind::Cursor,
@@ -511,7 +511,7 @@ fn usage_from_claude(usage: Option<&Value>) -> (u32, u32) {
 }
 
 #[allow(clippy::too_many_lines)]
-fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
+fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<CaptureEvent>> {
     let file = File::open(path).with_context(|| format!("open {}", path.display()))?;
     let reader = BufReader::new(file);
     let mut out = Vec::new();
@@ -587,9 +587,9 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                     "message" => {
                         let role_str = payload.get("role").and_then(|x| x.as_str()).unwrap_or("");
                         let role = match role_str {
-                            "user" => TrafficRole::User,
-                            "assistant" => TrafficRole::Assistant,
-                            "developer" | "system" => TrafficRole::System,
+                            "user" => CaptureRole::User,
+                            "assistant" => CaptureRole::Assistant,
+                            "developer" | "system" => CaptureRole::System,
                             _ => continue,
                         };
                         // Skip huge developer tool catalogs / base instructions noise when empty text.
@@ -600,7 +600,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             continue;
                         }
                         // Drop very large system/developer bootstrap dumps (>64KiB) — keep user/assistant.
-                        if matches!(role, TrafficRole::System) && content.len() > 64 * 1024 {
+                        if matches!(role, CaptureRole::System) && content.len() > 64 * 1024 {
                             continue;
                         }
                         let id = payload.get("id").and_then(|x| x.as_str()).map_or_else(
@@ -614,12 +614,12 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             },
                             |s| stable_id(&format!("codex:{s}")),
                         );
-                        let (tokens_in, tokens_out) = if role == TrafficRole::Assistant {
+                        let (tokens_in, tokens_out) = if role == CaptureRole::Assistant {
                             pending_usage.take().unwrap_or((0, 0))
                         } else {
                             (0, 0)
                         };
-                        out.push(TrafficEvent {
+                        out.push(CaptureEvent {
                             id,
                             ts,
                             provider: ProviderKind::Codex,
@@ -679,7 +679,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             },
                             |s| stable_id(&format!("codex:{s}")),
                         );
-                        out.push(TrafficEvent {
+                        out.push(CaptureEvent {
                             id,
                             ts,
                             provider: ProviderKind::Codex,
@@ -692,7 +692,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                                 .get("call_id")
                                 .and_then(|x| x.as_str())
                                 .map(str::to_string),
-                            role: TrafficRole::Tool,
+                            role: CaptureRole::Tool,
                             content: Some(content),
                             tokens_in: 0,
                             tokens_out: 0,
@@ -745,7 +745,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                             },
                             |s| stable_id(&format!("codex:{s}")),
                         );
-                        out.push(TrafficEvent {
+                        out.push(CaptureEvent {
                             id,
                             ts,
                             provider: ProviderKind::Codex,
@@ -758,7 +758,7 @@ fn parse_codex_jsonl(path: &Path, limit: usize) -> Result<Vec<TrafficEvent>> {
                                 .get("call_id")
                                 .and_then(|x| x.as_str())
                                 .map(str::to_string),
-                            role: TrafficRole::Tool,
+                            role: CaptureRole::Tool,
                             content: Some(content),
                             tokens_in: 0,
                             tokens_out: 0,
@@ -890,27 +890,27 @@ mod tests {
     use std::sync::Mutex;
 
     struct MemStore {
-        events: Mutex<Vec<TrafficEvent>>,
+        events: Mutex<Vec<CaptureEvent>>,
     }
 
     #[async_trait]
-    impl TrafficStore for MemStore {
-        async fn insert_event(&self, event: &TrafficEvent) -> Result<()> {
+    impl CaptureStore for MemStore {
+        async fn insert_event(&self, event: &CaptureEvent) -> Result<()> {
             self.events.lock().unwrap().push(event.clone());
             Ok(())
         }
-        async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()> {
+        async fn insert_batch(&self, events: &[CaptureEvent]) -> Result<()> {
             self.events.lock().unwrap().extend_from_slice(events);
             Ok(())
         }
-        async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>> {
+        async fn recent(&self, limit: u32) -> Result<Vec<CaptureEvent>> {
             let ev = self.events.lock().unwrap();
             Ok(ev.iter().rev().take(limit as usize).cloned().collect())
         }
-        async fn search_keyword(&self, _q: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
+        async fn search_keyword(&self, _q: &str, limit: u32) -> Result<Vec<CaptureEvent>> {
             self.recent(limit).await
         }
-        async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+        async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<CaptureEvent>> {
             let set: std::collections::HashSet<_> = ids.iter().cloned().collect();
             Ok(self
                 .events
@@ -921,7 +921,7 @@ mod tests {
                 .cloned()
                 .collect())
         }
-        async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
+        async fn export_all(&self) -> Result<Vec<CaptureEvent>> {
             Ok(self.events.lock().unwrap().clone())
         }
         async fn usage_totals(&self) -> Result<UsageTotals> {
@@ -988,7 +988,7 @@ mod tests {
         )
         .unwrap();
 
-        let store: Arc<dyn TrafficStore> = Arc::new(MemStore { events: Mutex::new(vec![]) });
+        let store: Arc<dyn CaptureStore> = Arc::new(MemStore { events: Mutex::new(vec![]) });
         let opts = LocalIngestOptions {
             sources: vec![LocalSource::Claude],
             claude_root: Some(dir.join("projects")),

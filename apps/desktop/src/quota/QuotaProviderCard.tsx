@@ -2,7 +2,7 @@ import type { ReactElement } from "react";
 import { costForProviderEvents } from "../lib/cost-estimate";
 import { providerKey } from "../lib/provider-utils";
 import type { Series } from "../lib/quota-series";
-import type { ProviderQuota, QuotaAccount, TrafficEvent } from "../lib/types";
+import type { ProviderQuota, QuotaAccount, CaptureEvent } from "../lib/types";
 import { PooledWindowCards } from "./pooled-windows";
 import type { MetricMode, QuotaAccountUx } from "./types";
 import { QuotaProviderAccountList, QuotaProviderCardEmpty } from "./QuotaProviderCardParts";
@@ -31,7 +31,7 @@ export type QuotaProviderCardProps = {
   horizon: string;
   observedAt?: string | null;
   providerId: string;
-  recent: TrafficEvent[];
+  recent: CaptureEvent[];
   onAddCredentials: () => void;
   onAccountSelect: (a: QuotaAccountUx) => void;
 };

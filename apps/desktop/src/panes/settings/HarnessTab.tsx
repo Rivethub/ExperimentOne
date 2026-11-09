@@ -27,8 +27,8 @@ export function HarnessTab({
       lede={
         <>
           One-click setup lives on each Claude / Codex account. This tab points harnesses at the
-          Rivet proxy (sole live traffic ingress), optionally installs session→project bindings +
-          MCP, and can import old on-disk transcripts. Plugins never post traffic — they only help
+          Rivet proxy (sole live capture ingress), optionally installs session→project bindings +
+          MCP, and can import old on-disk transcripts. Plugins never post captures — they only help
           the proxy attach project/cwd. Restart each harness after install.
         </>
       }

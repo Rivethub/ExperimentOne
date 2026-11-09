@@ -1,5 +1,5 @@
-import { splitTrafficBody } from "../lib/traffic-utils";
-import type { TrafficEvent } from "../lib/types";
+import { splitCaptureBody } from "../lib/capture-utils";
+import type { CaptureEvent } from "../lib/types";
 import type { TranscriptPart, TranscriptRole, TranscriptTurn } from "./types";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -455,10 +455,10 @@ function hasStructuredParts(parts: TranscriptPart[]): boolean {
   return parts.some((p) => p.kind !== "raw" && !(p.kind === "text" && !p.text.trim()));
 }
 
-/** Expand one captured traffic hop into a T3-style transcript turn. */
-export function turnFromTrafficEvent(ev: TrafficEvent): TranscriptTurn {
+/** Expand one captures hop into a T3-style transcript turn. */
+export function turnFromCaptureEvent(ev: CaptureEvent): TranscriptTurn {
   const role = normalizeRole(ev.role);
-  const bodies = splitTrafficBody(ev.content);
+  const bodies = splitCaptureBody(ev.content);
   const requestJson = tryParseJson(bodies.request === "(empty)" ? "" : bodies.request);
   const responseRaw = bodies.response ?? "";
   const responseJson = tryParseJson(responseRaw);
@@ -513,7 +513,7 @@ export function turnFromTrafficEvent(ev: TrafficEvent): TranscriptTurn {
 }
 
 function messageFallback(
-  ev: TrafficEvent,
+  ev: CaptureEvent,
   bodies: { request: string; response: string | null },
 ): string {
   if (ev.role === "assistant" && bodies.response) return bodies.response;
@@ -522,8 +522,8 @@ function messageFallback(
   return bodies.request;
 }
 
-export function turnsFromTrafficEvents(events: TrafficEvent[]): TranscriptTurn[] {
-  return events.map(turnFromTrafficEvent);
+export function turnsFromCaptureEvents(events: CaptureEvent[]): TranscriptTurn[] {
+  return events.map(turnFromCaptureEvent);
 }
 
 export function partsMatchQuery(parts: TranscriptPart[], query: string): boolean {

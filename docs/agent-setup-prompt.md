@@ -51,11 +51,11 @@ rivet doctor
 rivet status --json
 ```
 
-Optional smoke test (sample traffic, no provider call):
+Optional smoke test (sample captures, no provider call):
 
 ```bash
 rivet demo seed
-rivet traffic recent
+rivet captures recent
 ```
 
 ## Done when

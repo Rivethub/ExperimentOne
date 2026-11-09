@@ -9,8 +9,8 @@ import {
   type CatalogProvider,
 } from "../lib/provider-utils";
 import { LimitRecoveryBanner, type LimitHitInfo } from "../quota";
-import { filterTimeline, timelineFromTrafficEvents, TranscriptView } from "../transcript";
-import type { ConversationSummary, SearchMode, TrafficEvent } from "../lib/types";
+import { filterTimeline, timelineFromCaptureEvents, TranscriptView } from "../transcript";
+import type { ConversationSummary, SearchMode, CaptureEvent } from "../lib/types";
 import { Button, Empty, Input, Panel, Pill } from "../ui";
 import { cn } from "#lib/utils";
 
@@ -37,7 +37,7 @@ export type DataPaneProps = {
   conversations: ConversationSummary[];
   selectedId: string | null;
   onSelectConversation: (id: string | null) => void;
-  messages: TrafficEvent[];
+  messages: CaptureEvent[];
   threadQuery: string;
   onThreadQueryChange: (query: string) => void;
   busy?: boolean;
@@ -194,7 +194,7 @@ export function DataPane({
   const selected = conversations.find((c) => c.id === selectedId) ?? null;
   const visibleMessages = filterMessages(messages, deferredThreadQuery);
   const timeline = useMemo(() => {
-    const items = timelineFromTrafficEvents(visibleMessages);
+    const items = timelineFromCaptureEvents(visibleMessages);
     return filterTimeline(items, deferredThreadQuery);
   }, [visibleMessages, deferredThreadQuery]);
 

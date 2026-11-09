@@ -34,11 +34,11 @@ export type ProviderQuotaUx = {
 export type OnboardingStatus = {
   proxy_running: boolean;
   has_accounts: boolean;
-  has_traffic: boolean;
+  has_captures: boolean;
   harness_ready: boolean;
 };
 
-export type TrafficEventUx = {
+export type CaptureEventUx = {
   ts: string;
   provider: string;
   tokens_in: number;

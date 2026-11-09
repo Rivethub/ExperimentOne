@@ -242,7 +242,7 @@ func TestSpillBodyWritesRelativeRef(t *testing.T) {
 	if !ok {
 		t.Fatal("expected spill")
 	}
-	if !strings.HasPrefix(rel, "traffic/") || !strings.HasSuffix(rel, ".txt") {
+	if !strings.HasPrefix(rel, "capture/") || !strings.HasSuffix(rel, ".txt") {
 		t.Fatalf("unexpected rel %q", rel)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))

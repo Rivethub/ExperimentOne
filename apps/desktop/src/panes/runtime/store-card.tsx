@@ -12,7 +12,7 @@ export function RuntimeStoreCard({
   return (
     <RuntimePaneCard
       title="Store"
-      statusLabel={status?.traffic_backend ?? "clickhouse"}
+      statusLabel={status?.capture_backend ?? "clickhouse"}
       statusTone="ok"
     >
       <RuntimeKv label="Events" value={fmt(status?.usage.events ?? 0)} />

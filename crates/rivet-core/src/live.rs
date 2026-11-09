@@ -9,8 +9,8 @@ use tokio::sync::broadcast;
 pub enum LiveEvent {
     /// Wiki filesystem / index revision bumped.
     Wiki { revision: u64 },
-    /// Traffic events were ingested.
-    Traffic { count: u64 },
+    /// Capture events were ingested.
+    Capture { count: u64 },
     /// Periodic keep-alive for SSE clients.
     Heartbeat,
 }
@@ -29,7 +29,7 @@ pub enum LiveEvent {
 )]
 pub struct LiveCursor {
     pub wiki_revision: u64,
-    pub traffic_events: u64,
+    pub capture_events: u64,
     pub observed_at: String,
 }
 

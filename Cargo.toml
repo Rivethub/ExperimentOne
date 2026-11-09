@@ -21,7 +21,7 @@ license = "MIT"
 repository = "https://github.com/rivet-ai/rivet"
 authors = ["Rivet"]
 readme = "README.md"
-keywords = ["rivet", "proxy", "llm", "traffic"]
+keywords = ["rivet", "proxy", "llm", "capture"]
 categories = ["development-tools"]
 
 [workspace.dependencies]

@@ -11,7 +11,7 @@ Desktop builds ship:
 `scripts/build-sidecars.sh` fetches pinned proxy + ClickHouse + NATS artifacts
 into the app resources tree (`externalBin` in Tauri). Without ClickHouse on
 disk, set `RIVET_CLICKHOUSE_URL` (or `RIVET_CLICKHOUSE_BIN`). Without NATS,
-set `RIVET_NATS_URL` (or `RIVET_NATS_BIN`). Traffic has no SQLite fallback.
+set `RIVET_NATS_URL` (or `RIVET_NATS_BIN`). Captures have no SQLite fallback.
 
 ## Agent / headless CLI
 

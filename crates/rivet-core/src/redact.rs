@@ -1,4 +1,4 @@
-//! Strip obvious secrets from traffic content before store/export.
+//! Strip obvious secrets from capture content before store/export.
 //!
 //! This is best-effort pattern matching — not a guarantee. OAuth blobs and
 //! proxy access keys must never be packaged by export code paths regardless.
@@ -6,7 +6,7 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
-use crate::traffic::TrafficEvent;
+use crate::capture::CaptureEvent;
 
 struct Rule {
     re: Regex,
@@ -74,7 +74,7 @@ pub fn redact_text(input: &str) -> String {
 }
 
 /// Apply redaction to an event's content field (in place).
-pub fn redact_event(event: &mut TrafficEvent) {
+pub fn redact_event(event: &mut CaptureEvent) {
     if let Some(content) = event.content.as_mut() {
         *content = redact_text(content);
     }

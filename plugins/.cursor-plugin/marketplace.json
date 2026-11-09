@@ -5,7 +5,7 @@
     "url": "https://github.com/wSedlacek/Rivet"
   },
   "metadata": {
-    "description": "Rivet local traffic + history plugins for Cursor"
+    "description": "Rivet local capture + history plugins for Cursor"
   },
   "plugins": [
     {

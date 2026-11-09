@@ -7,7 +7,7 @@ appVersion: "0.1.0"
 keywords:
   - ai
   - proxy
-  - traffic
+  - capture
   - clickhouse
   - nats
 maintainers:

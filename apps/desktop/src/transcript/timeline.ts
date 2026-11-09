@@ -1,5 +1,5 @@
-import type { TrafficEvent } from "../lib/types";
-import { partsMatchQuery, turnsFromTrafficEvents } from "./parse";
+import type { CaptureEvent } from "../lib/types";
+import { partsMatchQuery, turnsFromCaptureEvents } from "./parse";
 import type { TimelineItem, TranscriptPart, TranscriptTurn } from "./types";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -244,8 +244,8 @@ export function timelineFromTurns(turns: TranscriptTurn[]): TimelineItem[] {
   return items;
 }
 
-export function timelineFromTrafficEvents(events: TrafficEvent[]): TimelineItem[] {
-  return timelineFromTurns(turnsFromTrafficEvents(events));
+export function timelineFromCaptureEvents(events: CaptureEvent[]): TimelineItem[] {
+  return timelineFromTurns(turnsFromCaptureEvents(events));
 }
 
 export function timelineItemMatchesQuery(item: TimelineItem, query: string): boolean {

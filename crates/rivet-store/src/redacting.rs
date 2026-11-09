@@ -1,14 +1,14 @@
-//! `TrafficStore` wrapper that redacts content before persistence.
+//! `CaptureStore` wrapper that redacts content before persistence.
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rivet_core::{redact_event, ConversationSummary, TrafficEvent, UsageTotals};
+use rivet_core::{redact_event, ConversationSummary, CaptureEvent, UsageTotals};
 use std::sync::Arc;
 
-use crate::TrafficStore;
+use crate::CaptureStore;
 
 pub struct RedactingStore {
-    inner: Arc<dyn TrafficStore>,
+    inner: Arc<dyn CaptureStore>,
 }
 
 impl std::fmt::Debug for RedactingStore {
@@ -18,36 +18,36 @@ impl std::fmt::Debug for RedactingStore {
 }
 
 impl RedactingStore {
-    pub fn new(inner: Arc<dyn TrafficStore>) -> Self {
+    pub fn new(inner: Arc<dyn CaptureStore>) -> Self {
         Self { inner }
     }
 }
 
 #[async_trait]
-impl TrafficStore for RedactingStore {
-    async fn insert_event(&self, event: &TrafficEvent) -> Result<()> {
+impl CaptureStore for RedactingStore {
+    async fn insert_event(&self, event: &CaptureEvent) -> Result<()> {
         let mut e = event.clone();
         redact_event(&mut e);
         self.inner.insert_event(&e).await
     }
 
-    async fn insert_batch(&self, events: &[TrafficEvent]) -> Result<()> {
-        let mut owned: Vec<TrafficEvent> = events.to_vec();
+    async fn insert_batch(&self, events: &[CaptureEvent]) -> Result<()> {
+        let mut owned: Vec<CaptureEvent> = events.to_vec();
         for e in &mut owned {
             redact_event(e);
         }
         self.inner.insert_batch(&owned).await
     }
 
-    async fn recent(&self, limit: u32) -> Result<Vec<TrafficEvent>> {
+    async fn recent(&self, limit: u32) -> Result<Vec<CaptureEvent>> {
         self.inner.recent(limit).await
     }
 
-    async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<TrafficEvent>> {
+    async fn search_keyword(&self, query: &str, limit: u32) -> Result<Vec<CaptureEvent>> {
         self.inner.search_keyword(query, limit).await
     }
 
-    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<TrafficEvent>> {
+    async fn get_by_ids(&self, ids: &[String]) -> Result<Vec<CaptureEvent>> {
         self.inner.get_by_ids(ids).await
     }
 
@@ -55,7 +55,7 @@ impl TrafficStore for RedactingStore {
         self.inner.usage_totals().await
     }
 
-    async fn export_all(&self) -> Result<Vec<TrafficEvent>> {
+    async fn export_all(&self) -> Result<Vec<CaptureEvent>> {
         // Re-redact on export as defense in depth.
         let mut events = self.inner.export_all().await?;
         for e in &mut events {
@@ -67,7 +67,7 @@ impl TrafficStore for RedactingStore {
     async fn export_for_conversations(
         &self,
         conversation_ids: &[String],
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         let mut events = self.inner.export_for_conversations(conversation_ids).await?;
         for e in &mut events {
             redact_event(e);
@@ -83,7 +83,7 @@ impl TrafficStore for RedactingStore {
         &self,
         conversation_id: &str,
         limit: u32,
-    ) -> Result<Vec<TrafficEvent>> {
+    ) -> Result<Vec<CaptureEvent>> {
         self.inner.conversation_events(conversation_id, limit).await
     }
 

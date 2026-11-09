@@ -51,7 +51,7 @@ export function QuotaProviderCardStats({
           <div className={styles.k}>Next reset</div>
           <div className={styles.v}>{nextReset}</div>
         </div>
-        <div className={styles.item} title={`Burn over the last ${horizon} of captured traffic`}>
+        <div className={styles.item} title={`Burn over the last ${horizon} of captures`}>
           <div className={styles.k}>
             {metricMode === "cost" ? "Est. cost" : `Burn (last ${horizon})`}
           </div>
@@ -66,7 +66,7 @@ export function QuotaProviderCardStats({
           emptyLabel={
             metricMode === "limits"
               ? `No live remaining samples in the last ${horizon} yet`
-              : `No captured traffic in the last ${horizon}`
+              : `No captures in the last ${horizon}`
           }
           legend={chartLegend}
         />

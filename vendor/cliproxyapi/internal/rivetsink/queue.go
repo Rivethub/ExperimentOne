@@ -25,7 +25,7 @@ const (
 	spoolReplayMax      = 50
 )
 
-// queueSender batches marshaled traffic events onto /v1/ingest/batch with
+// queueSender batches marshaled capture events onto /v1/ingest/batch with
 // bounded memory. Full queue or failed posts → disk spool (never block the
 // proxy request path).
 type queueSender struct {

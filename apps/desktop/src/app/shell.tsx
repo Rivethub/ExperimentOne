@@ -132,7 +132,7 @@ export function AppShell(): React.ReactElement {
           page={page}
           settingsTab={settingsTab}
           accountCount={rivet.accounts.length}
-          trafficEventCount={rivet.status?.usage.events ?? 0}
+          captureEventCount={rivet.status?.usage.events ?? 0}
         />
 
         <div

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
-import { turnFromTrafficEvent } from "./parse";
-import type { TrafficEvent } from "../lib/types";
+import { turnFromCaptureEvent } from "./parse";
+import type { CaptureEvent } from "../lib/types";
 
-function ev(partial: Partial<TrafficEvent> & Pick<TrafficEvent, "content" | "role">): TrafficEvent {
+function ev(partial: Partial<CaptureEvent> & Pick<CaptureEvent, "content" | "role">): CaptureEvent {
   return {
     id: partial.id ?? "1",
     ts: partial.ts ?? new Date().toISOString(),
@@ -15,7 +15,7 @@ function ev(partial: Partial<TrafficEvent> & Pick<TrafficEvent, "content" | "rol
   };
 }
 
-describe("turnFromTrafficEvent", () => {
+describe("turnFromCaptureEvent", () => {
   it("parses Claude thinking + tool_use from response", () => {
     const req = JSON.stringify({
       model: "claude-sonnet-4-5",
@@ -30,7 +30,7 @@ describe("turnFromTrafficEvent", () => {
         { type: "tool_use", id: "toolu_1", name: "Bash", input: { command: "pwd" } },
       ],
     });
-    const turn = turnFromTrafficEvent(ev({ role: "assistant", content: `${req}\n---\n${resp}` }));
+    const turn = turnFromCaptureEvent(ev({ role: "assistant", content: `${req}\n---\n${resp}` }));
     expect(turn.parts.map((p) => p.kind)).toEqual(["thinking", "text", "tool_call"]);
     expect(turn.parts[0]).toMatchObject({ kind: "thinking", text: "Need shell access." });
     expect(turn.parts[2]).toMatchObject({ kind: "tool_call", name: "Bash" });
@@ -45,7 +45,7 @@ describe("turnFromTrafficEvent", () => {
         },
       ],
     });
-    const turn = turnFromTrafficEvent(ev({ role: "user", content: req }));
+    const turn = turnFromCaptureEvent(ev({ role: "user", content: req }));
     expect(turn.role).toBe("tool");
     expect(turn.parts).toEqual([
       { kind: "tool_result", id: "toolu_1", output: "/tmp", isError: false },
@@ -71,7 +71,7 @@ describe("turnFromTrafficEvent", () => {
         },
       ],
     });
-    const turn = turnFromTrafficEvent(
+    const turn = turnFromCaptureEvent(
       ev({ role: "assistant", provider: "codex", content: `{}\n---\n${resp}` }),
     );
     expect(turn.parts.map((p) => p.kind)).toEqual(["thinking", "text", "tool_call"]);
@@ -83,7 +83,7 @@ describe("turnFromTrafficEvent", () => {
   });
 
   it("falls back to plain text for demo content", () => {
-    const turn = turnFromTrafficEvent(
+    const turn = turnFromCaptureEvent(
       ev({ role: "user", content: "How do I inspect conversation history?" }),
     );
     expect(turn.parts).toEqual([{ kind: "text", text: "How do I inspect conversation history?" }]);

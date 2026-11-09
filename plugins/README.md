@@ -1,6 +1,6 @@
 # Rivet harness plugins (optional)
 
-Plugins **do not capture traffic**. Live capture is proxy-only
+Plugins **do not capture events**. Live capture is proxy-only
 (`rivet-proxy` → `rivetsink` → `/v1/ingest`).
 
 Plugins only improve what the proxy can already capture / what the agent sees
@@ -33,13 +33,13 @@ Drop any of these in the project root (first match wins per title):
 Also checked: `.rivet/*.md`, `memory/*.md`, and lowercase names.
 
 On SessionStart the hook POSTs cwd + file contents to Rivet, which merges them
-with topic context / recent traffic / hybrid hits under a ~4k token budget, then
+with topic context / recent captures / hybrid hits under a ~4k token budget, then
 emits:
 
 - Claude Code: `hookSpecificOutput.additionalContext`
 - Cursor: `additional_context` (and camelCase alias)
 
-This is **context inject only** — not harness traffic ingress.
+This is **context inject only** — not harness capture ingress.
 
 ## Claude Code (`plugins/rivet`)
 

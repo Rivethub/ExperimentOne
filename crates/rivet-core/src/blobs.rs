@@ -1,4 +1,4 @@
-//! Read spilled traffic bodies under `blobs/`.
+//! Read spilled capture bodies under `blobs/`.
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -30,14 +30,14 @@ pub fn resolve_body_ref(paths: &RivetPaths, body_ref: &str) -> Result<PathBuf> {
     Ok(paths.blobs_dir().as_std_path().join(rel))
 }
 
-/// Load the full spilled body for a traffic event, if present on disk.
+/// Load the full spilled body for a capture event, if present on disk.
 pub fn read_body_ref(paths: &RivetPaths, body_ref: &str) -> Result<String> {
     let path = resolve_body_ref(paths, body_ref)?;
     fs::read_to_string(&path).with_context(|| format!("read blob {}", path.display()))
 }
 
 /// Replace `content` with the spilled body when `body_ref` resolves.
-pub fn hydrate_event_content(paths: &RivetPaths, event: &mut crate::TrafficEvent) {
+pub fn hydrate_event_content(paths: &RivetPaths, event: &mut crate::CaptureEvent) {
     let Some(body_ref) = event.body_ref.as_deref() else {
         return;
     };
@@ -48,7 +48,7 @@ pub fn hydrate_event_content(paths: &RivetPaths, event: &mut crate::TrafficEvent
     }
 }
 
-pub fn hydrate_events(paths: &RivetPaths, events: &mut [crate::TrafficEvent]) {
+pub fn hydrate_events(paths: &RivetPaths, events: &mut [crate::CaptureEvent]) {
     for event in events {
         hydrate_event_content(paths, event);
     }
@@ -64,7 +64,9 @@ mod tests {
         let paths = RivetPaths { root: Utf8PathBuf::from("/tmp/rivet-test-root") };
         assert!(resolve_body_ref(&paths, "../etc/passwd").is_err());
         assert!(resolve_body_ref(&paths, "/abs").is_err());
-        let ok = resolve_body_ref(&paths, "traffic/2026/11/08/x.txt").unwrap();
-        assert!(ok.ends_with("blobs/traffic/2026/11/08/x.txt"));
+        let ok = resolve_body_ref(&paths, "capture/2026/11/08/x.txt").unwrap();
+        assert!(ok.ends_with("blobs/capture/2026/11/08/x.txt"));
+        let legacy = resolve_body_ref(&paths, "traffic/2026/11/08/x.txt").unwrap();
+        assert!(legacy.ends_with("blobs/traffic/2026/11/08/x.txt"));
     }
 }

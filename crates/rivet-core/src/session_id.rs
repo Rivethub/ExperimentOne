@@ -1,9 +1,9 @@
-//! Canonical session identity for captured traffic.
+//! Canonical session identity for captures.
 //!
 //! Wire captures often carry a bare harness id. Prefer `provider:nativeId` so
 //! conversations stay stable across soft hashes, imports, and multi-harness use.
 
-use crate::traffic::ProviderKind;
+use crate::capture::ProviderKind;
 
 /// Build a canonical session key from provider + native harness id.
 ///

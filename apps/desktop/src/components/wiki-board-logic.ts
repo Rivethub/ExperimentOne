@@ -135,9 +135,9 @@ export function ensureReadmeToc(
     );
   }
 
-  const traffic = /\n## Traffic snapshot\n[\s\S]*?(?=\n## |\s*$)/iu.exec(content);
-  if (isDefined(traffic?.index)) {
-    const end = traffic.index + traffic[0].length;
+  const snapshot = /\n## (?:Capture|Traffic) snapshot\n[\s\S]*?(?=\n## |\s*$)/iu.exec(content);
+  if (isDefined(snapshot?.index)) {
+    const end = snapshot.index + snapshot[0].length;
     return `${content.slice(0, end)}\n\n${tocSection}${content.slice(end)}`;
   }
 

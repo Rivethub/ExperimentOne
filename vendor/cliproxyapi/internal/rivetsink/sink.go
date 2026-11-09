@@ -1,4 +1,4 @@
-// Package rivetsink forwards captured proxy traffic to Rivet's local ingest API.
+// Package rivetsink forwards captured proxy captures to Rivet's local ingest API.
 // Credentials are never sent — only request/response bodies and metadata.
 package rivetsink
 
@@ -25,7 +25,7 @@ const errNoFileBodySource sinkError = "rivetsink: inner logger does not support 
 
 // Wrapper dual-writes to an inner RequestLogger and posts events to Rivet.
 // IsEnabled is always true while ingest is configured so middleware keeps
-// capturing traffic even when on-disk request-log is disabled.
+// capturing events even when on-disk request-log is disabled.
 type Wrapper struct {
 	inner    logging.RequestLogger
 	sender   *queueSender
@@ -34,7 +34,7 @@ type Wrapper struct {
 	softWire sync.Map
 }
 
-type trafficEvent struct {
+type captureEvent struct {
 	ID              string  `json:"id"`
 	Ts              string  `json:"ts"`
 	Provider        string  `json:"provider"`
@@ -733,7 +733,7 @@ func (w *Wrapper) emit(url string, headers map[string][]string, reqBody, respBod
 		hasThinking = &v
 	}
 
-	evt := trafficEvent{
+	evt := captureEvent{
 		ID:                  eventID,
 		Ts:                  time.Now().UTC().Format(time.RFC3339Nano),
 		Provider:            provider,

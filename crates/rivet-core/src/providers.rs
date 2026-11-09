@@ -17,7 +17,7 @@ pub enum LoginKind {
 /// One provider Rivet can manage — kept in lockstep with prox TUI + CLI login flags.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderCatalogEntry {
-    /// Canonical id used in APIs and traffic (`claude`, `kimi-ai`, …).
+    /// Canonical id used in APIs and captures (`claude`, `kimi-ai`, …).
     pub id: String,
     pub label: String,
     /// Short badge letter/glyph for the UI.
@@ -139,10 +139,10 @@ pub fn find_provider(raw: &str) -> Option<&'static ProviderCatalogEntry> {
     catalog.iter().find(|p| p.id == key || p.aliases.iter().any(|a| a.eq_ignore_ascii_case(&key)))
 }
 
-/// Normalize traffic / credential provider labels into a stable id.
+/// Normalize capture / credential provider labels into a stable id.
 pub fn normalize_provider_id(raw: &str) -> String {
     let s = raw.trim().to_ascii_lowercase();
-    // Keep Gemini traffic on its own pool. `gemini` remains an Antigravity login
+    // Keep Gemini captures on its own pool. `gemini` remains an Antigravity login
     // alias for the Accounts UI, but must not fold burn/quota into antigravity.
     if s == "gemini" || s == "gemini-cli" || s.starts_with("gemini-") {
         return "gemini".into();
@@ -169,7 +169,7 @@ pub fn normalize_provider_id(raw: &str) -> String {
     } else if s.contains("vertex") {
         "vertex".into()
     } else if s.contains("gemini") {
-        // Gemini traffic often arrives via Antigravity / Vertex credentials.
+        // Gemini captures often arrives via Antigravity / Vertex credentials.
         "gemini".into()
     } else if s.is_empty() {
         "other".into()

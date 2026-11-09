@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
-import { turnFromTrafficEvent } from "./parse";
+import { turnFromCaptureEvent } from "./parse";
 import { isShellTool, timelineFromTurns } from "./timeline";
-import type { TrafficEvent } from "../lib/types";
+import type { CaptureEvent } from "../lib/types";
 
-function ev(partial: Partial<TrafficEvent> & Pick<TrafficEvent, "content" | "role">): TrafficEvent {
+function ev(partial: Partial<CaptureEvent> & Pick<CaptureEvent, "content" | "role">): CaptureEvent {
   return {
     id: partial.id ?? "1",
     ts: partial.ts ?? new Date().toISOString(),
@@ -35,10 +35,10 @@ describe("timelineFromTurns", () => {
         },
       ],
     });
-    const assistant = turnFromTrafficEvent(
+    const assistant = turnFromCaptureEvent(
       ev({ id: "a", role: "assistant", content: `${req}\n---\n${resp}` }),
     );
-    const toolResult = turnFromTrafficEvent(
+    const toolResult = turnFromCaptureEvent(
       ev({
         id: "b",
         role: "user",

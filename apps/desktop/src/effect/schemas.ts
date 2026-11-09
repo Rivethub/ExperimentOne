@@ -3,7 +3,7 @@ import { Schema } from "effect";
 const OnboardingStatusSchema = Schema.Struct({
   proxy_running: Schema.Boolean,
   has_accounts: Schema.Boolean,
-  has_traffic: Schema.Boolean,
+  has_captures: Schema.Boolean,
   harness_ready: Schema.Boolean,
 });
 
@@ -36,7 +36,7 @@ export const StatusSchema = Schema.Struct({
   mcp_url: Schema.String,
   access_key_hint: Schema.String,
   account_count: Schema.Finite,
-  traffic_backend: Schema.optional(Schema.String),
+  capture_backend: Schema.optional(Schema.String),
   wiki_dir: Schema.optional(Schema.String),
   embedding_model: Schema.optional(Schema.NullOr(Schema.String)),
   wiki_model: Schema.optional(Schema.NullOr(Schema.String)),
@@ -135,7 +135,7 @@ export const ProvidersResponseSchema = Schema.Struct({
   providers: Schema.mutable(Schema.Array(CatalogProviderSchema)),
 });
 
-export const TrafficEventSchema = Schema.Struct({
+export const CaptureEventSchema = Schema.Struct({
   id: Schema.String,
   ts: Schema.String,
   provider: Schema.String,
@@ -175,7 +175,7 @@ export const TrafficEventSchema = Schema.Struct({
   tool_call_count: Schema.optional(Schema.Finite),
 });
 
-export const TrafficEventsSchema = Schema.mutable(Schema.Array(TrafficEventSchema));
+export const CaptureEventsSchema = Schema.mutable(Schema.Array(CaptureEventSchema));
 
 export const ConversationSummarySchema = Schema.Struct({
   id: Schema.String,
@@ -300,6 +300,6 @@ export const ConfigResponseSchema = PublicConfigSchema;
 /** Mirrors Rust `LiveCursor` — cheap poll/SSE sync token. */
 export const LiveCursorSchema = Schema.Struct({
   wiki_revision: Schema.Finite,
-  traffic_events: Schema.Finite,
+  capture_events: Schema.Finite,
   observed_at: Schema.String,
 });

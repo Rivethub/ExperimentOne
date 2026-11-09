@@ -31,12 +31,12 @@ use rivet_core::{
     codex_config_toml, conversations_from_events, harness_user_ready, hydrate_event_content,
     lexical_embed, load_workspace_memory, localhost_port_free, normalize_event_turns,
     project_id_from_cwd, provider_catalog, recency_boost, resolve_project_root, Capabilities,
-    ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths, TrafficEvent, TrafficRole,
+    ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths, CaptureEvent, CaptureRole,
     UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
 };
 use rivet_store::{
-    fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseTrafficStore,
-    JobStatus, MetaStore, NatsJobStore, QueueStats, SessionBinding, TopicMeta, TrafficStore,
+    fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseCaptureStore,
+    JobStatus, MetaStore, NatsJobStore, QueueStats, SessionBinding, TopicMeta, CaptureStore,
     WikiPageMeta, WorkerRole,
 };
 use serde::{Deserialize, Serialize};
@@ -68,21 +68,21 @@ pub trait ControlApi: Send + Sync {
 #[derive(Clone)]
 pub struct ApiState {
     pub config: Arc<RwLock<RivetConfig>>,
-    pub store: Arc<dyn TrafficStore>,
+    pub store: Arc<dyn CaptureStore>,
     /// `ClickHouse` client used for HNSW vector search / embedding counts.
-    pub ch: Arc<ClickHouseTrafficStore>,
+    pub ch: Arc<ClickHouseCaptureStore>,
     /// NATS `JetStream` job plane.
     pub jobs: Arc<NatsJobStore>,
     pub control: Arc<dyn ControlApi>,
     pub paths: RivetPaths,
     pub meta: Arc<MetaStore>,
-    /// Traffic backend id — currently always `clickhouse`.
-    pub traffic_backend: &'static str,
+    /// Capture backend id — currently always `clickhouse`.
+    pub capture_backend: &'static str,
     /// Background vectorize + wiki workers.
     pub workers: Option<Arc<rivet_worker::WorkerPool>>,
     /// Bumped whenever the wiki filesystem index changes.
     pub wiki_revision: Arc<AtomicU64>,
-    /// In-process live refresh bus (wiki/traffic SSE).
+    /// In-process live refresh bus (wiki/capture SSE).
     pub live: LiveBus,
     /// Signal rivetd to exit after sidecars stop (`POST /v1/shutdown`).
     pub shutdown: tokio::sync::watch::Sender<bool>,
@@ -92,7 +92,7 @@ impl std::fmt::Debug for ApiState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ApiState")
             .field("paths", &self.paths)
-            .field("traffic_backend", &self.traffic_backend)
+            .field("capture_backend", &self.capture_backend)
             .finish_non_exhaustive()
     }
 }
@@ -108,7 +108,7 @@ pub struct StatusResponse {
     pub usage: UsageTotals,
     pub account_count: u64,
     #[schema(value_type = String)]
-    pub traffic_backend: &'static str,
+    pub capture_backend: &'static str,
     pub wiki_dir: String,
     pub embedding_model: Option<String>,
     pub wiki_model: Option<String>,
@@ -137,7 +137,7 @@ pub struct WorkersStatus {
 pub struct OnboardingStatus {
     pub proxy_running: bool,
     pub has_accounts: bool,
-    pub has_traffic: bool,
+    pub has_captures: bool,
     pub harness_ready: bool,
 }
 
@@ -430,8 +430,8 @@ pub fn router(state: ApiState) -> Router {
     let protected = Router::new()
         .route("/v1/events", get(live_events_doc))
         .route("/v1/config", get(get_config).put(put_config))
-        .route("/v1/traffic/recent", get(recent))
-        .route("/v1/traffic/search", get(search_traffic))
+        .route("/v1/captures/recent", get(recent))
+        .route("/v1/captures/search", get(search_captures))
         .route("/v1/conversations", get(list_conversations))
         .route("/v1/conversations/search", get(search_conversations))
         .route("/v1/conversations/events", get(conversation_events))
@@ -451,7 +451,7 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/memory/startup", get(memory_startup).post(memory_startup_post))
         .route("/v1/workers/flagged", get(workers_flagged).post(workers_flagged_retry))
         .route("/v1/summaries", get(summaries_list))
-        .route("/v1/traffic/full", get(traffic_get_full))
+        .route("/v1/captures/full", get(capture_get_full))
         .route("/v1/conversations/browse", get(conversation_browse))
         .route("/v1/memory/stats", get(memory_stats))
         .route("/v1/harness/claude.env", get(claude_env))
@@ -580,7 +580,7 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         capabilities,
         usage,
         account_count,
-        traffic_backend: state.traffic_backend,
+        capture_backend: state.capture_backend,
         wiki_dir: state.paths.wiki_dir().to_string(),
         embedding_model,
         wiki_model,
@@ -588,7 +588,7 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         onboarding: OnboardingStatus {
             proxy_running,
             has_accounts: account_count > 0,
-            has_traffic: usage.events > 0,
+            has_captures: usage.events > 0,
             harness_ready,
         },
         workers: WorkersStatus {
@@ -651,21 +651,21 @@ async fn put_config(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct TrafficQuery {
+pub struct CaptureQuery {
     limit: Option<u32>,
     q: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/v1/traffic/recent",
-    tag = "traffic",
-    responses((status = 200, description = "Recent traffic events", body = Vec<TrafficEvent>))
+    path = "/v1/captures/recent",
+    tag = "capture",
+    responses((status = 200, description = "Recent capture events", body = Vec<CaptureEvent>))
 )]
 pub async fn recent(
     State(state): State<ApiState>,
-    Query(q): Query<TrafficQuery>,
-) -> Result<Json<Vec<TrafficEvent>>, StatusCode> {
+    Query(q): Query<CaptureQuery>,
+) -> Result<Json<Vec<CaptureEvent>>, StatusCode> {
     let limit = q.limit.unwrap_or(200).min(500);
     if let Some(query) = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         return state
@@ -678,10 +678,10 @@ pub async fn recent(
     state.store.recent(limit).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
 
-async fn search_traffic(
+async fn search_captures(
     State(state): State<ApiState>,
-    Query(q): Query<TrafficQuery>,
-) -> Result<Json<Vec<TrafficEvent>>, StatusCode> {
+    Query(q): Query<CaptureQuery>,
+) -> Result<Json<Vec<CaptureEvent>>, StatusCode> {
     let limit = q.limit.unwrap_or(100).min(500);
     let query = q.q.unwrap_or_default();
     if query.trim().is_empty() {
@@ -731,7 +731,7 @@ async fn list_conversations(
 async fn conversation_events(
     State(state): State<ApiState>,
     Query(q): Query<ConversationQuery>,
-) -> Result<Json<Vec<TrafficEvent>>, StatusCode> {
+) -> Result<Json<Vec<CaptureEvent>>, StatusCode> {
     let limit = q.limit.unwrap_or(500).min(2000);
     let id = q.id.unwrap_or_default();
     if id.trim().is_empty() {
@@ -973,7 +973,7 @@ fn strip_chunk_suffix(event_id: &str) -> String {
 
 #[derive(Debug, Deserialize)]
 struct DemoSeedRequest {
-    /// When true, seed even if traffic already exists.
+    /// When true, seed even if captures already exist.
     force: Option<bool>,
 }
 
@@ -991,7 +991,7 @@ async fn demo_seed(
     if usage.events > 0 && !body.force.unwrap_or(false) {
         return Ok(Json(DemoSeedResponse {
             inserted: 0,
-            note: "store already has traffic — pass {\"force\":true} to append demo events".into(),
+            note: "store already has captures — pass {\"force\":true} to append demo events".into(),
         }));
     }
 
@@ -1000,17 +1000,17 @@ async fn demo_seed(
     state.store.insert_batch(&events).await.map_err(|e| err_response(e.to_string()))?;
     Ok(Json(DemoSeedResponse {
         inserted: n,
-        note: "Demo traffic seeded for local product walkthrough (no credentials).".into(),
+        note: "Demo captures seeded for local product walkthrough (no credentials).".into(),
     }))
 }
 
-fn build_demo_events() -> Vec<TrafficEvent> {
-    let samples: &[(&str, ProviderKind, &str, TrafficRole, u32, u32)] = &[
+fn build_demo_events() -> Vec<CaptureEvent> {
+    let samples: &[(&str, ProviderKind, &str, CaptureRole, u32, u32)] = &[
         (
             "Refactor the auth middleware to support device codes.",
             ProviderKind::Claude,
             "claude-sonnet-4-5",
-            TrafficRole::User,
+            CaptureRole::User,
             420,
             0,
         ),
@@ -1018,7 +1018,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "Sure — here's a sketch using PKCE and a short-lived device code…",
             ProviderKind::Claude,
             "claude-sonnet-4-5",
-            TrafficRole::Assistant,
+            CaptureRole::Assistant,
             0,
             1860,
         ),
@@ -1026,7 +1026,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "Write a failing test for rivetbag export excluding oauth dirs.",
             ProviderKind::Codex,
             "gpt-5-codex",
-            TrafficRole::User,
+            CaptureRole::User,
             310,
             0,
         ),
@@ -1034,7 +1034,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "Added `export_excludes_credentials` covering Application Support paths.",
             ProviderKind::Codex,
             "gpt-5-codex",
-            TrafficRole::Assistant,
+            CaptureRole::Assistant,
             0,
             1420,
         ),
@@ -1042,7 +1042,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "Summarize last hour of proxy errors for Claude pool.",
             ProviderKind::Claude,
             "claude-haiku-4-5",
-            TrafficRole::User,
+            CaptureRole::User,
             180,
             0,
         ),
@@ -1050,7 +1050,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "Three 429s from anthropic, one timeout; burn ~12k tokens.",
             ProviderKind::Claude,
             "claude-haiku-4-5",
-            TrafficRole::Assistant,
+            CaptureRole::Assistant,
             0,
             640,
         ),
@@ -1058,7 +1058,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "Generate harness MCP snippet for Rivet history search.",
             ProviderKind::Codex,
             "gpt-5-codex",
-            TrafficRole::User,
+            CaptureRole::User,
             220,
             0,
         ),
@@ -1066,7 +1066,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
             "```json\n{\"mcpServers\":{\"rivet\":{\"url\":\"http://127.0.0.1:8742/mcp\"}}}\n```",
             ProviderKind::Codex,
             "gpt-5-codex",
-            TrafficRole::Assistant,
+            CaptureRole::Assistant,
             0,
             380,
         ),
@@ -1077,7 +1077,7 @@ fn build_demo_events() -> Vec<TrafficEvent> {
     for i in 0..36 {
         let (content, provider, model, role, tin, tout) = samples[i % samples.len()];
         let mins_ago = (i64::try_from(i).unwrap_or(0) + 1) * 7;
-        let mut ev = TrafficEvent::new(provider);
+        let mut ev = CaptureEvent::new(provider);
         ev.ts = now - Duration::minutes(mins_ago);
         ev.model = Some(model.into());
         ev.role = role;
@@ -1527,10 +1527,10 @@ async fn export_bag(
     .await
     .map_err(|e| err_response(e.to_string()))?;
     let note = conversation_ids.as_ref().map_or_else(
-        || "Credentials excluded. Package contains traffic events only.".into(),
+        || "Credentials excluded. Package contains capture events only.".into(),
         |ids| {
             format!(
-                "Credentials excluded. Package contains traffic for {} conversation{}.",
+                "Credentials excluded. Package contains captures for {} conversation{}.",
                 ids.len(),
                 if ids.len() == 1 { "" } else { "s" }
             )
@@ -2231,7 +2231,7 @@ async fn build_memory_startup(
     })))
 }
 
-async fn traffic_get_full(
+async fn capture_get_full(
     State(state): State<ApiState>,
     Query(q): Query<EventIdQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {

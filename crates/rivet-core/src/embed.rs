@@ -51,8 +51,8 @@ mod tests {
 
     #[test]
     fn similar_text_scores_higher() {
-        let embed_a = lexical_embed("claude code proxy traffic tokens");
-        let embed_b = lexical_embed("claude proxy traffic and tokens");
+        let embed_a = lexical_embed("claude code proxy captures tokens");
+        let embed_b = lexical_embed("claude proxy captures and tokens");
         let embed_c = lexical_embed("completely unrelated gardening tips");
         assert!(cosine(&embed_a, &embed_b) > cosine(&embed_a, &embed_c));
     }

@@ -6,7 +6,7 @@ import { rivetErrorMessage, runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
 import { notify } from "../lib/notify";
 import { queryKeys } from "../lib/query-keys";
-import type { ConversationSummary, SearchMode, TrafficEvent } from "../lib/types";
+import type { ConversationSummary, SearchMode, CaptureEvent } from "../lib/types";
 
 export type ConversationSearchResult = {
   results: ConversationSummary[];
@@ -40,7 +40,7 @@ async function fetchConversations(
   );
 }
 
-async function fetchConversationEvents(id: string): Promise<TrafficEvent[]> {
+async function fetchConversationEvents(id: string): Promise<CaptureEvent[]> {
   return runApp(
     Effect.gen(function* loadConversationTimeline() {
       yield* Rivet.requireBackend;

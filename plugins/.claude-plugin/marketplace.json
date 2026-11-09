@@ -1,6 +1,6 @@
 {
   "name": "rivet",
-  "description": "Rivet local traffic + history plugins for coding harnesses",
+  "description": "Rivet local capture + history plugins for coding harnesses",
   "owner": {
     "name": "Rivet",
     "url": "https://github.com/wSedlacek/Rivet"

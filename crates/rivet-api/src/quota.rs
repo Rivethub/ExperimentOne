@@ -419,7 +419,7 @@ async fn build_snapshot(
         credentials_loaded: loaded,
         providers,
         accounts,
-        note: "Remaining sums only observed provider watermarks (unknown ≠ full). Burn %/h is estimated from captured Rivet traffic, not provider billing.".into(),
+        note: "Remaining sums only observed provider watermarks (unknown ≠ full). Burn %/h is estimated from captured Rivet captures, not provider billing.".into(),
     })
 }
 
@@ -735,7 +735,7 @@ pub fn local_fallback_snapshot(
         credentials_loaded: out_accounts.len() as u64,
         providers,
         accounts: out_accounts,
-        note: "Proxy management unreachable — account list only; remaining % withheld until live quota signals exist. Burn shown as tok/h from traffic.".into(),
+        note: "Proxy management unreachable — account list only; remaining % withheld until live quota signals exist. Burn shown as tok/h from captures.".into(),
     }
 }
 

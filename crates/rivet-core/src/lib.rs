@@ -1,6 +1,6 @@
 //! Shared domain types for Rivet.
 //!
-//! "Traffic" / exportable tokens = prompts, completions, usage, session metadata.
+//! "Capture" / exportable tokens = prompts, completions, usage, session metadata.
 //! Credentials and OAuth blobs are never part of export packages.
 
 mod blobs;
@@ -23,7 +23,7 @@ mod redact;
 mod scoring;
 mod session_id;
 mod startup;
-mod traffic;
+mod capture;
 mod turns;
 
 pub use blobs::{hydrate_event_content, hydrate_events, read_body_ref, resolve_body_ref};
@@ -41,7 +41,7 @@ pub use harness::{
 };
 pub use http_guard::{host_is_loopback, origin_allowed};
 pub use ingest_validate::{
-    validate_ingest_batch, validate_traffic_event, IngestValidationError, MAX_CONTENT_BYTES,
+    validate_ingest_batch, validate_capture_event, IngestValidationError, MAX_CONTENT_BYTES,
     MAX_INGEST_BATCH, MAX_TOKENS_FIELD,
 };
 pub use live::{LiveBus, LiveCursor, LiveEvent};
@@ -66,8 +66,8 @@ pub use startup::{
     load_workspace_memory, trim_to_tokens, WorkspaceMemorySection, STARTUP_BUDGET_TOKENS,
     WORKSPACE_MEMORY_FILES,
 };
-pub use traffic::{
+pub use capture::{
     conversations_from_events, CaptureQuality, ConversationSummary, ExportManifest, ProviderKind,
-    TrafficEvent, TrafficRole, UsageTotals,
+    CaptureEvent, CaptureRole, UsageTotals,
 };
 pub use turns::{normalize_event_turns, NormalizedTurn, TurnKind};

@@ -1,6 +1,6 @@
 import { fmt, providerKey } from "./provider-utils";
 import { isDefined } from "./nullish";
-import type { QuotaHistory, QuotaHistoryPoint, TrafficEvent } from "./types";
+import type { QuotaHistory, QuotaHistoryPoint, CaptureEvent } from "./types";
 
 export type Series = {
   recorded: number[];
@@ -16,7 +16,7 @@ export function horizonMs(h: "1h" | "3h" | "6h"): number {
   return { "1h": 1, "3h": 3, "6h": 6 }[h] * 60 * 60 * 1000;
 }
 
-export function inHorizon(ev: TrafficEvent, horizon: "1h" | "3h" | "6h"): boolean {
+export function inHorizon(ev: CaptureEvent, horizon: "1h" | "3h" | "6h"): boolean {
   const ts = Date.parse(ev.ts);
   if (Number.isNaN(ts)) {
     return true;
@@ -121,9 +121,9 @@ function estimateEmptyAt(
   return "Steady";
 }
 
-/** Build chart series from measured traffic burn. */
+/** Build chart series from measured capture burn. */
 export function seriesFromEvents(
-  events: TrafficEvent[],
+  events: CaptureEvent[],
   provider: string,
   horizon: "1h" | "3h" | "6h",
   points = 24,

@@ -1,11 +1,11 @@
 # Rivet
 
-Local-first multi-account AI proxy, traffic database, and optional knowledge layer.
+Local-first multi-account AI proxy, capture database, and optional knowledge layer.
 
 Install the desktop app (macOS, Linux, or Windows), sign in your provider
 accounts, point Claude Code / Codex / other harnesses at the local proxy. Rivet
 captures every request and response, gives you stats and limits, and lets you
-export/import **traffic data** (never OAuth, API keys, or proxy secrets).
+export/import **capture data** (never OAuth, API keys, or proxy secrets).
 
 ## Layout
 
@@ -50,8 +50,7 @@ Scopes: `api`, `charts`, `ci`, `cli`, `core`, `deps`, `desktop`, `docs`, `export
 ## Product (v1)
 
 Local control app + `rivetd` control plane on **macOS, Linux, and Windows**.
-Quota charts use live provider windows plus burn/cost from **captured local
-traffic**. Traffic + embeddings live in ClickHouse (bundled sidecar or
+Quota charts use live provider windows plus burn/cost from **local captures**. Captures + embeddings live in ClickHouse (bundled sidecar or
 `RIVET_CLICKHOUSE_URL`); jobs run on NATS JetStream (bundled `nats-server` or
 `RIVET_NATS_URL`); meta (wiki index, quota history, summaries) is file-backed
 under `meta/`. Close the window to keep Rivet in the tray; Quit from the tray
@@ -65,12 +64,12 @@ Data directory: macOS `~/Library/Application Support/Rivet`, Linux
 ```bash
 ./scripts/build-sidecars.sh
 cd apps/desktop && bun install && bun run tauri dev
-# optional: POST http://127.0.0.1:8741/v1/demo/seed  → sample traffic for UI walkthrough
+# optional: POST http://127.0.0.1:8741/v1/demo/seed  → sample captures for UI walkthrough
 # release: ./scripts/release.sh            # host OS installer
 #          ./scripts/release-dmg.sh        # macOS DMG (+ --notarize)
 ```
 
-First-run: **Start proxy → Sign in (any prox provider) → Write harness → run traffic.**
+First-run: **Start proxy → Sign in (any prox provider) → Write harness → run a capture.**
 
 Supported credentials (same catalog as prox / CLIProxyAPI): Claude, Codex
 (browser OAuth by default; device code optional), Antigravity, Kimi.com,
@@ -79,7 +78,7 @@ Accounts live under Settings → Accounts as a list with **Add account**.
 
 Workers (on by default, `RIVET_WORKER_ROLE=all`): **vectorize** writes lexical
 64-d embeddings into ClickHouse for MCP `semantic_search`; **wiki** maintains a
-markdown tree under the Rivet data directory (traffic READMEs + knowledge
+markdown tree under the Rivet data directory (capture READMEs + knowledge
 pages when `wiki_model` is set); **compact** builds session summary DAGs.
 Trigger immediately via `POST /v1/workers/tick` or Intelligence → Run workers
 now.
@@ -89,8 +88,8 @@ now.
 | | Status |
 | --- | --- |
 | **M1** Local loop — supervise proxy, ingest, harness, login UI | Done |
-| **M2** Traffic quality — rivetsink parse, redaction, export, ClickHouse primary | Done |
-| **M3** Desktop polish — tray (close-to-tray), traffic browser, wiki, packaging | Done |
+| **M2** Capture quality — rivetsink parse, redaction, export, ClickHouse primary | Done |
+| **M3** Desktop polish — tray (close-to-tray), conversation browser, wiki, packaging | Done |
 | **M4** Optional intelligence — vector/wiki workers + semantic MCP | Done |
 | **M5** Enterprise Helm scaffold | Done (OIDC/teams later) |
 | **M6** Windows + Linux desktop parity | Done |
