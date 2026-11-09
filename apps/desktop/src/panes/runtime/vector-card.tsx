@@ -1,10 +1,11 @@
+import type { JSX } from "solid-js";
 import { formatRelativeIso } from "../../lib/format-utils";
 import { fmt } from "../../lib/provider-utils";
 import { isDefined } from "../../lib/nullish";
 import type { Status } from "../../lib/types";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
 
-export function RuntimeVectorCard({ status }: { status: Status | null }): React.ReactElement {
+export function RuntimeVectorCard({ status }: { status: Status | null }): JSX.Element {
   const on = status?.workers?.vector_search === true || status?.capabilities.vector_search === true;
   const model =
     isDefined(status?.embedding_model) && status.embedding_model !== ""

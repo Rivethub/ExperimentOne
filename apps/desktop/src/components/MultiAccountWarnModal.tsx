@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { JSX } from "solid-js";
 import { providerLabel, type CatalogProvider } from "../lib/provider-utils";
 import { Button, Modal } from "../ui";
 
@@ -22,7 +22,7 @@ export function MultiAccountWarnModal({
   providerAccountCount: (provider: string) => number;
   onDismiss: () => void;
   onConfirm: (pending: NonNullable<MultiAccountWarnState>) => void;
-}): ReactElement {
+}): JSX.Element {
   const count = warn ? providerAccountCount(warn.provider) : 0;
   const label = warn ? providerLabel(warn.provider, catalog) : "";
 
@@ -46,11 +46,11 @@ export function MultiAccountWarnModal({
       }
     >
       {warn ? (
-        <div className="space-y-2 text-[13.5px] leading-relaxed text-muted-foreground">
-          <p className="m-0 text-foreground">
+        <div class="space-y-2 text-[13.5px] leading-relaxed text-muted-foreground">
+          <p class="m-0 text-foreground">
             You already have {count} {label} account{count === 1 ? "" : "s"} linked.
           </p>
-          <p className="m-0">
+          <p class="m-0">
             Pooling multiple accounts of the same provider may conflict with that provider&apos;s
             Terms of Service. Rivet does not encourage reselling subscription captures as a public
             API.

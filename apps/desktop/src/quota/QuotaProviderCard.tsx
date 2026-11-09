@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { JSX } from "solid-js";
 import { costForProviderEvents } from "../lib/cost-estimate";
 import { providerKey } from "../lib/provider-utils";
 import type { Series } from "../lib/quota-series";
@@ -36,7 +36,7 @@ export type QuotaProviderCardProps = {
   onAccountSelect: (a: QuotaAccountUx) => void;
 };
 
-export function QuotaProviderCard(props: QuotaProviderCardProps): ReactElement {
+export function QuotaProviderCard(props: QuotaProviderCardProps): JSX.Element {
   const {
     name,
     ico,
@@ -89,7 +89,7 @@ export function QuotaProviderCard(props: QuotaProviderCardProps): ReactElement {
       : series.eventsInWindow === 0;
 
   return (
-    <Panel className="mb-0">
+    <Panel class="mb-0">
       <QuotaProviderCardHeader
         name={name}
         ico={ico}
@@ -107,7 +107,7 @@ export function QuotaProviderCard(props: QuotaProviderCardProps): ReactElement {
       {metricMode === "limits" && count > 0 && (
         <PooledWindowCards accounts={accounts} color={color} onAccountSelect={onAccountSelect} />
       )}
-      {metricMode === "cost" && <p className={styles.costEstimateNote}>{costSummary.note}</p>}
+      {metricMode === "cost" && <p class={styles.costEstimateNote}>{costSummary.note}</p>}
       <QuotaProviderCardStats
         metricMode={metricMode}
         horizon={horizon}

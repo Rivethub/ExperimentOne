@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { isDefined } from "../lib/nullish";
 import type { ProviderQuota } from "../lib/types";
 import type { MetricMode } from "./types";
@@ -42,12 +43,12 @@ export function QuotaProviderCardHeader({
   headline: number;
   unit: string;
   capLabel: string;
-}): React.ReactElement {
+}): JSX.Element {
   return (
-    <div className="mb-2.5 flex items-start justify-between gap-4">
-      <div className="flex items-center gap-2.5">
+    <div class="mb-2.5 flex items-start justify-between gap-4">
+      <div class="flex items-center gap-2.5">
         <div
-          className={cn(
+          class={cn(
             "grid size-7 place-items-center rounded-lg text-[13px] font-bold",
             icoTone[icoClass],
           )}
@@ -55,8 +56,8 @@ export function QuotaProviderCardHeader({
           {ico}
         </div>
         <div>
-          <h2 className="m-0 text-[15px] font-semibold">{name}</h2>
-          <div className="text-xs text-muted-foreground">
+          <h2 class="m-0 text-[15px] font-semibold">{name}</h2>
+          <div class="text-xs text-muted-foreground">
             {count} account{count === 1 ? "" : "s"}
             {pq !== null ? ` · ${pq.known_count ?? 0}/${count} reporting` : ""}
             {knownQuota ? ` · pool ${Math.round(capacity)}%` : ""} · {metricMode}
@@ -69,19 +70,19 @@ export function QuotaProviderCardHeader({
           </div>
         </div>
       </div>
-      <div className="text-right" title="Sum of remaining % across loaded accounts vs capacity">
+      <div class="text-right" title="Sum of remaining % across loaded accounts vs capacity">
         <div
-          className={cn(
+          class={cn(
             "text-[28px] leading-none font-bold tracking-tight tabular-nums",
             bigTone[icoClass],
           )}
         >
           {headline}
-          <span className="ml-1.5 text-[13px] font-medium tracking-normal text-muted-foreground">
+          <span class="ml-1.5 text-[13px] font-medium tracking-normal text-muted-foreground">
             {unit}
           </span>
         </div>
-        <div className="mt-1 text-xs text-muted-foreground">{capLabel}</div>
+        <div class="mt-1 text-xs text-muted-foreground">{capLabel}</div>
       </div>
     </div>
   );

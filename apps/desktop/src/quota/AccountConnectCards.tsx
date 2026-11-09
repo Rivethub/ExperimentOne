@@ -1,4 +1,5 @@
-import { Ellipsis, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import type { JSX } from "solid-js";
+import { Ellipsis, KeyRound, RefreshCw, Trash2 } from "lucide-solid";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -54,13 +55,13 @@ export function AccountConnectCards({
   onReconnect: (provider: string) => void;
   onRemove: (id: string) => void;
   onOpenHarness?: () => void;
-}): React.ReactElement {
+}): JSX.Element {
   if (accounts.length === 0) {
     return <Empty>No accounts yet — use Add account to sign in.</Empty>;
   }
 
   return (
-    <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+    <div class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
       {accounts.map((a) => {
         const q = quotaById.get(a.id);
         const id = providerKey(a.provider);
@@ -75,28 +76,27 @@ export function AccountConnectCards({
 
         return (
           <article
-            key={a.id}
-            className={cn(
+            class={cn(
               "group relative flex flex-col overflow-hidden rounded-xl border bg-[#0c0c0f]",
               "border-border/80",
             )}
-            style={{ borderColor: `${color}33` }}
+            style={{ "border-color": `${color}33` }}
           >
-            <div className="flex items-start gap-3 px-4 pt-4 pb-3">
+            <div class="flex items-start gap-3 px-4 pt-4 pb-3">
               <span
-                className="grid size-9 shrink-0 place-items-center rounded-lg text-sm font-semibold"
+                class="grid size-9 shrink-0 place-items-center rounded-lg text-sm font-semibold"
                 style={{ background: `${color}22`, color }}
                 aria-hidden
               >
                 {providerChipLabel(id, catalog).slice(0, 1)}
               </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold tracking-tight">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-start justify-between gap-2">
+                  <div class="min-w-0">
+                    <div class="truncate text-sm font-semibold tracking-tight">
                       {providerChipLabel(id, catalog)}
                     </div>
-                    <div className="truncate text-xs text-muted-foreground">
+                    <div class="truncate text-xs text-muted-foreground">
                       {q?.plan ?? "Plan unknown"}
                     </div>
                   </div>
@@ -106,7 +106,7 @@ export function AccountConnectCards({
                         type="button"
                         variant="ghost"
                         size="icon-sm"
-                        className="size-8 shrink-0 text-muted-foreground opacity-70 hover:opacity-100"
+                        class="size-8 shrink-0 text-muted-foreground opacity-70 hover:opacity-100"
                         aria-label={`Actions for ${displayEmail}`}
                         disabled={busy}
                       >
@@ -143,16 +143,14 @@ export function AccountConnectCards({
               </div>
             </div>
 
-            <div className="flex flex-1 flex-col gap-1 px-4 pb-4">
-              <div className="truncate text-[13px] font-medium">{displayEmail}</div>
+            <div class="flex flex-1 flex-col gap-1 px-4 pb-4">
+              <div class="truncate text-[13px] font-medium">{displayEmail}</div>
               {showAltLabel && (
-                <div className="truncate font-mono text-[11px] text-muted-foreground/80">
-                  {a.label}
-                </div>
+                <div class="truncate font-mono text-[11px] text-muted-foreground/80">{a.label}</div>
               )}
-              <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <div class="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                 <span
-                  className={cn(
+                  class={cn(
                     "inline-flex items-center rounded-md px-1.5 py-0.5 font-medium tabular-nums",
                     depleted
                       ? "bg-destructive/15 text-red-300"

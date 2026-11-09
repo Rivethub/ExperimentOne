@@ -1,6 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Effect } from "effect";
-import { useCallback, useState } from "react";
+import type { Accessor } from "solid-js";
+import { createSignal } from "solid-js";
 import { refreshWikiAtom } from "../atoms/wiki";
 import { rivetErrorMessage, runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
@@ -54,106 +55,100 @@ async function waitForLoginSuccess(timeoutMs = 5 * 60 * 1000): Promise<boolean> 
 }
 
 export function useAppOperations(opts: {
-  horizon: "1h" | "3h" | "6h";
+  horizon: Accessor<"1h" | "3h" | "6h">;
   setBusy: (v: boolean) => void;
-  status: Status | null;
-  runtimeLogsEnabled: boolean;
+  status: Accessor<Status | null>;
+  runtimeLogsEnabled: Accessor<boolean>;
 }) {
-  const { horizon, setBusy, status, runtimeLogsEnabled } = opts;
+  const { setBusy } = opts;
 
   const queryClient = useQueryClient();
-  const mutations = useRivetMutations({ horizon });
-  const [bagPath, setBagPath] = useState<string | null>(null);
-  const [embedAccountId, setEmbedAccountId] = useState("");
-  const [embedModel, setEmbedModel] = useState("");
-  const [wikiAccountId, setWikiAccountId] = useState("");
-  const [wikiModel, setWikiModel] = useState("");
+  const mutations = useRivetMutations({ horizon: opts.horizon });
+  const [bagPath, setBagPath] = createSignal<string | null>(null);
+  const [embedAccountId, setEmbedAccountId] = createSignal("");
+  const [embedModel, setEmbedModel] = createSignal("");
+  const [wikiAccountId, setWikiAccountId] = createSignal("");
+  const [wikiModel, setWikiModel] = createSignal("");
 
-  const logsQuery = useQuery({
+  const logsQuery = useQuery(() => ({
     queryKey: queryKeys.runtimeLogs,
     queryFn: fetchRuntimeLogs,
-    enabled: runtimeLogsEnabled,
-    refetchInterval: runtimeLogsEnabled ? 10_000 : false,
-  });
+    enabled: opts.runtimeLogsEnabled(),
+    refetchInterval: opts.runtimeLogsEnabled() ? 10_000 : false,
+  }));
 
-  const loadLogs = useCallback(async () => {
+  const loadLogs = async () => {
     await queryClient.invalidateQueries({ queryKey: queryKeys.runtimeLogs });
-  }, [queryClient]);
+  };
 
-  const proxyAction = useCallback(
-    async (path: "start" | "stop" | "restart") => {
-      const toastId = "proxy-action";
-      setBusy(true);
-      notify.loading(
-        path === "restart"
-          ? "Restarting proxy…"
-          : path === "start"
-            ? "Starting proxy…"
-            : "Stopping proxy…",
-        toastId,
-      );
-      try {
-        if (path === "restart") {
-          if (status?.proxy_running) {
-            await mutations.proxyAction.mutateAsync("stop");
-          }
-          await mutations.proxyAction.mutateAsync("start");
-        } else {
-          await mutations.proxyAction.mutateAsync(path);
+  const proxyAction = async (path: "start" | "stop" | "restart") => {
+    const toastId = "proxy-action";
+    setBusy(true);
+    notify.loading(
+      path === "restart"
+        ? "Restarting proxy…"
+        : path === "start"
+          ? "Starting proxy…"
+          : "Stopping proxy…",
+      toastId,
+    );
+    try {
+      if (path === "restart") {
+        if (opts.status()?.proxy_running) {
+          await mutations.proxyAction.mutateAsync("stop");
         }
-        notify.dismiss(toastId);
-        notify.success(
-          path === "restart"
-            ? "Proxy restarted"
-            : path === "start"
-              ? "Proxy started"
-              : "Proxy stopped",
-        );
-      } catch (err) {
-        notify.dismiss(toastId);
-        notify.error(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
+        await mutations.proxyAction.mutateAsync("start");
+      } else {
+        await mutations.proxyAction.mutateAsync(path);
       }
-    },
-    [mutations.proxyAction, status?.proxy_running, setBusy],
-  );
+      notify.dismiss(toastId);
+      notify.success(
+        path === "restart"
+          ? "Proxy restarted"
+          : path === "start"
+            ? "Proxy started"
+            : "Proxy stopped",
+      );
+    } catch (err) {
+      notify.dismiss(toastId);
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const copyText = useCallback(async (text: string) => {
+  const copyText = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
       notify.success("Copied to clipboard");
     } catch {
       notify.error("Could not copy to clipboard");
     }
-  }, []);
+  };
 
-  const exportBag = useCallback(
-    async (conversationIds?: string[]) => {
-      setBusy(true);
-      try {
-        const body = await mutations.exportBag.mutateAsync(conversationIds);
-        setBagPath(body.path);
-        const scope =
-          conversationIds && conversationIds.length > 0
-            ? conversationIds.length === 1
-              ? "1 conversation"
-              : `${conversationIds.length} conversations`
-            : null;
-        notify.success(
-          `Exported ${body.event_count} events${scope ? ` (${scope})` : ""} → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
-        );
-        await queryClient.invalidateQueries({ queryKey: ["conversations"] });
-      } catch (err) {
-        notify.error(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [mutations.exportBag, queryClient, setBusy],
-  );
+  const exportBag = async (conversationIds?: string[]) => {
+    setBusy(true);
+    try {
+      const body = await mutations.exportBag.mutateAsync(conversationIds);
+      setBagPath(body.path);
+      const scope =
+        conversationIds && conversationIds.length > 0
+          ? conversationIds.length === 1
+            ? "1 conversation"
+            : `${conversationIds.length} conversations`
+          : null;
+      notify.success(
+        `Exported ${body.event_count} events${scope ? ` (${scope})` : ""} → ${body.path}${body.note ? ` — ${body.note}` : ""}`,
+      );
+      await queryClient.invalidateQueries({ queryKey: ["conversations"] });
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const importBag = useCallback(async () => {
+  const importBag = async () => {
     const path = await pickRivetbag();
     if (!path) {
       notify.error("File picker unavailable — choose a .rivetbag to import");
@@ -169,9 +164,9 @@ export function useAppOperations(opts: {
     } finally {
       setBusy(false);
     }
-  }, [mutations.importBag, queryClient, setBusy]);
+  };
 
-  const ingestLocal = useCallback(async () => {
+  const ingestLocal = async () => {
     const toastId = "ingest-local";
     setBusy(true);
     notify.loading("Importing local sessions…", toastId);
@@ -193,10 +188,10 @@ export function useAppOperations(opts: {
     } finally {
       setBusy(false);
     }
-  }, [queryClient, setBusy]);
+  };
 
-  const openWiki = useCallback(async () => {
-    const path = status?.wiki_dir ?? null;
+  const openWiki = async () => {
+    const path = opts.status()?.wiki_dir ?? null;
     if (!path) {
       notify.error("Wiki path unknown — is rivetd up?");
       return;
@@ -206,10 +201,10 @@ export function useAppOperations(opts: {
       await navigator.clipboard.writeText(path).catch(() => undefined);
       notify.info(`Wiki directory: ${path}`);
     }
-  }, [status]);
+  };
 
-  const revealExport = useCallback(async () => {
-    const path = bagPath;
+  const revealExport = async () => {
+    const path = bagPath();
     if (!path) {
       notify.error("Export a package first");
       return;
@@ -219,14 +214,16 @@ export function useAppOperations(opts: {
       await navigator.clipboard.writeText(path).catch(() => undefined);
       notify.info(`Copied path: ${path}`);
     }
-  }, [bagPath]);
+  };
 
-  const saveIntelligence = useCallback(async () => {
+  const saveIntelligence = async () => {
     const toastId = "save-workers";
     setBusy(true);
-    const useCodexEmbed = embedAccountId.trim().length > 0;
-    const model = useCodexEmbed ? embedModel.trim() || "text-embedding-3-small" : embedModel.trim();
-    if (useCodexEmbed && model !== embedModel) {
+    const useCodexEmbed = embedAccountId().trim().length > 0;
+    const model = useCodexEmbed
+      ? embedModel().trim() || "text-embedding-3-small"
+      : embedModel().trim();
+    if (useCodexEmbed && model !== embedModel()) {
       setEmbedModel(model);
     }
     notify.loading(
@@ -234,15 +231,16 @@ export function useAppOperations(opts: {
       toastId,
     );
     try {
+      const status = opts.status();
       await mutations.putConfig.mutateAsync({
         embedding_model: useCodexEmbed ? model : "",
-        embedding_account_id: embedAccountId.trim(),
+        embedding_account_id: embedAccountId().trim(),
         ...(useCodexEmbed ? {} : { embedding_space: "lexical" }),
-        wiki_model: wikiModel,
-        wiki_account_id: wikiAccountId.trim(),
+        wiki_model: wikiModel(),
+        wiki_account_id: wikiAccountId().trim(),
         capabilities: {
           vector_search: useCodexEmbed ? true : Boolean(status?.capabilities.vector_search),
-          wiki: Boolean(wikiModel.trim() || wikiAccountId.trim() || status?.capabilities.wiki),
+          wiki: Boolean(wikiModel().trim() || wikiAccountId().trim() || status?.capabilities.wiki),
         },
       });
 
@@ -255,7 +253,7 @@ export function useAppOperations(opts: {
       let body = await mutations.reembedWorkers.mutateAsync();
       if (body.needs_siwc === true) {
         notify.loading("Opening Sign in with ChatGPT for Platform embeddings…", toastId);
-        await mutations.startSiwcBind.mutateAsync(body.account_id ?? embedAccountId);
+        await mutations.startSiwcBind.mutateAsync(body.account_id ?? embedAccountId());
         const ok = await waitForLoginSuccess();
         if (!ok) {
           notify.dismiss(toastId);
@@ -283,40 +281,27 @@ export function useAppOperations(opts: {
     } finally {
       setBusy(false);
     }
-  }, [
-    embedAccountId,
-    embedModel,
-    wikiAccountId,
-    wikiModel,
-    status,
-    mutations.putConfig,
-    mutations.reembedWorkers,
-    mutations.startSiwcBind,
-    setBusy,
-  ]);
+  };
 
-  const toggleCapability = useCallback(
-    async (key: "vector_search" | "wiki", value: boolean) => {
-      setBusy(true);
-      try {
-        await mutations.putConfig.mutateAsync({ capabilities: { [key]: value } });
-        if (key === "wiki") {
-          try {
-            refreshWikiAtom();
-          } catch {
-            /* soft-fail */
-          }
+  const toggleCapability = async (key: "vector_search" | "wiki", value: boolean) => {
+    setBusy(true);
+    try {
+      await mutations.putConfig.mutateAsync({ capabilities: { [key]: value } });
+      if (key === "wiki") {
+        try {
+          refreshWikiAtom();
+        } catch {
+          /* soft-fail */
         }
-      } catch (err) {
-        notify.error(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
       }
-    },
-    [mutations.putConfig, setBusy],
-  );
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const runWorkers = useCallback(async () => {
+  const runWorkers = async () => {
     const toastId = "run-workers";
     setBusy(true);
     notify.loading("Updating wiki & vectors…", toastId);
@@ -332,31 +317,42 @@ export function useAppOperations(opts: {
     } finally {
       setBusy(false);
     }
-  }, [mutations.tickWorkers, setBusy]);
+  };
 
-  const hydrateModels = useCallback(
-    (opts: {
-      embedModel: string;
-      wikiModel: string;
-      embedAccountId?: string;
-      wikiAccountId?: string;
-    }) => {
-      setEmbedModel(opts.embedModel);
-      setWikiModel(opts.wikiModel);
-      setEmbedAccountId(opts.embedAccountId ?? "");
-      setWikiAccountId(opts.wikiAccountId ?? "");
-    },
-    [],
-  );
+  const hydrateModels = (opts: {
+    embedModel: string;
+    wikiModel: string;
+    embedAccountId?: string;
+    wikiAccountId?: string;
+  }) => {
+    setEmbedModel(opts.embedModel);
+    setWikiModel(opts.wikiModel);
+    setEmbedAccountId(opts.embedAccountId ?? "");
+    setWikiAccountId(opts.wikiAccountId ?? "");
+  };
 
   return {
-    proxyLog: logsQuery.data?.proxyLog ?? "",
-    chLog: logsQuery.data?.chLog ?? "",
-    bagPath,
-    embedAccountId,
-    embedModel,
-    wikiAccountId,
-    wikiModel,
+    get proxyLog() {
+      return logsQuery.data?.proxyLog ?? "";
+    },
+    get chLog() {
+      return logsQuery.data?.chLog ?? "";
+    },
+    get bagPath() {
+      return bagPath();
+    },
+    get embedAccountId() {
+      return embedAccountId();
+    },
+    get embedModel() {
+      return embedModel();
+    },
+    get wikiAccountId() {
+      return wikiAccountId();
+    },
+    get wikiModel() {
+      return wikiModel();
+    },
     setEmbedAccountId,
     setEmbedModel,
     setWikiAccountId,

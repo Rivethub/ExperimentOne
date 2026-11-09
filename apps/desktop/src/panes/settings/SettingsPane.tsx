@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { AccountsTab } from "./AccountsTab";
 import { HarnessTab } from "./HarnessTab";
 import { IntelligenceTab } from "./IntelligenceTab";
@@ -15,10 +16,10 @@ export function SettingsPane({
   accounts,
   intelligence,
   harness,
-}: SettingsPaneProps): React.ReactElement {
+}: SettingsPaneProps): JSX.Element {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex-1 overflow-auto bg-background px-6 py-4 pb-9">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div class="flex-1 overflow-auto bg-background px-6 py-4 pb-9">
         {settingsTab === "accounts" && <AccountsTab {...accounts} />}
         {settingsTab === "intelligence" && <IntelligenceTab {...intelligence} />}
         {settingsTab === "harness" && <HarnessTab {...harness} />}

@@ -1,8 +1,8 @@
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
-import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
+import solid from "vite-plugin-solid";
 
 const host = process.env.TAURI_DEV_HOST;
 const mockIpc = process.env.VITE_MOCK_IPC === "1" || process.env.VITE_MOCK_IPC === "true";
@@ -36,11 +36,11 @@ export default defineConfig({
   },
   plugins: lazyPlugins(() => [
     TanStackRouterVite({
-      target: "react",
+      target: "solid",
       quoteStyle: "double",
       semicolons: true,
     }),
-    react({ compiler: true }),
+    solid(),
     tailwindcss(),
   ]),
   clearScreen: false,

@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { WikiBoard, type WikiInfo, type WikiPageCard } from "../components/WikiBoard";
 
 export type WikiPaneProps = {
@@ -20,9 +21,9 @@ export function WikiPane({
   loadPage,
   listArchives,
   loadArchive,
-}: WikiPaneProps): React.ReactElement {
+}: WikiPaneProps): JSX.Element {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <WikiBoard
         wiki={wiki}
         busy={busy}

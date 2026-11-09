@@ -1,7 +1,8 @@
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { Brain, ChevronRight, Terminal, Wrench } from "lucide-react";
-import { useRef, useState, type CSSProperties, type ReactElement, type ReactNode } from "react";
-import ReactMarkdown from "react-markdown";
+import { createVirtualizer } from "@tanstack/solid-virtual";
+import { Brain, ChevronRight, Terminal, Wrench } from "lucide-solid";
+import { createSignal } from "solid-js";
+import type { JSX } from "solid-js";
+import { SolidMarkdown } from "solid-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -35,7 +36,7 @@ function AgentBadge({ agent }: { agent?: AgentContext }) {
     .filter(Boolean)
     .join(" · ");
   return (
-    <span className={styles.t3AgentBadge} title={tip || undefined}>
+    <span class={styles.t3AgentBadge} title={tip || undefined}>
       {label}
       {agent.agent_id ? ` · ${shortAgentId(agent.agent_id)}` : ""}
     </span>
@@ -62,10 +63,10 @@ function formatJson(value: unknown): string {
 
 function MarkdownBody({ text }: { text: string }) {
   return (
-    <div className={styles.t3Markdown}>
-      <ReactMarkdown remarkPlugins={TRANSCRIPT_REMARK} rehypePlugins={TRANSCRIPT_REHYPE}>
+    <div class={styles.t3Markdown}>
+      <SolidMarkdown remarkPlugins={TRANSCRIPT_REMARK} rehypePlugins={TRANSCRIPT_REHYPE}>
         {text}
-      </ReactMarkdown>
+      </SolidMarkdown>
     </div>
   );
 }
@@ -79,13 +80,13 @@ function WorkRow({
   tone = "default",
   children,
 }: {
-  icon: ReactNode;
-  label: ReactNode;
-  meta?: ReactNode;
+  icon: JSX.Element;
+  label: JSX.Element;
+  meta?: JSX.Element;
   open: boolean;
   onToggle: () => void;
   tone?: "default" | "think" | "cmd" | "tool" | "error";
-  children?: React.ReactNode;
+  children?: JSX.Element;
 }) {
   const toneClass =
     tone === "think"
@@ -98,28 +99,28 @@ function WorkRow({
             ? styles.t3RowError
             : undefined;
   return (
-    <div className={cx(styles.t3Row, toneClass)} data-open={open ? "1" : "0"}>
-      <button type="button" className={styles.t3RowHead} onClick={onToggle} aria-expanded={open}>
-        <span className={styles.t3RowIcon} aria-hidden>
+    <div class={cx(styles.t3Row, toneClass)} data-open={open ? "1" : "0"}>
+      <button type="button" class={styles.t3RowHead} onClick={onToggle} aria-expanded={open}>
+        <span class={styles.t3RowIcon} aria-hidden>
           {icon}
         </span>
-        <span className={styles.t3RowLabel}>{label}</span>
-        {meta ? <span className={styles.t3RowMeta}>{meta}</span> : null}
+        <span class={styles.t3RowLabel}>{label}</span>
+        {meta ? <span class={styles.t3RowMeta}>{meta}</span> : null}
         <ChevronRight
-          className={cx(styles.t3Chevron, open && styles.t3ChevronOpen)}
+          class={cx(styles.t3Chevron, open && styles.t3ChevronOpen)}
           size={14}
           strokeWidth={1.75}
           aria-hidden
         />
       </button>
-      {open && children ? <div className={styles.t3RowBody}>{children}</div> : null}
+      {open && children ? <div class={styles.t3RowBody}>{children}</div> : null}
     </div>
   );
 }
 
 function UserMessage({ item }: { item: Extract<TimelineItem, { kind: "user_message" }> }) {
   return (
-    <div className={styles.t3User}>
+    <div class={styles.t3User}>
       <AgentBadge agent={item.agent} />
       <MarkdownBody text={item.text} />
     </div>
@@ -132,7 +133,7 @@ function AssistantMessage({
   item: Extract<TimelineItem, { kind: "assistant_message" }>;
 }) {
   return (
-    <div className={styles.t3Assistant}>
+    <div class={styles.t3Assistant}>
       <AgentBadge agent={item.agent} />
       <MarkdownBody text={item.text} />
     </div>
@@ -140,17 +141,17 @@ function AssistantMessage({
 }
 
 function ReasoningItem({ item }: { item: Extract<TimelineItem, { kind: "reasoning" }> }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = createSignal(false);
   return (
     <WorkRow
       icon={<Brain size={14} strokeWidth={1.75} />}
-      label={open ? "Thought" : reasoningPreview(item.text)}
+      label={open() ? "Thought" : reasoningPreview(item.text)}
       meta={<AgentBadge agent={item.agent} />}
-      open={open}
+      open={open()}
       onToggle={() => setOpen((v) => !v)}
       tone="think"
     >
-      <div className={styles.t3ThinkBody}>
+      <div class={styles.t3ThinkBody}>
         <MarkdownBody text={item.text} />
       </div>
     </WorkRow>
@@ -158,47 +159,47 @@ function ReasoningItem({ item }: { item: Extract<TimelineItem, { kind: "reasonin
 }
 
 function CommandItem({ item }: { item: Extract<TimelineItem, { kind: "command_execution" }> }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = createSignal(false);
   const oneLine = item.command.replace(/\s+/g, " ").trim();
   const short = oneLine.length > 88 ? `${oneLine.slice(0, 88)}…` : oneLine;
   return (
     <WorkRow
       icon={<Terminal size={14} strokeWidth={1.75} />}
-      label={<span className={styles.t3CmdLabel}>{short}</span>}
+      label={<span class={styles.t3CmdLabel}>{short}</span>}
       meta={
         <>
           <AgentBadge agent={item.agent} />
           {item.exitCode != null ? (
-            <span className={item.isError ? styles.t3Bad : styles.t3Ok}>exit {item.exitCode}</span>
+            <span class={item.isError ? styles.t3Bad : styles.t3Ok}>exit {item.exitCode}</span>
           ) : item.isError ? (
-            <span className={styles.t3Bad}>failed</span>
+            <span class={styles.t3Bad}>failed</span>
           ) : null}
         </>
       }
-      open={open}
+      open={open()}
       onToggle={() => setOpen((v) => !v)}
       tone={item.isError ? "error" : "cmd"}
     >
-      <div className={styles.t3Terminal}>
-        <pre className={styles.t3TerminalCmd}>{item.command}</pre>
-        {item.output ? <pre className={styles.t3TerminalOut}>{item.output}</pre> : null}
+      <div class={styles.t3Terminal}>
+        <pre class={styles.t3TerminalCmd}>{item.command}</pre>
+        {item.output ? <pre class={styles.t3TerminalOut}>{item.output}</pre> : null}
       </div>
     </WorkRow>
   );
 }
 
-function ToolJsonOrDiff({ label, value }: { label: string; value: unknown }): ReactElement {
+function ToolJsonOrDiff({ label, value }: { label: string; value: unknown }): JSX.Element {
   const diff = <ToolDiff value={value} />;
   return (
     <div>
-      <div className={styles.t3ToolCaption}>{label}</div>
-      {diff ?? <pre className={styles.t3ToolPre}>{formatJson(value)}</pre>}
+      <div class={styles.t3ToolCaption}>{label}</div>
+      {diff ?? <pre class={styles.t3ToolPre}>{formatJson(value)}</pre>}
     </div>
   );
 }
 
 function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = createSignal(false);
   return (
     <WorkRow
       icon={<Wrench size={14} strokeWidth={1.75} />}
@@ -206,14 +207,14 @@ function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
       meta={
         <>
           <AgentBadge agent={item.agent} />
-          {item.isError ? <span className={styles.t3Bad}>error</span> : null}
+          {item.isError ? <span class={styles.t3Bad}>error</span> : null}
         </>
       }
-      open={open}
+      open={open()}
       onToggle={() => setOpen((v) => !v)}
       tone={item.isError ? "error" : "tool"}
     >
-      <div className={styles.t3ToolBlocks}>
+      <div class={styles.t3ToolBlocks}>
         <ToolJsonOrDiff label="Input" value={item.input} />
         {item.output !== undefined && (
           <ToolJsonOrDiff label={item.isError ? "Error" : "Output"} value={item.output} />
@@ -225,7 +226,7 @@ function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
 
 function SystemItem({ item }: { item: Extract<TimelineItem, { kind: "system" }> }) {
   return (
-    <div className={styles.t3System}>
+    <div class={styles.t3System}>
       <MarkdownBody text={item.text} />
     </div>
   );
@@ -249,10 +250,10 @@ function TimelineRow({ item }: { item: TimelineItem }) {
 }
 
 export function TranscriptView({ items }: { items: TimelineItem[] }) {
-  const parentRef = useRef<HTMLDivElement>(null);
-  const virtualizer = useVirtualizer({
+  let parentRef: HTMLDivElement | undefined;
+  const virtualizer = createVirtualizer({
     count: items.length,
-    getScrollElement: () => parentRef.current,
+    getScrollElement: () => parentRef ?? null,
     estimateSize: () => 120,
     overscan: 8,
     getItemKey: (index) => items[index]?.id ?? index,
@@ -261,19 +262,23 @@ export function TranscriptView({ items }: { items: TimelineItem[] }) {
   if (items.length === 0) return null;
 
   return (
-    <div ref={parentRef} className={styles.t3Timeline}>
-      <div className={styles.t3VirtualInner} style={{ height: virtualizer.getTotalSize() }}>
+    <div
+      ref={(el) => {
+        parentRef = el;
+      }}
+      class={styles.t3Timeline}
+    >
+      <div class={styles.t3VirtualInner} style={{ height: `${virtualizer.getTotalSize()}px` }}>
         {virtualizer.getVirtualItems().map((row) => {
           const item = items[row.index]!;
           const style = {
             transform: `translateY(${row.start}px)`,
-          } satisfies CSSProperties;
+          } satisfies JSX.CSSProperties;
           return (
             <div
-              key={row.key}
               data-index={row.index}
               ref={virtualizer.measureElement}
-              className={cx(styles.t3Item, styles.t3VirtualRow)}
+              class={cx(styles.t3Item, styles.t3VirtualRow)}
               style={style}
             >
               <TimelineRow item={item} />

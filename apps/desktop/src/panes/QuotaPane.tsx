@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import {
   providerBadge,
   providerChipLabel,
@@ -65,13 +66,13 @@ function SegButton({
   active: boolean;
   onClick: () => void;
   title?: string;
-  children: React.ReactNode;
-}): React.ReactElement {
+  children: JSX.Element;
+}): JSX.Element {
   return (
     <button
       type="button"
       title={title}
-      className={cn(
+      class={cn(
         "border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium text-muted-foreground",
         "[&:not(:first-child)]:border-l [&:not(:first-child)]:border-border",
         active && "bg-secondary text-foreground",
@@ -103,9 +104,9 @@ export function QuotaPane({
   accountsFor,
   onAddCredentials,
   onAccountSelect,
-}: QuotaPaneProps): React.ReactElement {
+}: QuotaPaneProps): JSX.Element {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       {(counts.all ?? 0) > 0 ? (
         <>
           <LimitRecoveryBanner
@@ -114,7 +115,7 @@ export function QuotaPane({
             onSwitchAccount={limitActions.onSwitchAccount}
             onWait={limitActions.onWait}
           />
-          <div className="mb-3.5 flex flex-wrap gap-2">
+          <div class="mb-3.5 flex flex-wrap gap-2">
             <Chip
               active={filter === "all"}
               count={counts.all ?? 0}
@@ -126,7 +127,6 @@ export function QuotaPane({
             </Chip>
             {providerIds.map((id) => (
               <Chip
-                key={id}
                 active={filter === id}
                 dotColor={providerColor(id, catalog)}
                 count={counts[id] ?? 0}
@@ -139,8 +139,8 @@ export function QuotaPane({
             ))}
           </div>
 
-          <div className="mb-4.5 flex flex-wrap items-center gap-2">
-            <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card">
+          <div class="mb-4.5 flex flex-wrap items-center gap-2">
+            <div class="inline-flex overflow-hidden rounded-lg border border-border bg-card">
               {(
                 [
                   ["limits", "Limits"],
@@ -149,7 +149,6 @@ export function QuotaPane({
                 ] as const
               ).map(([id, label]) => (
                 <SegButton
-                  key={id}
                   active={metricMode === id}
                   title={quotaMetricModeTitle(id)}
                   onClick={() => {
@@ -160,10 +159,9 @@ export function QuotaPane({
                 </SegButton>
               ))}
             </div>
-            <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card">
+            <div class="inline-flex overflow-hidden rounded-lg border border-border bg-card">
               {(["1h", "3h", "6h"] as const).map((h) => (
                 <SegButton
-                  key={h}
                   active={horizon === h}
                   onClick={() => {
                     onHorizonChange(h);
@@ -173,7 +171,7 @@ export function QuotaPane({
                 </SegButton>
               ))}
             </div>
-            <span className="py-2 text-[13px] text-muted-foreground" title={quota?.note}>
+            <span class="py-2 text-[13px] text-muted-foreground" title={quota?.note}>
               {quota?.source === "management"
                 ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · quota ≤5m · ${horizon} history`
                 : `Local fallback · ${horizon} window · refresh after proxy is up`}
@@ -186,7 +184,7 @@ export function QuotaPane({
             </span>
           </div>
 
-          <div className="flex flex-col gap-3.5">
+          <div class="flex flex-col gap-3.5">
             {visibleProviders.map((id) => {
               const pq = providerQuota(id);
               const series =
@@ -201,7 +199,6 @@ export function QuotaPane({
                   : seriesFromEvents(recent, id, horizon, 24, pq?.remaining_pct);
               return (
                 <QuotaProviderCard
-                  key={id}
                   name={providerChipLabel(id, catalog)}
                   ico={providerBadge(id, catalog)}
                   icoClass={id === "claude" || id === "codex" ? id : "generic"}
@@ -224,7 +221,7 @@ export function QuotaPane({
         </>
       ) : (
         <Panel
-          className="mb-0"
+          class="mb-0"
           title="No accounts yet"
           lede="Live quota needs at least one signed-in account"
           actions={
@@ -233,7 +230,7 @@ export function QuotaPane({
             </Button>
           }
         >
-          <p className="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
+          <p class="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
             Add a provider account to track remaining limits and burn from captures.
           </p>
         </Panel>

@@ -1,13 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Effect } from "effect";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type SetStateAction,
-} from "react";
+import type { Setter } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { rivetErrorMessage, runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
 import { firstHttpUrl, type HarnessInstallTarget } from "../lib/format-utils";
@@ -17,9 +11,9 @@ import type { HarnessWrite, LoginStatus, SettingsTab } from "../lib/types";
 
 export type AccountsLoginApi = {
   login: LoginStatus | null;
-  setLogin: Dispatch<SetStateAction<LoginStatus | null>>;
+  setLogin: Setter<LoginStatus | null>;
   showAddAccount: boolean;
-  setShowAddAccount: Dispatch<SetStateAction<boolean>>;
+  setShowAddAccount: Setter<boolean>;
   refreshLogin: () => Promise<void>;
   startLogin: (provider: string, method?: "browser" | "device") => Promise<void>;
   cancelLogin: () => Promise<void>;
@@ -27,7 +21,7 @@ export type AccountsLoginApi = {
 
 export type AccountsVertexApi = {
   vertexPath: string;
-  setVertexPath: Dispatch<SetStateAction<string>>;
+  setVertexPath: Setter<string>;
   importVertex: () => Promise<void>;
 };
 
@@ -97,20 +91,19 @@ export function useAccountsLogin(
 ): AccountsLoginApi {
   const { refresh, openSettings, setBusy, mutations } = opts;
   const queryClient = useQueryClient();
-  const [login, setLogin] = useState<LoginStatus | null>(null);
-  const [showAddAccount, setShowAddAccount] = useState(false);
-  const openedLoginUrl = useRef<string | null>(null);
-  const loginActive = login?.active === true;
+  const [login, setLogin] = createSignal<LoginStatus | null>(null);
+  const [showAddAccount, setShowAddAccount] = createSignal(false);
+  const openedLoginUrl: { current: string | null } = { current: null };
 
-  const loginQuery = useQuery({
+  const loginQuery = useQuery(() => ({
     queryKey: queryKeys.loginStatus,
     queryFn: fetchLoginStatus,
-    enabled: loginActive,
-    refetchInterval: loginActive ? 1000 : false,
+    enabled: login()?.active === true,
+    refetchInterval: login()?.active === true ? 1000 : false,
     retry: false,
-  });
+  }));
 
-  useEffect(() => {
+  createEffect(() => {
     const body = loginQuery.data;
     if (body == null) {
       return;
@@ -134,9 +127,9 @@ export function useAccountsLogin(
       setShowAddAccount(false);
       void refresh();
     }
-  }, [loginQuery.data, loginQuery.dataUpdatedAt, refresh]);
+  });
 
-  const refreshLogin = useCallback(async () => {
+  const refreshLogin = async () => {
     try {
       const body = await queryClient.fetchQuery({
         queryKey: queryKeys.loginStatus,
@@ -147,49 +140,50 @@ export function useAccountsLogin(
     } catch {
       /* rivetd down */
     }
-  }, [queryClient]);
+  };
 
-  const startLogin = useCallback(
-    async (provider: string, method?: "browser" | "device") => {
-      clearMultiAccountWarn();
-      const toastId = "start-login";
-      setBusy(true);
-      notify.loading(`Starting ${provider} login…`, toastId);
-      openedLoginUrl.current = null;
-      try {
-        const body = await mutations.startLogin.mutateAsync({ provider, method });
-        setLogin({
-          active: true,
-          provider,
-          output: body.message ?? "",
-          done: false,
-          success: false,
-        });
-        setShowAddAccount(false);
-        openSettings("accounts");
-        await refreshLogin();
-        notify.dismiss(toastId);
-      } catch (err) {
-        notify.dismiss(toastId);
-        notify.error(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [openSettings, refreshLogin, setBusy, clearMultiAccountWarn, mutations.startLogin],
-  );
+  const startLogin = async (provider: string, method?: "browser" | "device") => {
+    clearMultiAccountWarn();
+    const toastId = "start-login";
+    setBusy(true);
+    notify.loading(`Starting ${provider} login…`, toastId);
+    openedLoginUrl.current = null;
+    try {
+      const body = await mutations.startLogin.mutateAsync({ provider, method });
+      setLogin({
+        active: true,
+        provider,
+        output: body.message ?? "",
+        done: false,
+        success: false,
+      });
+      setShowAddAccount(false);
+      openSettings("accounts");
+      await refreshLogin();
+      notify.dismiss(toastId);
+    } catch (err) {
+      notify.dismiss(toastId);
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const cancelLogin = useCallback(async () => {
+  const cancelLogin = async () => {
     await mutations.cancelLogin.mutateAsync().catch(() => {
       /* rivetd may be down */
     });
     await refreshLogin();
-  }, [refreshLogin, mutations.cancelLogin]);
+  };
 
   return {
-    login,
+    get login() {
+      return login();
+    },
     setLogin,
-    showAddAccount,
+    get showAddAccount() {
+      return showAddAccount();
+    },
     setShowAddAccount,
     refreshLogin,
     startLogin,
@@ -204,11 +198,11 @@ export function useAccountsVertex(
 ): AccountsVertexApi {
   const { openSettings, setBusy, mutations } = opts;
   const { setLogin, setShowAddAccount, refreshLogin } = loginApi;
-  const [vertexPath, setVertexPath] = useState("");
+  const [vertexPath, setVertexPath] = createSignal("");
 
-  const importVertex = useCallback(async () => {
+  const importVertex = async () => {
     clearMultiAccountWarn();
-    let path = vertexPath.trim();
+    let path = vertexPath().trim();
     if (path === "") {
       try {
         const { open } = await import("@tauri-apps/plugin-dialog");
@@ -251,56 +245,50 @@ export function useAccountsVertex(
     } finally {
       setBusy(false);
     }
-  }, [
-    vertexPath,
-    openSettings,
-    refreshLogin,
-    setBusy,
-    setLogin,
-    setShowAddAccount,
-    clearMultiAccountWarn,
-    mutations.importVertex,
-  ]);
+  };
 
-  return { vertexPath, setVertexPath, importVertex };
+  return {
+    get vertexPath() {
+      return vertexPath();
+    },
+    setVertexPath,
+    importVertex,
+  };
 }
 
 export function useAccountsHarness(
   opts: Pick<AccountsCoreOpts, "setBusy" | "mutations">,
 ): AccountsHarnessApi {
   const { setBusy, mutations } = opts;
-  const [harnessNote, setHarnessNote] = useState<HarnessWrite | null>(null);
-  const [snippet, setSnippet] = useState("");
+  const [harnessNote, setHarnessNote] = createSignal<HarnessWrite | null>(null);
+  const [snippet, setSnippet] = createSignal("");
 
-  const writeHarness = useCallback(
-    async (target: HarnessInstallTarget, mode: "user" | "isolated" = "user") => {
-      setBusy(true);
-      try {
-        const note = await mutations.writeHarness.mutateAsync({ target, mode });
-        let isolated = "";
-        if (mode === "isolated") {
-          if (target === "claude" || target === "codex") {
-            isolated = await runApp(
-              Effect.gen(function* loadIsolatedHarness() {
-                yield* Rivet.requireBackend;
-                return target === "claude" ? yield* Rivet.getClaudeEnv : yield* Rivet.getCodexToml;
-              }),
-            );
-          }
+  const writeHarness = async (target: HarnessInstallTarget, mode: "user" | "isolated" = "user") => {
+    setBusy(true);
+    try {
+      const note = await mutations.writeHarness.mutateAsync({ target, mode });
+      let isolated = "";
+      if (mode === "isolated") {
+        if (target === "claude" || target === "codex") {
+          isolated = await runApp(
+            Effect.gen(function* loadIsolatedHarness() {
+              yield* Rivet.requireBackend;
+              return target === "claude" ? yield* Rivet.getClaudeEnv : yield* Rivet.getCodexToml;
+            }),
+          );
         }
-        setHarnessNote(note);
-        setSnippet(isolated);
-        notify.success(note.note || `Wrote ${target} harness`);
-      } catch (err) {
-        notify.error(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
       }
-    },
-    [setBusy, mutations.writeHarness],
-  );
+      setHarnessNote(note);
+      setSnippet(isolated);
+      notify.success(note.note || `Wrote ${target} harness`);
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
-  const writeAllHarnesses = useCallback(async () => {
+  const writeAllHarnesses = async () => {
     setBusy(true);
     try {
       const notes = await runApp(
@@ -335,9 +323,9 @@ export function useAccountsHarness(
     } finally {
       setBusy(false);
     }
-  }, [setBusy]);
+  };
 
-  const loadClaude = useCallback(async () => {
+  const loadClaude = async () => {
     try {
       const text = await runApp(
         Effect.gen(function* loadClaudeHarness() {
@@ -350,9 +338,9 @@ export function useAccountsHarness(
     } catch (err) {
       notify.error(rivetErrorMessage(err));
     }
-  }, []);
+  };
 
-  const loadCodex = useCallback(async () => {
+  const loadCodex = async () => {
     try {
       const text = await runApp(
         Effect.gen(function* loadCodexHarness() {
@@ -365,9 +353,9 @@ export function useAccountsHarness(
     } catch (err) {
       notify.error(rivetErrorMessage(err));
     }
-  }, []);
+  };
 
-  const loadMcp = useCallback(async () => {
+  const loadMcp = async () => {
     try {
       const text = await runApp(
         Effect.gen(function* loadMcpHarness() {
@@ -380,7 +368,19 @@ export function useAccountsHarness(
     } catch (err) {
       notify.error(rivetErrorMessage(err));
     }
-  }, []);
+  };
 
-  return { harnessNote, snippet, writeHarness, writeAllHarnesses, loadClaude, loadCodex, loadMcp };
+  return {
+    get harnessNote() {
+      return harnessNote();
+    },
+    get snippet() {
+      return snippet();
+    },
+    writeHarness,
+    writeAllHarnesses,
+    loadClaude,
+    loadCodex,
+    loadMcp,
+  };
 }

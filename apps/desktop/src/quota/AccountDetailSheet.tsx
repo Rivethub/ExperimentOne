@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import {
   fmtPct,
   formatCountdownTo,
@@ -32,7 +33,7 @@ export function AccountDetailSheet({
   account: QuotaAccountUx | null;
   catalog: CatalogProvider[];
   onClose: () => void;
-}): React.ReactElement {
+}): JSX.Element {
   const id = isDefined(account) ? providerKey(account.provider) : "";
   const color = isDefined(account) ? providerColor(id, catalog) : undefined;
   const windows =
@@ -58,18 +59,18 @@ export function AccountDetailSheet({
         }
       }}
     >
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-[400px]">
+      <SheetContent side="right" class="w-full gap-0 overflow-y-auto sm:max-w-[400px]">
         {isDefined(account) ? (
           <>
-            <SheetHeader className="flex-row items-start gap-3 space-y-0 p-0 pb-4">
+            <SheetHeader class="flex-row items-start gap-3 space-y-0 p-0 pb-4">
               <div
-                className="grid size-7 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
+                class="grid size-7 shrink-0 place-items-center rounded-lg text-[13px] font-bold"
                 style={{ background: `${color}22`, color }}
               >
                 {providerChipLabel(id, catalog).slice(0, 1)}
               </div>
-              <div className="min-w-0 flex-1">
-                <SheetTitle className="text-base">{accountDisplay(account)}</SheetTitle>
+              <div class="min-w-0 flex-1">
+                <SheetTitle class="text-base">{accountDisplay(account)}</SheetTitle>
                 <SheetDescription>
                   {providerChipLabel(id, catalog)}
                   {isDefined(account.plan) && account.plan !== "" ? ` · ${account.plan}` : ""}
@@ -93,12 +94,9 @@ export function AccountDetailSheet({
                 )}
               </Kv>
               {windows.map((w) => (
-                <div
-                  key={w.id}
-                  className="mt-3 rounded-lg border border-border/60 bg-background p-2.5 text-[12.5px]"
-                >
+                <div class="mt-3 rounded-lg border border-border/60 bg-background p-2.5 text-[12.5px]">
                   <strong>{w.label}</strong>
-                  <div className="text-xs text-muted-foreground">
+                  <div class="text-xs text-muted-foreground">
                     {fmtPct(w.remaining_pct ?? null)} · reset{" "}
                     {isDefined(w.reset_at) && w.reset_at !== ""
                       ? formatCountdownTo(w.reset_at)

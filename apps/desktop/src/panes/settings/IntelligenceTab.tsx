@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import type { Account } from "../../lib/types";
 import type { SettingsIntelligenceProps } from "./types";
 import { Actions, Button, Input, Panel, Pill } from "../../ui";
@@ -21,20 +22,18 @@ function ToggleRow({
   on: boolean;
   disabled: boolean;
   onToggle: () => void;
-}): React.ReactElement {
+}): JSX.Element {
   return (
-    <div className="flex items-center justify-between gap-4 border-b border-border/60 py-3.5">
+    <div class="flex items-center justify-between gap-4 border-b border-border/60 py-3.5">
       <div>
-        <strong className="mb-1 block text-sm font-semibold">{title}</strong>
-        <p className="m-0 max-w-[52ch] text-[13px] leading-snug text-muted-foreground">
-          {description}
-        </p>
+        <strong class="mb-1 block text-sm font-semibold">{title}</strong>
+        <p class="m-0 max-w-[52ch] text-[13px] leading-snug text-muted-foreground">{description}</p>
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={on}
-        className={cn(
+        class={cn(
           "inline-flex h-7 w-12 shrink-0 items-center rounded-full border px-1 transition-colors",
           on ? "border-emerald-500/40 bg-emerald-500/20" : "border-border bg-card",
         )}
@@ -42,13 +41,13 @@ function ToggleRow({
         onClick={onToggle}
       >
         <span
-          className={cn(
+          class={cn(
             "size-5 rounded-full transition-transform",
             on ? "translate-x-5 bg-emerald-400" : "translate-x-0 bg-muted-foreground/60",
           )}
           aria-hidden
         />
-        <span className="sr-only">{on ? "Enabled" : "Disabled"}</span>
+        <span class="sr-only">{on ? "Enabled" : "Disabled"}</span>
       </button>
     </div>
   );
@@ -73,7 +72,7 @@ function selectClassName(): string {
 export function IntelligenceTab({
   hidden,
   ...intelligence
-}: SettingsIntelligenceProps & { hidden?: boolean }): React.ReactElement {
+}: SettingsIntelligenceProps & { hidden?: boolean }): JSX.Element {
   const vectorOn = capabilityEnabled(intelligence.status?.capabilities.vector_search);
   const wikiOn = capabilityEnabled(intelligence.status?.capabilities.wiki);
   const space = intelligence.status?.embedding_space?.trim() || "lexical";
@@ -84,7 +83,7 @@ export function IntelligenceTab({
 
   return (
     <Panel
-      className="m-0"
+      class="m-0"
       hidden={hidden}
       aria-hidden={hidden}
       title="Workers"
@@ -109,19 +108,19 @@ export function IntelligenceTab({
         }}
       />
 
-      <div className="my-4 flex flex-col gap-4">
-        <section className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <h3 className="m-0 text-sm font-semibold">Embeddings</h3>
-            <Pill className="rounded-full px-1.5 py-0 text-[10px] uppercase tracking-wider">
+      <div class="my-4 flex flex-col gap-4">
+        <section class="flex flex-col gap-3">
+          <div class="flex items-center gap-2">
+            <h3 class="m-0 text-sm font-semibold">Embeddings</h3>
+            <Pill class="rounded-full px-1.5 py-0 text-[10px] uppercase tracking-wider">
               {remoteActive ? "remote" : "lexical"}
             </Pill>
           </div>
-          <label htmlFor="intelligence-embed-account" className="flex flex-col gap-1.5">
-            <span className="text-xs tracking-wide text-muted-foreground">Account</span>
+          <label for="intelligence-embed-account" class="flex flex-col gap-1.5">
+            <span class="text-xs tracking-wide text-muted-foreground">Account</span>
             <select
               id="intelligence-embed-account"
-              className={selectClassName()}
+              class={selectClassName()}
               value={intelligence.embedAccountId}
               disabled={intelligence.busy}
               onChange={(e) => {
@@ -134,14 +133,12 @@ export function IntelligenceTab({
             >
               <option value="">Lexical (offline)</option>
               {codexAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  Codex · {accountLabel(account)}
-                </option>
+                <option value={account.id}>Codex · {accountLabel(account)}</option>
               ))}
             </select>
           </label>
-          <label htmlFor="intelligence-embed-model" className="flex flex-col gap-1.5">
-            <span className="text-xs tracking-wide text-muted-foreground">Model</span>
+          <label for="intelligence-embed-model" class="flex flex-col gap-1.5">
+            <span class="text-xs tracking-wide text-muted-foreground">Model</span>
             <Input
               id="intelligence-embed-model"
               placeholder={DEFAULT_EMBED_MODEL}
@@ -154,13 +151,13 @@ export function IntelligenceTab({
           </label>
         </section>
 
-        <section className="flex flex-col gap-3">
-          <h3 className="m-0 text-sm font-semibold">Summaries / wiki</h3>
-          <label htmlFor="intelligence-wiki-account" className="flex flex-col gap-1.5">
-            <span className="text-xs tracking-wide text-muted-foreground">Account</span>
+        <section class="flex flex-col gap-3">
+          <h3 class="m-0 text-sm font-semibold">Summaries / wiki</h3>
+          <label for="intelligence-wiki-account" class="flex flex-col gap-1.5">
+            <span class="text-xs tracking-wide text-muted-foreground">Account</span>
             <select
               id="intelligence-wiki-account"
-              className={selectClassName()}
+              class={selectClassName()}
               value={intelligence.wikiAccountId}
               disabled={intelligence.busy}
               onChange={(e) => {
@@ -169,14 +166,14 @@ export function IntelligenceTab({
             >
               <option value="">Any linked account</option>
               {wikiAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
+                <option value={account.id}>
                   {account.provider} · {accountLabel(account)}
                 </option>
               ))}
             </select>
           </label>
-          <label htmlFor="intelligence-wiki-model" className="flex flex-col gap-1.5">
-            <span className="text-xs tracking-wide text-muted-foreground">Model</span>
+          <label for="intelligence-wiki-model" class="flex flex-col gap-1.5">
+            <span class="text-xs tracking-wide text-muted-foreground">Model</span>
             <Input
               id="intelligence-wiki-model"
               placeholder="optional, e.g. claude-sonnet-4-5"
@@ -202,12 +199,12 @@ export function IntelligenceTab({
           Run workers once
         </Button>
       </Actions>
-      <p className="mt-2">
+      <p class="mt-2">
         <Button variant="link" onClick={intelligence.onOpenRuntime}>
           Open Runtime dashboard
         </Button>
       </p>
-      <p className="mt-3 max-w-[56ch] text-[12.5px] leading-snug text-muted-foreground">
+      <p class="mt-3 max-w-[56ch] text-[12.5px] leading-snug text-muted-foreground">
         Search space: <code>{space}</code>. Choosing a Codex embedding account and saving will
         complete Sign in with ChatGPT (SIWC) if needed, then backfill remote vectors.
       </p>

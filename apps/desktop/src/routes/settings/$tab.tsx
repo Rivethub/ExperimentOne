@@ -1,4 +1,5 @@
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import type { JSX } from "solid-js";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/solid-router";
 import { useApp } from "#app/context";
 import { isSettingsTab } from "#lib/app-path";
 import type { SettingsTab } from "#lib/types";
@@ -13,20 +14,20 @@ export const Route = createFileRoute("/settings/$tab")({
   component: SettingsPage,
 });
 
-function SettingsPage(): React.ReactElement {
+function SettingsPage(): JSX.Element {
   const { rivet, ops, accounts, derived, busy, openSettings } = useApp();
-  const { tab } = Route.useParams();
-  const settingsTab = tab as SettingsTab;
+  const params = Route.useParams();
+  const settingsTab = () => params().tab as SettingsTab;
   const navigate = useNavigate();
 
   return (
     <SettingsPane
-      settingsTab={settingsTab}
+      settingsTab={settingsTab()}
       accounts={{
         accounts: rivet.accounts,
         quotaById: derived.quotaById,
         catalog: rivet.catalog,
-        busy,
+        busy: busy(),
         loginActive: !!accounts.login?.active,
         showAddAccount: accounts.showAddAccount,
         onToggleAddAccount: () => accounts.setShowAddAccount((v) => !v),
@@ -50,14 +51,14 @@ function SettingsPage(): React.ReactElement {
         onEmbedModelChange: ops.setEmbedModel,
         onWikiAccountChange: ops.setWikiAccountId,
         onWikiModelChange: ops.setWikiModel,
-        busy,
+        busy: busy(),
         onToggleCapability: (key, value) => void ops.toggleCapability(key, value),
         onSaveIntelligence: () => void ops.saveIntelligence(),
         onRunWorkers: () => void ops.runWorkers(),
         onOpenRuntime: () => void navigate({ to: "/runtime" }),
       }}
       harness={{
-        busy,
+        busy: busy(),
         harnessNote: accounts.harnessNote,
         snippet: accounts.snippet,
         onWriteHarness: (target, mode) => void accounts.writeHarness(target, mode),

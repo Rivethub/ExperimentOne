@@ -1,4 +1,5 @@
-import { Ellipsis } from "lucide-react";
+import type { JSX } from "solid-js";
+import { Ellipsis } from "lucide-solid";
 import { Button as ShadcnButton } from "#components/ui/button";
 import {
   DropdownMenu,
@@ -59,14 +60,14 @@ export function AppTopbar({
   wiki,
   runtime,
   data,
-}: AppTopbarProps): React.ReactElement {
+}: AppTopbarProps): JSX.Element {
   return (
-    <header className="flex items-start justify-between gap-4 px-6 pb-3 pt-5">
+    <header class="flex items-start justify-between gap-4 px-6 pb-3 pt-5">
       <div>
-        <h1 className="m-0 text-[22px] font-semibold tracking-tight">{title}</h1>
-        <div className="mt-1 text-[13px] text-muted-foreground">{subtitle}</div>
+        <h1 class="m-0 text-[22px] font-semibold tracking-tight">{title}</h1>
+        <div class="mt-1 text-[13px] text-muted-foreground">{subtitle}</div>
       </div>
-      <div className="flex flex-wrap items-center justify-end gap-2">
+      <div class="flex flex-wrap items-center justify-end gap-2">
         {page !== "wiki" && (
           <Button variant="ghost" disabled={busy} onClick={onRefresh}>
             Refresh

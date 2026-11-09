@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { createEffect, createMemo, createSignal } from "solid-js";
+import type { JSX } from "solid-js";
 import { Empty, Input, Panel, Pill } from "../ui";
 import { cx } from "../styles/cx";
 import styles from "../styles/app.module.css";
@@ -72,7 +73,7 @@ export type TopicsPaneProps = {
 
 type TreeRow = { topic: TopicCard; depth: number };
 
-/** Flatten topics into a depth-first tree (≤4 levels), orphans after roots. */
+/** Flatten topics into a depth-first tree() (≤4 levels), orphans after roots. */
 export function flattenTopicTree(topics: TopicCard[]): TreeRow[] {
   const bySlug = new Map(topics.map((t) => [t.slug, t]));
   const children = new Map<string, TopicCard[]>();
@@ -119,14 +120,14 @@ export function TopicsPane({
   onFlaggedRetry,
   loadKnowledge,
   loadArchive,
-}: TopicsPaneProps): React.ReactElement {
-  const [query, setQuery] = useState("");
-  const [knowledge, setKnowledge] = useState<TopicKnowledge | null>(null);
-  const [archiveFile, setArchiveFile] = useState<string | null>(null);
-  const [archiveBody, setArchiveBody] = useState<string | null>(null);
-  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+}: TopicsPaneProps): JSX.Element {
+  const [query, setQuery] = createSignal("");
+  const [knowledge, setKnowledge] = createSignal<TopicKnowledge | null>(null);
+  const [archiveFile, setArchiveFile] = createSignal<string | null>(null);
+  const [archiveBody, setArchiveBody] = createSignal<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = createSignal<string | null>(null);
+  const filtered = createMemo(() => {
+    const q = query().trim().toLowerCase();
     if (!q) return topics;
     const matched = new Set(
       topics
@@ -140,7 +141,7 @@ export function TopicsPane({
         )
         .map((t) => t.slug),
     );
-    // Keep ancestors so the tree still reads when filtering.
+    // Keep ancestors so the tree() still reads when filtering.
     const bySlug = new Map(topics.map((t) => [t.slug, t]));
     const keep = new Set(matched);
     for (const slug of matched) {
@@ -151,12 +152,12 @@ export function TopicsPane({
       }
     }
     return topics.filter((t) => keep.has(t.slug));
-  }, [topics, query]);
-  const tree = useMemo(() => flattenTopicTree(filtered), [filtered]);
+  });
+  const tree = createMemo(() => flattenTopicTree(filtered()));
   const selected =
-    filtered.find((t) => t.slug === selectedSlug) ?? tree[0]?.topic ?? filtered[0] ?? null;
+    filtered().find((t) => t.slug === selectedSlug) ?? tree()[0]?.topic ?? filtered()[0] ?? null;
 
-  useEffect(() => {
+  createEffect(() => {
     let stale = false;
     setArchiveFile(null);
     setArchiveBody(null);
@@ -190,121 +191,120 @@ export function TopicsPane({
 
   return (
     <div
-      className={cx(styles.viewPane, active ? styles.isActive : "")}
+      class={cx(styles.viewPane, active ? styles.isActive : "")}
       hidden={!active}
       aria-hidden={!active}
     >
       <Panel
-        className={styles.dataPage}
+        class={styles.dataPage}
         title="Topics"
         lede="Nested subjects (≤4 levels), tidy proposals, tags, and dead worker jobs."
       >
-        <div className={cx(styles.dataLayout, selected ? styles.hasThread : "")}>
-          <div className={styles.dataListPane}>
-            <div className={styles.dataSearchBar}>
+        <div class={cx(styles.dataLayout, selected ? styles.hasThread : "")}>
+          <div class={styles.dataListPane}>
+            <div class={styles.dataSearchBar}>
               <Input
-                className={styles.dataSearchInput}
+                class={styles.dataSearchInput}
                 tone="plain"
-                value={query}
+                value={query()}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Filter topics…"
                 aria-label="Filter topics"
               />
-              <span className={styles.dataSearchMeta}>
-                {filtered.length}
+              <span class={styles.dataSearchMeta}>
+                {filtered().length}
                 {busy ? " · updating" : ""}
               </span>
             </div>
-            {tree.length === 0 ? (
-              <div className={styles.conversationList}>
+            {tree().length === 0 ? (
+              <div class={styles.conversationList}>
                 <Empty>No topics yet — capture events and run workers to cluster subjects.</Empty>
               </div>
             ) : (
-              <div className={styles.conversationList}>
-                {tree.map(({ topic, depth }) => (
+              <div class={styles.conversationList}>
+                {tree().map(({ topic, depth }) => (
                   <button
-                    key={topic.slug}
                     type="button"
-                    className={cx(
+                    class={cx(
                       styles.conversationRow,
                       selected?.slug === topic.slug && styles.active,
                     )}
-                    style={{ paddingLeft: `${12 + depth * 16}px` }}
+                    style={{ "padding-left": `${12 + depth * 16}px` }}
                     onClick={() => onSelect(topic.slug)}
                   >
-                    <div className={styles.conversationRowTop}>
-                      <strong className={styles.conversationTitle}>
+                    <div class={styles.conversationRowTop}>
+                      <strong class={styles.conversationTitle}>
                         {depth > 0 ? `${"· ".repeat(depth)}` : ""}
                         {topic.title}
                       </strong>
                       {topic.curated ? <Pill tone="ok">curated</Pill> : null}
                       {topic.kind === "entity" ? <Pill>entity</Pill> : null}
                     </div>
-                    <div className={styles.conversationRowMeta}>
-                      <span className={styles.mono}>{topic.slug}</span>
-                      <span className={styles.muted}>
+                    <div class={styles.conversationRowMeta}>
+                      <span class={styles.mono}>{topic.slug}</span>
+                      <span class={styles.muted}>
                         {(topic.event_ids ?? []).length} events · {(topic.session_ids ?? []).length}{" "}
                         sessions
                       </span>
                     </div>
                     {topic.summary ? (
-                      <div className={styles.conversationPreview}>{topic.summary}</div>
+                      <div class={styles.conversationPreview}>{topic.summary}</div>
                     ) : null}
                   </button>
                 ))}
               </div>
             )}
           </div>
-          <div className={styles.dataThreadPane}>
+          <div class={styles.dataThreadPane}>
             {!selected ? (
               <Empty>Select a topic to see sessions and citations.</Empty>
             ) : (
               <>
-                <div className={styles.dataSearchBar}>
+                <div class={styles.dataSearchBar}>
                   <div>
-                    <h2 className={styles.conversationTitle}>{selected.title}</h2>
-                    <div className={styles.conversationRowMeta}>
-                      <span className={styles.mono}>{selected.slug}</span>
+                    <h2 class={styles.conversationTitle}>{selected.title}</h2>
+                    <div class={styles.conversationRowMeta}>
+                      <span class={styles.mono}>{selected.slug}</span>
                       {selected.parent_slug ? (
-                        <span className={styles.muted}>under {selected.parent_slug}</span>
+                        <span class={styles.muted}>under {selected.parent_slug}</span>
                       ) : null}
                       {(selected.tags ?? []).map((tag) => (
-                        <Pill key={tag}>{tag}</Pill>
+                        <Pill>{tag}</Pill>
                       ))}
                     </div>
                   </div>
                   <button
                     type="button"
-                    className={styles.searchSegmentBtn}
+                    class={styles.searchSegmentBtn}
                     onClick={() => onFilterData(selected.title)}
                   >
                     Search in Data
                   </button>
                 </div>
                 {selected.summary ? <p>{selected.summary}</p> : null}
-                {knowledgeError ? <p className={styles.muted}>{knowledgeError}</p> : null}
-                {knowledge?.body ? (
+                {knowledgeError() ? <p class={styles.muted}>{knowledgeError()}</p> : null}
+                {knowledge()?.body ? (
                   <>
                     <h3>Knowledge</h3>
-                    <pre className={styles.conversationPreview}>{knowledge.body}</pre>
-                    {knowledge.archives.length > 0 ? (
-                      <div className={styles.wikiArchiveBar}>
-                        <span className={styles.wikiArchiveLabel}>Archive</span>
-                        {knowledge.archives.map((file) => (
+                    <pre class={styles.conversationPreview}>{knowledge()?.body}</pre>
+                    {(knowledge()?.archives.length ?? 0) > 0 ? (
+                      <div class={styles.wikiArchiveBar}>
+                        <span class={styles.wikiArchiveLabel}>Archive</span>
+                        {(knowledge()?.archives ?? []).map((file) => (
                           <button
-                            key={file}
                             type="button"
-                            className={
-                              archiveFile === file
+                            class={
+                              archiveFile() === file
                                 ? `${styles.wikiArchiveChip} ${styles.wikiArchiveChipActive}`
                                 : styles.wikiArchiveChip
                             }
                             onClick={() => {
-                              if (!loadArchive || !knowledge.archiveSlug) {
+                              const k = knowledge();
+                              if (!loadArchive || !k?.archiveSlug || !k.projectId) {
                                 return;
                               }
                               setArchiveFile(file);
-                              void loadArchive(knowledge.projectId, knowledge.archiveSlug, file)
+                              void loadArchive(k.projectId, k.archiveSlug, file)
                                 .then((body) => {
                                   setArchiveBody(body);
                                 })
@@ -319,19 +319,19 @@ export function TopicsPane({
                       </div>
                     ) : null}
                     {archiveBody ? (
-                      <pre className={styles.conversationPreview}>{archiveBody}</pre>
+                      <pre class={styles.conversationPreview}>{archiveBody()}</pre>
                     ) : null}
                   </>
                 ) : null}
                 {(selected.aliases ?? []).length > 0 ? (
-                  <p className={styles.muted}>Aliases: {(selected.aliases ?? []).join(", ")}</p>
+                  <p class={styles.muted}>Aliases: {(selected.aliases ?? []).join(", ")}</p>
                 ) : null}
                 {(selected.decisions ?? []).length > 0 ? (
                   <>
                     <h3>Decisions</h3>
                     <ul>
                       {(selected.decisions ?? []).slice(-12).map((d) => (
-                        <li key={d}>{d}</li>
+                        <li>{d}</li>
                       ))}
                     </ul>
                   </>
@@ -341,26 +341,26 @@ export function TopicsPane({
                     <h3>Tidy proposals</h3>
                     <ul>
                       {tidy.map((p) => (
-                        <li key={p.id}>
-                          <span className={styles.mono}>
+                        <li>
+                          <span class={styles.mono}>
                             {p.action}
                             {p.from_slug ? ` ${p.from_slug}` : ""}
                             {p.to_slug ? ` → ${p.to_slug}` : ""}
                           </span>
-                          <span className={styles.muted}> — {p.reason}</span>
+                          <span class={styles.muted}> — {p.reason}</span>
                           {onTidyDecide ? (
                             <>
                               {" "}
                               <button
                                 type="button"
-                                className={styles.searchSegmentBtn}
+                                class={styles.searchSegmentBtn}
                                 onClick={() => onTidyDecide(p.id, "approved")}
                               >
                                 Approve
                               </button>{" "}
                               <button
                                 type="button"
-                                className={styles.searchSegmentBtn}
+                                class={styles.searchSegmentBtn}
                                 onClick={() => onTidyDecide(p.id, "rejected")}
                               >
                                 Reject
@@ -377,9 +377,9 @@ export function TopicsPane({
                     <h3>Tag suggestions</h3>
                     <ul>
                       {tags.map((t) => (
-                        <li key={t.id}>
+                        <li>
                           <Pill>{t.tag}</Pill>{" "}
-                          <span className={styles.muted}>
+                          <span class={styles.muted}>
                             session <code>{t.session_id}</code>
                           </span>
                           {onTagDecide ? (
@@ -387,14 +387,14 @@ export function TopicsPane({
                               {" "}
                               <button
                                 type="button"
-                                className={styles.searchSegmentBtn}
+                                class={styles.searchSegmentBtn}
                                 onClick={() => onTagDecide(t.id, "accepted")}
                               >
                                 Accept
                               </button>{" "}
                               <button
                                 type="button"
-                                className={styles.searchSegmentBtn}
+                                class={styles.searchSegmentBtn}
                                 onClick={() => onTagDecide(t.id, "rejected")}
                               >
                                 Reject
@@ -411,19 +411,19 @@ export function TopicsPane({
                     <h3>Flagged jobs</h3>
                     <ul>
                       {flagged.map((j) => (
-                        <li key={`${j.task}:${j.job_key}`}>
-                          <span className={styles.mono}>
+                        <li>
+                          <span class={styles.mono}>
                             {j.task} · {j.job_key}
                           </span>
                           {j.last_error ? (
-                            <span className={styles.muted}> — {j.last_error}</span>
+                            <span class={styles.muted}> — {j.last_error}</span>
                           ) : null}
                           {onFlaggedRetry ? (
                             <>
                               {" "}
                               <button
                                 type="button"
-                                className={styles.searchSegmentBtn}
+                                class={styles.searchSegmentBtn}
                                 onClick={() => onFlaggedRetry(j.task, j.job_key)}
                               >
                                 Retry
@@ -437,14 +437,14 @@ export function TopicsPane({
                 ) : null}
                 <h3>Sessions</h3>
                 {(selected.session_ids ?? []).length === 0 ? (
-                  <p className={styles.muted}>No linked sessions yet.</p>
+                  <p class={styles.muted}>No linked sessions yet.</p>
                 ) : (
                   <ul>
                     {(selected.session_ids ?? []).slice(0, 40).map((sid) => (
-                      <li key={sid}>
+                      <li>
                         <button
                           type="button"
-                          className={styles.searchSegmentBtn}
+                          class={styles.searchSegmentBtn}
                           onClick={() => onOpenSession(sid)}
                         >
                           <code>{sid}</code>
@@ -454,7 +454,7 @@ export function TopicsPane({
                   </ul>
                 )}
                 <h3>Citations</h3>
-                <p className={styles.muted}>
+                <p class={styles.muted}>
                   {(selected.event_ids ?? []).length} event id
                   {(selected.event_ids ?? []).length === 1 ? "" : "s"} linked in meta.
                 </p>

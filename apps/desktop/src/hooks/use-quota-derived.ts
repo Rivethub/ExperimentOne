@@ -1,4 +1,5 @@
-import { useCallback, useMemo } from "react";
+import type { Accessor } from "solid-js";
+import { createMemo } from "solid-js";
 import { detectLimitHit, type QuotaAccountUx } from "../quota";
 import { providerKey, type CatalogProvider } from "../lib/provider-utils";
 import type {
@@ -20,131 +21,148 @@ export type UseQuotaDerivedResult = {
 };
 
 export function useQuotaDerived(opts: {
-  filter: ProviderFilter;
-  limitBannerHidden: boolean;
-  catalog: CatalogProvider[];
-  accounts: Account[];
-  quota: QuotaSnapshot | null;
-  recent: CaptureEvent[];
+  filter: Accessor<ProviderFilter>;
+  limitBannerHidden: Accessor<boolean>;
+  catalog: Accessor<CatalogProvider[]>;
+  accounts: Accessor<Account[]>;
+  quota: Accessor<QuotaSnapshot | null>;
+  recent: Accessor<CaptureEvent[]>;
 }): UseQuotaDerivedResult {
-  const { filter, limitBannerHidden, catalog, accounts, quota, recent } = opts;
-
-  const accountSource = useMemo(() => {
-    if (quota !== null && quota.accounts.length > 0) {
-      return quota.accounts;
+  const accountSource = createMemo(() => {
+    const q = opts.quota();
+    if (q !== null && q.accounts.length > 0) {
+      return q.accounts;
     }
-    return accounts;
-  }, [quota, accounts]);
+    return opts.accounts();
+  });
 
-  const providerIds = useMemo(() => {
+  const providerIds = createMemo(() => {
     const ids = new Set<string>();
-    for (const p of catalog) {
+    for (const p of opts.catalog()) {
       ids.add(p.id);
     }
-    for (const a of accountSource) {
+    for (const a of accountSource()) {
       ids.add(providerKey(a.provider));
     }
-    if (quota !== null) {
-      for (const p of quota.providers) {
+    const q = opts.quota();
+    if (q !== null) {
+      for (const p of q.providers) {
         ids.add(providerKey(p.provider));
       }
     }
-    for (const e of recent) {
+    for (const e of opts.recent()) {
       ids.add(providerKey(e.provider));
     }
     const ordered = [
-      ...catalog.map((p) => p.id),
-      ...[...ids].filter((id) => !catalog.some((p) => p.id === id) && id !== "other"),
+      ...opts.catalog().map((p) => p.id),
+      ...[...ids].filter((id) => !opts.catalog().some((p) => p.id === id) && id !== "other"),
     ];
     return ordered.filter((id, i) => ordered.indexOf(id) === i);
-  }, [catalog, accountSource, quota, recent]);
+  });
 
-  const counts = useMemo((): Record<string, number> => {
-    const by: Record<string, number> = { all: accountSource.length };
-    for (const id of providerIds) {
-      by[id] = accountSource.filter((a) => providerKey(a.provider) === id).length;
+  const counts = createMemo((): Record<string, number> => {
+    const by: Record<string, number> = { all: accountSource().length };
+    for (const id of providerIds()) {
+      by[id] = accountSource().filter((a) => providerKey(a.provider) === id).length;
     }
     return by;
-  }, [accountSource, providerIds]);
+  });
 
-  const providerQuota = useCallback(
-    (provider: string) => {
-      if (quota === null) {
-        return null;
-      }
-      return quota.providers.find((p) => providerKey(p.provider) === provider) ?? null;
-    },
-    [quota],
-  );
+  const providerQuota = (provider: string) => {
+    const q = opts.quota();
+    if (q === null) {
+      return null;
+    }
+    return q.providers.find((p) => providerKey(p.provider) === provider) ?? null;
+  };
 
-  const accountsFor = useCallback(
-    (provider: string): QuotaAccount[] => {
-      if (quota !== null && quota.accounts.length > 0) {
-        return quota.accounts.filter((a) => providerKey(a.provider) === provider);
-      }
-      return accounts
-        .filter((a) => providerKey(a.provider) === provider)
-        .map((a) => ({
-          id: a.id,
-          provider: a.provider,
-          label: a.label,
-          email: a.label.includes("@") ? a.label : null,
-          plan: null,
-          remaining_pct: null,
-          reset_at: null,
-          cooldown_seconds: null,
-          supports_quota: false,
-          loaded: true,
-          status: "local",
-          windows: [],
-        }));
-    },
-    [quota, accounts],
-  );
+  const accountsFor = (provider: string): QuotaAccount[] => {
+    const q = opts.quota();
+    if (q !== null && q.accounts.length > 0) {
+      return q.accounts.filter((a) => providerKey(a.provider) === provider);
+    }
+    return opts
+      .accounts()
+      .filter((a) => providerKey(a.provider) === provider)
+      .map((a) => ({
+        id: a.id,
+        provider: a.provider,
+        label: a.label,
+        email: a.label.includes("@") ? a.label : null,
+        plan: null,
+        remaining_pct: null,
+        reset_at: null,
+        cooldown_seconds: null,
+        supports_quota: false,
+        loaded: true,
+        status: "local",
+        windows: [],
+      }));
+  };
 
-  const quotaById = useMemo(() => {
+  const quotaById = createMemo(() => {
     const m = new Map<string, QuotaAccountUx>();
-    if (quota !== null) {
-      for (const a of quota.accounts) {
+    const q = opts.quota();
+    if (q !== null) {
+      for (const a of q.accounts) {
         m.set(a.id, { ...a, windows: a.windows });
       }
     }
     return m;
-  }, [quota]);
+  });
 
-  const limitHit = useMemo(() => {
-    if (limitBannerHidden) {
+  const limitHit = createMemo(() => {
+    if (opts.limitBannerHidden()) {
       return null;
     }
     const providersToCheck =
-      filter === "all" ? providerIds.filter((id) => (counts[id] ?? 0) > 0) : [filter];
+      opts.filter() === "all"
+        ? providerIds().filter((id) => (counts()[id] ?? 0) > 0)
+        : [opts.filter()];
     for (const id of providersToCheck) {
-      const hit = detectLimitHit(providerQuota(id), accountsFor(id), recent, id);
+      const hit = detectLimitHit(providerQuota(id), accountsFor(id), opts.recent(), id);
       if (hit !== null) {
         return hit;
       }
     }
-    const quotaAccounts = quota !== null ? quota.accounts : [];
-    return detectLimitHit(null, quotaAccounts, recent);
-  }, [limitBannerHidden, filter, quota, recent, providerQuota, accountsFor, providerIds, counts]);
+    const q = opts.quota();
+    const quotaAccounts = q !== null ? q.accounts : [];
+    return detectLimitHit(null, quotaAccounts, opts.recent());
+  });
 
-  const visibleProviders = useMemo(() => {
-    if (filter === "all") {
-      const active = providerIds.filter(
-        (id) => (counts[id] ?? 0) > 0 || recent.some((e) => providerKey(e.provider) === id),
+  const visibleProviders = createMemo(() => {
+    if (opts.filter() === "all") {
+      const active = providerIds().filter(
+        (id) =>
+          (counts()[id] ?? 0) > 0 || opts.recent().some((e) => providerKey(e.provider) === id),
       );
-      return active.length > 0 ? active : catalog.map((p) => p.id).slice(0, 4);
+      return active.length > 0
+        ? active
+        : opts
+            .catalog()
+            .map((p) => p.id)
+            .slice(0, 4);
     }
-    return [filter];
-  }, [filter, providerIds, counts, recent, catalog]);
+    return [opts.filter()];
+  });
 
   return {
-    providerIds,
-    counts,
+    get providerIds() {
+      return providerIds();
+    },
+    get counts() {
+      return counts();
+    },
     providerQuota,
     accountsFor,
-    quotaById,
-    limitHit,
-    visibleProviders,
+    get quotaById() {
+      return quotaById();
+    },
+    get limitHit() {
+      return limitHit();
+    },
+    get visibleProviders() {
+      return visibleProviders();
+    },
   };
 }

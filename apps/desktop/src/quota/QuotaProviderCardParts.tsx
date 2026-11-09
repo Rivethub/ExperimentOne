@@ -1,4 +1,5 @@
-import { useMemo, type ReactElement } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import { accountDisplay } from "../lib/format-utils";
 import { fmtPct } from "../lib/provider-utils";
 import { isDefined } from "../lib/nullish";
@@ -23,14 +24,14 @@ export function QuotaProviderCardEmpty({
   ico: string;
   icoClass: "claude" | "codex" | "generic";
   onAddCredentials: () => void;
-}): ReactElement {
+}): JSX.Element {
   return (
     <Panel
-      className="mb-0"
+      class="mb-0"
       title={
-        <span className="inline-flex items-center gap-2.5">
+        <span class="inline-flex items-center gap-2.5">
           <span
-            className={cn(
+            class={cn(
               "grid size-7 place-items-center rounded-lg text-[13px] font-bold",
               icoTone[icoClass],
             )}
@@ -47,7 +48,7 @@ export function QuotaProviderCardEmpty({
         </Button>
       }
     >
-      <p className="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
+      <p class="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
         Add an account to track live remaining limits and burn for {name}.
       </p>
     </Panel>
@@ -80,8 +81,8 @@ export function QuotaProviderAccountList({
   accounts: QuotaAccount[];
   onAddCredentials: () => void;
   onAccountSelect: (a: QuotaAccountUx) => void;
-}): ReactElement {
-  const rows = useMemo(
+}): JSX.Element {
+  const rows = createMemo(
     () =>
       accounts.map((a) => {
         const rem = a.remaining_pct;
@@ -93,13 +94,12 @@ export function QuotaProviderAccountList({
   );
 
   return (
-    <div className="mt-3 flex flex-col gap-1.5 border-t border-border/60 pt-3">
-      {rows.map(({ a, rem, empty }) => (
+    <div class="mt-3 flex flex-col gap-1.5 border-t border-border/60 pt-3">
+      {rows().map(({ a, rem, empty }) => (
         <button
-          key={a.id}
           type="button"
           title={accountRowTitle(a)}
-          className={cn(
+          class={cn(
             "flex w-full items-center justify-between gap-3 rounded-lg border border-transparent px-2.5 py-2 text-left",
             "hover:border-border hover:bg-secondary/40",
             empty && "border-amber-900/40 bg-amber-950/20",
@@ -109,34 +109,34 @@ export function QuotaProviderAccountList({
             onAccountSelect(a);
           }}
         >
-          <div className="flex min-w-0 items-center gap-2">
+          <div class="flex min-w-0 items-center gap-2">
             <span
-              className={cn(
+              class={cn(
                 "size-2 shrink-0 rounded-full",
                 empty ? "bg-amber-400" : a.loaded ? "bg-emerald-400" : "bg-muted-foreground/50",
               )}
               aria-hidden
             />
-            <span className="truncate text-[13px] font-medium">{accountDisplay(a)}</span>
+            <span class="truncate text-[13px] font-medium">{accountDisplay(a)}</span>
             {!a.loaded ? (
-              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span class="rounded bg-secondary px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
                 unavailable
               </span>
             ) : null}
             {empty ? (
-              <span className="rounded bg-amber-950/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
+              <span class="rounded bg-amber-950/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
                 empty
               </span>
             ) : null}
           </div>
-          <div className="shrink-0 text-xs text-muted-foreground">
+          <div class="shrink-0 text-xs text-muted-foreground">
             <span title="Remaining quota for this credential">{fmtPct(rem ?? null)}</span>
-            <span className="mx-1 opacity-50">·</span>
+            <span class="mx-1 opacity-50">·</span>
             <span title="Next reset">{formatResetAt(a.reset_at)}</span>
           </div>
         </button>
       ))}
-      <div className="px-1 pt-1">
+      <div class="px-1 pt-1">
         <Button variant="ghost" onClick={onAddCredentials}>
           Add account
         </Button>

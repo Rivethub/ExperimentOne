@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import {
   providerChipLabel,
   providerColor,
@@ -19,17 +20,17 @@ export function CaptureEventDetail({
   event: CaptureEvent;
   catalog: CatalogProvider[];
   onClose: () => void;
-}): React.ReactElement {
+}): JSX.Element {
   const bodies = splitCaptureBody(event.content);
   const providerId = providerKey(event.provider);
 
   return (
-    <div className={styles.eventDetail}>
-      <div className={styles.eventDetailHead}>
-        <div className={styles.eventDetailTitle}>
+    <div class={styles.eventDetail}>
+      <div class={styles.eventDetailHead}>
+        <div class={styles.eventDetailTitle}>
           <strong>{providerChipLabel(providerId, catalog)}</strong>
-          <span className={styles.mono}>{event.model ?? "—"}</span>
-          <span className={styles.eventDetailWhen}>
+          <span class={styles.mono}>{event.model ?? "—"}</span>
+          <span class={styles.eventDetailWhen}>
             {new Date(event.ts).toLocaleString([], {
               month: "short",
               day: "numeric",
@@ -43,34 +44,34 @@ export function CaptureEventDetail({
           Close
         </Button>
       </div>
-      <div className={styles.eventDetailMeta}>
-        <div className={styles.item}>
-          <span className={styles.k}>Status</span>
-          <span className={styles.v}>{event.status_code ?? "—"}</span>
+      <div class={styles.eventDetailMeta}>
+        <div class={styles.item}>
+          <span class={styles.k}>Status</span>
+          <span class={styles.v}>{event.status_code ?? "—"}</span>
         </div>
-        <div className={styles.item}>
-          <span className={styles.k}>Latency</span>
-          <span className={styles.v}>
+        <div class={styles.item}>
+          <span class={styles.k}>Latency</span>
+          <span class={styles.v}>
             {isDefined(event.latency_ms) ? `${event.latency_ms} ms` : "—"}
           </span>
         </div>
-        <div className={styles.item}>
-          <span className={styles.k}>Account</span>
-          <span className={styles.v}>{event.account_label ?? "—"}</span>
+        <div class={styles.item}>
+          <span class={styles.k}>Account</span>
+          <span class={styles.v}>{event.account_label ?? "—"}</span>
         </div>
-        <div className={styles.item}>
-          <span className={styles.k}>Role</span>
-          <span className={styles.v}>{event.role ?? "—"}</span>
+        <div class={styles.item}>
+          <span class={styles.k}>Role</span>
+          <span class={styles.v}>{event.role ?? "—"}</span>
         </div>
       </div>
-      <div className={styles.eventDetailBodies}>
-        <div className={styles.eventBodyBlock}>
-          <div className={styles.eventBodyLabel}>Request</div>
+      <div class={styles.eventDetailBodies}>
+        <div class={styles.eventBodyBlock}>
+          <div class={styles.eventBodyLabel}>Request</div>
           <Snippet>{bodies.request}</Snippet>
         </div>
         {isDefined(bodies.response) && (
-          <div className={styles.eventBodyBlock}>
-            <div className={styles.eventBodyLabel}>Response</div>
+          <div class={styles.eventBodyBlock}>
+            <div class={styles.eventBodyLabel}>Response</div>
             <Snippet>{bodies.response}</Snippet>
           </div>
         )}
@@ -89,7 +90,7 @@ export function CaptureEventRow({
   catalog: CatalogProvider[];
   selected: boolean;
   onSelect: (ev: CaptureEvent) => void;
-}): React.ReactElement {
+}): JSX.Element {
   const providerId = providerKey(ev.provider);
   const color = providerColor(providerId, catalog);
   const statusCode = ev.status_code;
@@ -97,18 +98,18 @@ export function CaptureEventRow({
 
   return (
     <button
-      className={cx(styles.captureRow, selected ? styles.active : "")}
+      class={cx(styles.captureRow, selected ? styles.active : "")}
       onClick={() => {
         onSelect(ev);
       }}
     >
-      <span className={styles.mono}>
+      <span class={styles.mono}>
         {new Date(ev.ts).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         })}
       </span>
-      <span className={styles.captureProvider}>
+      <span class={styles.captureProvider}>
         <Pill
           style={{
             background: `${color}22`,
@@ -119,9 +120,9 @@ export function CaptureEventRow({
         </Pill>
         {showBadStatus && <Pill tone="bad">{statusCode}</Pill>}
       </span>
-      <span className={styles.mono}>{ev.model ?? "—"}</span>
-      <span className={cx(styles.mono, styles.captureTokens)}>{captureTokenLabel(ev)}</span>
-      <span className={styles.preview}>{trunc(ev.content, 80)}</span>
+      <span class={styles.mono}>{ev.model ?? "—"}</span>
+      <span class={cx(styles.mono, styles.captureTokens)}>{captureTokenLabel(ev)}</span>
+      <span class={styles.preview}>{trunc(ev.content, 80)}</span>
     </button>
   );
 }

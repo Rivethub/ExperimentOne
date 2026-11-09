@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import type { Status } from "../../lib/types";
 import { Button } from "../../ui";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
@@ -9,9 +10,9 @@ export function RuntimeProxyCard({
 }: {
   status: Status | null;
   onCopyText: (text: string) => void;
-}): React.ReactElement {
+}): JSX.Element {
   const live = status?.proxy_running === true;
-  const foot = useMemo(
+  const foot = createMemo(
     () => (
       <Button
         onClick={() => {
@@ -28,7 +29,7 @@ export function RuntimeProxyCard({
       title="Proxy"
       statusLabel={live ? "live" : "stopped"}
       statusTone={live ? "ok" : "bad"}
-      foot={foot}
+      foot={foot()}
     >
       <RuntimeKv label="Base URL" value={status?.proxy_base_url ?? "—"} />
       <RuntimeKv label="Access key" value={status?.access_key_hint ?? "—"} />

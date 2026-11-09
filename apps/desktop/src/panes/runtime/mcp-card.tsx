@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import type { Status } from "../../lib/types";
 import { Button } from "../../ui";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
@@ -9,9 +10,9 @@ export function RuntimeMcpCard({
 }: {
   status: Status | null;
   onCopyText: (text: string) => void;
-}): React.ReactElement {
+}): JSX.Element {
   const enabled = status?.capabilities.mcp === true;
-  const foot = useMemo(
+  const foot = createMemo(
     () => (
       <Button
         onClick={() => {
@@ -28,7 +29,7 @@ export function RuntimeMcpCard({
       title="MCP"
       statusLabel={enabled ? "enabled" : "off"}
       statusTone={enabled ? "ok" : "default"}
-      foot={foot}
+      foot={foot()}
     >
       <RuntimeKv label="Endpoint" value={status?.mcp_url ?? "—"} />
     </RuntimePaneCard>

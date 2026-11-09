@@ -1,19 +1,28 @@
-import { useContext, type ComponentPropsWithoutRef, type ReactElement } from "react";
+import { useContext, type JSX, splitProps } from "solid-js";
+import { Show } from "solid-js";
 import { WikiLinkContext } from "./wiki-link-context";
 import { WikiMarkdownLink } from "./wiki-markdown-link";
 
-export function WikiMarkdownAnchor(props: ComponentPropsWithoutRef<"a">): ReactElement {
+export function WikiMarkdownAnchor(
+  props: JSX.AnchorHTMLAttributes<HTMLAnchorElement>,
+): JSX.Element {
   const ctx = useContext(WikiLinkContext);
-  if (ctx === null) {
-    const { children, ...rest } = props;
-    return <a {...rest}>{children}</a>;
-  }
   return (
-    <WikiMarkdownLink
-      {...props}
-      activePath={ctx.activePath}
-      pageList={ctx.pageList}
-      onOpenPage={ctx.onOpenPage}
-    />
+    <Show
+      when={ctx}
+      fallback={(() => {
+        const [local, rest] = splitProps(props, ["children"]);
+        return <a {...rest}>{local.children}</a>;
+      })()}
+    >
+      {(value) => (
+        <WikiMarkdownLink
+          {...props}
+          activePath={value().activePath}
+          pageList={value().pageList}
+          onOpenPage={value().onOpenPage}
+        />
+      )}
+    </Show>
   );
 }

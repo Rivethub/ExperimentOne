@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { fmtUsd } from "../lib/cost-estimate";
 import type { Series } from "../lib/quota-series";
 import type { MetricMode } from "./types";
@@ -30,32 +31,32 @@ export function QuotaProviderCardStats({
   poolEmpty: string;
   firstEmpty: string;
   nextReset: string;
-}): React.ReactElement {
+}): JSX.Element {
   const showChart = metricMode !== "limits" || series.eventsInWindow > 0 || knownQuota;
 
   return (
     <>
-      <div className={styles.statRow}>
+      <div class={styles.statRow}>
         <div
-          className={styles.item}
+          class={styles.item}
           title="Estimated time until the pooled remaining hits zero at the current burn"
         >
-          <div className={styles.k}>Pool empty</div>
-          <div className={styles.v}>{poolEmpty}</div>
+          <div class={styles.k}>Pool empty</div>
+          <div class={styles.v}>{poolEmpty}</div>
         </div>
-        <div className={styles.item} title="Account expected to hit empty first under shared burn">
-          <div className={styles.k}>First empty</div>
-          <div className={styles.v}>{firstEmpty}</div>
+        <div class={styles.item} title="Account expected to hit empty first under shared burn">
+          <div class={styles.k}>First empty</div>
+          <div class={styles.v}>{firstEmpty}</div>
         </div>
-        <div className={styles.item} title="Soonest provider reset / refill signal">
-          <div className={styles.k}>Next reset</div>
-          <div className={styles.v}>{nextReset}</div>
+        <div class={styles.item} title="Soonest provider reset / refill signal">
+          <div class={styles.k}>Next reset</div>
+          <div class={styles.v}>{nextReset}</div>
         </div>
-        <div className={styles.item} title={`Burn over the last ${horizon} of captures`}>
-          <div className={styles.k}>
+        <div class={styles.item} title={`Burn over the last ${horizon} of captures`}>
+          <div class={styles.k}>
             {metricMode === "cost" ? "Est. cost" : `Burn (last ${horizon})`}
           </div>
-          <div className={styles.v}>{metricMode === "cost" ? fmtUsd(costUsd) : burn}</div>
+          <div class={styles.v}>{metricMode === "cost" ? fmtUsd(costUsd) : burn}</div>
         </div>
       </div>
       {showChart ? (

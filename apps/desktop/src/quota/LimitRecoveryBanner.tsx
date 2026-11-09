@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { Button as ShadcnButton } from "#components/ui/button";
 import {
   DropdownMenu,
@@ -8,7 +9,7 @@ import {
 import { formatCountdownTo } from "#lib/provider-utils";
 import { isDefined } from "#lib/nullish";
 import { cn } from "#lib/utils";
-import { Ellipsis, TriangleAlert } from "lucide-react";
+import { Ellipsis, TriangleAlert } from "lucide-solid";
 import type { LimitHitInfo } from "./types";
 
 export function LimitRecoveryBanner({
@@ -21,7 +22,7 @@ export function LimitRecoveryBanner({
   onRefreshCredentials: () => void;
   onSwitchAccount: () => void;
   onWait: () => void;
-}): React.ReactElement | null {
+}): JSX.Element | null {
   if (!isDefined(hit)) {
     return null;
   }
@@ -33,24 +34,24 @@ export function LimitRecoveryBanner({
   return (
     <div
       role="alert"
-      className={cn(
+      class={cn(
         "mb-3.5 flex flex-wrap items-start justify-between gap-3 rounded-lg border px-4 py-3",
         "border-amber-800/70 bg-[#1c1410] text-amber-100",
       )}
     >
-      <div className="flex min-w-0 flex-1 gap-3">
-        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
-        <div className="min-w-0">
-          <div className="font-medium tracking-tight text-amber-100">{hit.windowLabel}</div>
-          <div className="mt-0.5 text-sm text-amber-200/90">
+      <div class="flex min-w-0 flex-1 gap-3">
+        <TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
+        <div class="min-w-0">
+          <div class="font-medium tracking-tight text-amber-100">{hit.windowLabel}</div>
+          <div class="mt-0.5 text-sm text-amber-200/90">
             <span>{hit.reason}</span>
             {resetNote !== null ? (
-              <span className="mt-1 block text-amber-200/70">{resetNote}</span>
+              <span class="mt-1 block text-amber-200/70">{resetNote}</span>
             ) : null}
           </div>
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div class="flex shrink-0 items-center gap-2">
         <ShadcnButton size="sm" variant="secondary" onClick={onRefreshCredentials}>
           Refresh credentials
         </ShadcnButton>

@@ -1,4 +1,4 @@
-import { toast } from "sonner";
+import { toast } from "solid-sonner";
 
 /** Ephemeral feedback — prefer these over shell banners. */
 export const notify = {

@@ -1,7 +1,6 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { RouterProvider } from "@tanstack/react-router";
-import React, { useState } from "react";
-import ReactDOM from "react-dom/client";
+import { QueryClientProvider } from "@tanstack/solid-query";
+import { RouterProvider } from "@tanstack/solid-router";
+import { render } from "solid-js/web";
 import { AppAtomRegistryProvider } from "./atoms/registry";
 import { Toaster } from "./components/ui/sonner";
 import { createAppQueryClient } from "./lib/query-client";
@@ -13,8 +12,9 @@ if (root === null) {
   throw new Error("Missing #root element");
 }
 
+const queryClient = createAppQueryClient();
+
 function Root() {
-  const [queryClient] = useState(createAppQueryClient);
   return (
     <AppAtomRegistryProvider>
       <QueryClientProvider client={queryClient}>
@@ -25,8 +25,4 @@ function Root() {
   );
 }
 
-ReactDOM.createRoot(root).render(
-  <React.StrictMode>
-    <Root />
-  </React.StrictMode>,
-);
+render(() => <Root />, root);

@@ -1,6 +1,7 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { Effect } from "effect";
-import { useCallback, useState } from "react";
+import type { JSX } from "solid-js";
+import { createSignal } from "solid-js";
 import { useApp } from "#app/context";
 import { topicArchiveSlug, topicWikiPageId } from "#components/wiki-board-logic";
 import { runApp, softEffect } from "#effect";
@@ -12,19 +13,15 @@ export const Route = createFileRoute("/topics")({
   component: TopicsPage,
 });
 
-function TopicsPage(): React.ReactElement {
-  const { busy } = useApp();
+function TopicsPage(): JSX.Element {
+  const app = useApp();
   const navigate = useNavigate();
   const topics = useTopics();
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [selectedSlug, setSelectedSlug] = createSignal<string | null>(null);
 
-  const loadArchive = useCallback(
-    (projectId: string, slug: string, file: string) =>
-      runApp(Rivet.loadWikiArchiveContent(slug, file, projectId)),
-    [],
-  );
-
-  const loadKnowledge = useCallback(async (topic: TopicCard): Promise<TopicKnowledge> => {
+  const loadArchive = (projectId: string, slug: string, file: string) =>
+    runApp(Rivet.loadWikiArchiveContent(slug, file, projectId));
+  const loadKnowledge = async (topic: TopicCard): Promise<TopicKnowledge> => {
     const projectId = topic.project_id?.trim() || "default";
     const pageId = topicWikiPageId(projectId, topic.slug, topic.kind);
     const archiveSlug = topicArchiveSlug(topic.slug, topic.kind);
@@ -60,7 +57,7 @@ function TopicsPage(): React.ReactElement {
         };
       }),
     );
-  }, []);
+  };
 
   return (
     <TopicsPane
@@ -69,8 +66,8 @@ function TopicsPage(): React.ReactElement {
       tidy={topics.tidy}
       tags={topics.tags}
       flagged={topics.flagged}
-      busy={busy}
-      selectedSlug={selectedSlug}
+      busy={app.busy()}
+      selectedSlug={selectedSlug()}
       onSelect={setSelectedSlug}
       onOpenSession={(sessionId) => {
         void navigate({

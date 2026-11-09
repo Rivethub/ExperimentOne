@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useQueryClient } from "@tanstack/solid-query";
+import { createEffect, onCleanup } from "solid-js";
 import { refreshWikiAtom } from "../atoms/wiki";
 import { runApp, softEffect } from "../effect";
 import * as Rivet from "../effect/rivet";
@@ -17,9 +17,9 @@ type LiveCursor = {
  */
 export function useLiveEvents(enabled = true): void {
   const queryClient = useQueryClient();
-  const last = useRef<LiveCursor | null>(null);
+  const last: { current: LiveCursor | null } = { current: null };
 
-  useEffect(() => {
+  createEffect(() => {
     if (!enabled) {
       return;
     }
@@ -74,12 +74,12 @@ export function useLiveEvents(enabled = true): void {
       }
     })();
 
-    return () => {
+    onCleanup(() => {
       cancelled = true;
       unlisten?.();
       if (pollTimer != null) {
         clearInterval(pollTimer);
       }
-    };
-  }, [enabled, queryClient]);
+    });
+  });
 }

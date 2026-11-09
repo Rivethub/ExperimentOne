@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import type { JSX } from "solid-js";
+import { createFileRoute } from "@tanstack/solid-router";
 import { useApp } from "#app/context";
 import { RuntimePane } from "#panes";
 
@@ -6,7 +7,7 @@ export const Route = createFileRoute("/runtime")({
   component: RuntimePage,
 });
 
-function RuntimePage(): React.ReactElement {
+function RuntimePage(): JSX.Element {
   const { rivet, ops, openSettings } = useApp();
 
   return (

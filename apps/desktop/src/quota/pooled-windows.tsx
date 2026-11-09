@@ -1,4 +1,5 @@
-import { useMemo, type ReactElement } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import { fmtPct } from "../lib/provider-utils";
 import { isDefined } from "../lib/nullish";
 import type { QuotaAccountUx } from "./types";
@@ -22,9 +23,9 @@ function SegmentBar({
   windowId: string;
   color: string;
   onSelect: (a: QuotaAccountUx) => void;
-}): ReactElement {
+}): JSX.Element {
   return (
-    <div className={styles.poolWindowBar} role="group" aria-label="Account limit segments">
+    <div class={styles.poolWindowBar} role="group" aria-label="Account limit segments">
       {accounts.map((a) => {
         const w = windowForAccount(a, windowId);
         const rem = w?.remaining_pct;
@@ -35,25 +36,20 @@ function SegmentBar({
         const label = `${pooledAccountDisplay(a)} · ${fmtPct(rem ?? null)} remaining`;
         return (
           <button
-            key={a.id}
             type="button"
-            className={cx(
-              styles.poolSeg,
-              empty ? styles.isEmpty : "",
-              a.loaded ? "" : styles.isDown,
-            )}
+            class={cx(styles.poolSeg, empty ? styles.isEmpty : "", a.loaded ? "" : styles.isDown)}
             title={label}
             aria-label={label}
             onClick={() => {
               onSelect(a);
             }}
           >
-            <div className={styles.poolSegFill} style={{ flexGrow: Math.max(0.05, remaining) }}>
-              <span className={styles.poolSegRemain} style={{ background: color }} />
+            <div class={styles.poolSegFill} style={{ "flex-grow": Math.max(0.05, remaining) }}>
+              <span class={styles.poolSegRemain} style={{ background: color }} />
             </div>
             <div
-              className={styles.poolSegHatch}
-              style={{ flexGrow: Math.max(0.05, used) }}
+              class={styles.poolSegHatch}
+              style={{ "flex-grow": Math.max(0.05, used) }}
               title="Used until reset restores"
             />
           </button>
@@ -71,32 +67,32 @@ export function PooledWindowCards({
   accounts: QuotaAccountUx[];
   color: string;
   onAccountSelect: (a: QuotaAccountUx) => void;
-}): ReactElement {
+}): JSX.Element {
   const windows = distinctWindowIds(accounts);
-  const ordered = useMemo(() => sortAccountsById(accounts), [accounts]);
+  const ordered = createMemo(() => sortAccountsById(accounts));
 
   return (
-    <div className={styles.poolWindows}>
+    <div class={styles.poolWindows}>
       {windows.map((win) => (
-        <div key={win.id} className={styles.poolWindowCard}>
-          <div className={styles.poolWindowHead}>
-            <span className={styles.poolWindowLabel}>{win.label}</span>
-            <span className={styles.poolWindowHint}>
+        <div class={styles.poolWindowCard}>
+          <div class={styles.poolWindowHead}>
+            <span class={styles.poolWindowLabel}>{win.label}</span>
+            <span class={styles.poolWindowHint}>
               Segments = accounts (fixed order) · hatch = used until reset
             </span>
           </div>
           <SegmentBar
-            accounts={ordered}
+            accounts={ordered()}
             windowId={win.id}
             color={color}
             onSelect={onAccountSelect}
           />
-          <div className={styles.poolWindowLegend}>
-            {ordered.map((a) => {
+          <div class={styles.poolWindowLegend}>
+            {ordered().map((a) => {
               const w = windowForAccount(a, win.id);
               return (
-                <span key={a.id} className={styles.poolLegendItem}>
-                  <span className={cx(styles.qaDot, styles.ok)} style={{ background: color }} />
+                <span class={styles.poolLegendItem}>
+                  <span class={cx(styles.qaDot, styles.ok)} style={{ background: color }} />
                   {pooledAccountDisplay(a)} {fmtPct(w?.remaining_pct ?? null)}
                 </span>
               );

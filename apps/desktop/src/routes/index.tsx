@@ -1,5 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { createFileRoute } from "@tanstack/solid-router";
+import type { JSX } from "solid-js";
+import { createMemo } from "solid-js";
 import { useApp } from "#app/context";
 import { validateQuotaSearch } from "#app/search";
 import { useQuotaDerived } from "#hooks";
@@ -10,11 +11,10 @@ export const Route = createFileRoute("/")({
   component: QuotaPage,
 });
 
-function QuotaPage(): React.ReactElement {
+function QuotaPage(): JSX.Element {
   const {
     rivet,
     accounts,
-    busy: _busy,
     horizon,
     setHorizon,
     hideLimitBanner,
@@ -22,41 +22,38 @@ function QuotaPage(): React.ReactElement {
     setDetailAccount,
     limitBannerHidden,
   } = useApp();
-  const { filter, metric } = Route.useSearch();
+  const search = Route.useSearch();
   const navigate = Route.useNavigate();
 
   const derived = useQuotaDerived({
-    filter,
+    filter: () => search().filter,
     limitBannerHidden,
-    catalog: rivet.catalog,
-    accounts: rivet.accounts,
-    quota: rivet.quota,
-    recent: rivet.recent,
+    catalog: () => rivet.catalog,
+    accounts: () => rivet.accounts,
+    quota: () => rivet.quota,
+    recent: () => rivet.recent,
   });
 
-  const limitActions = useMemo(
-    () => ({
-      onRefreshCredentials: () => void rivet.refreshCredentials(),
-      onSwitchAccount: () => openSettings("accounts"),
-      onWait: () => hideLimitBanner(),
-    }),
-    [rivet, openSettings, hideLimitBanner],
-  );
+  const limitActions = createMemo(() => ({
+    onRefreshCredentials: () => void rivet.refreshCredentials(),
+    onSwitchAccount: () => openSettings("accounts"),
+    onWait: () => hideLimitBanner(),
+  }));
 
   return (
     <QuotaPane
       counts={derived.counts}
-      filter={filter}
+      filter={search().filter}
       onFilterChange={(next) => void navigate({ search: (prev) => ({ ...prev, filter: next }) })}
       providerIds={derived.providerIds}
       catalog={rivet.catalog}
       limitHit={derived.limitHit}
-      limitActions={limitActions}
-      metricMode={metric}
+      limitActions={limitActions()}
+      metricMode={search().metric}
       onMetricModeChange={(next) =>
         void navigate({ search: (prev) => ({ ...prev, metric: next }) })
       }
-      horizon={horizon}
+      horizon={horizon()}
       onHorizonChange={setHorizon}
       quota={rivet.quota}
       quotaHistory={rivet.quotaHistory}

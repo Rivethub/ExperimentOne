@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { Button } from "../../ui";
 
 export function AccountsTabActions({
@@ -8,7 +9,7 @@ export function AccountsTabActions({
   busy: boolean;
   loginActive: boolean;
   onToggleAddAccount: () => void;
-}): React.ReactElement {
+}): JSX.Element {
   return (
     <Button variant="primary" disabled={busy || loginActive} onClick={onToggleAddAccount}>
       Add account

@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { fmt } from "../../lib/provider-utils";
 import type { Account, Status } from "../../lib/types";
 import { RuntimeKv, RuntimePaneCard } from "./pane-card";
@@ -8,7 +9,7 @@ export function RuntimeStoreCard({
 }: {
   status: Status | null;
   accounts: Account[];
-}): React.ReactElement {
+}): JSX.Element {
   return (
     <RuntimePaneCard
       title="Store"

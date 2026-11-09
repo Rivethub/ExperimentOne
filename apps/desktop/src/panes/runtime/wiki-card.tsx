@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import { formatRelativeIso } from "../../lib/format-utils";
 import { fmt } from "../../lib/provider-utils";
 import { isDefined } from "../../lib/nullish";
@@ -12,14 +13,14 @@ export function RuntimeWikiCard({
 }: {
   status: Status | null;
   onOpenSettings: (tab: SettingsTab) => void;
-}): React.ReactElement {
+}): JSX.Element {
   const on = status?.workers?.wiki === true || status?.capabilities.wiki === true;
   const model =
     isDefined(status?.wiki_model) && status.wiki_model !== ""
       ? status.wiki_model
       : "structure only";
   const cursor = status?.workers?.wiki_cursor ?? undefined;
-  const foot = useMemo(
+  const foot = createMemo(
     () => (
       <Button
         onClick={() => {
@@ -37,7 +38,7 @@ export function RuntimeWikiCard({
       title="Wiki worker"
       statusLabel={on ? "on" : "off"}
       statusTone={on ? "ok" : "default"}
-      foot={foot}
+      foot={foot()}
     >
       <RuntimeKv label="Pages" value={fmt(status?.workers?.wiki_pages ?? 0)} />
       <RuntimeKv label="Last run" value={formatRelativeIso(cursor)} title={cursor} />
