@@ -299,6 +299,7 @@ export function TopicsPane(props: TopicsPaneProps): JSX.Element {
                             sel().project_id?.trim() || "default",
                             sel().slug,
                             sel().kind,
+                            sel().tags,
                           )
                         }
                       >

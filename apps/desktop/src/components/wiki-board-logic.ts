@@ -60,7 +60,23 @@ export function archiveSlugForPage(page: WikiPageCard): string | null {
   return null;
 }
 
-export function topicWikiPageId(projectId: string, slug: string, kind?: string): string | null {
+/** Entity type from topic tags (`type:person` → `person`). */
+export function entityTypeFromTags(tags?: readonly string[] | null): string | null {
+  for (const tag of tags ?? []) {
+    const match = /^type:(.+)$/iu.exec(tag.trim());
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+  return null;
+}
+
+export function topicWikiPageId(
+  projectId: string,
+  slug: string,
+  kind?: string,
+  tags?: readonly string[] | null,
+): string | null {
   const project = projectId.trim() || "default";
   const k = (kind ?? "").toLowerCase();
   if (k === "type") {
@@ -70,6 +86,10 @@ export function topicWikiPageId(projectId: string, slug: string, kind?: string):
     const bare = slug.replace(/^entity:/u, "");
     if (!bare) {
       return null;
+    }
+    const entityType = entityTypeFromTags(tags);
+    if (entityType) {
+      return `${project}/entities/${entityType}/${bare}`;
     }
     return `${project}/entities/${bare}`;
   }
@@ -97,11 +117,11 @@ export function topicSlugFromWikiPage(page: Pick<WikiPageCard, "relative_path">)
   }
   const typed = /^entities\/([^/]+)\/([^/]+)\.md$/iu.exec(rel);
   if (typed?.[2]) {
-    return typed[2];
+    return `entity:${typed[2]}`;
   }
   const entity = /^entities\/([^/]+)\.md$/iu.exec(rel);
   if (entity?.[1]) {
-    return entity[1];
+    return `entity:${entity[1]}`;
   }
   return null;
 }

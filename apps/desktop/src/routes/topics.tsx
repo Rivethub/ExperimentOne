@@ -45,7 +45,7 @@ function TopicsPage(): JSX.Element {
     runApp(Rivet.loadWikiArchiveContent(slug, file, projectId));
   const loadKnowledge = async (topic: TopicCard): Promise<TopicKnowledge> => {
     const projectId = topic.project_id?.trim() || "default";
-    const pageId = topicWikiPageId(projectId, topic.slug, topic.kind);
+    const pageId = topicWikiPageId(projectId, topic.slug, topic.kind, topic.tags);
     const archiveSlug = topicArchiveSlug(topic.slug, topic.kind);
     return runApp(
       Effect.gen(function* loadTopicKnowledge() {
@@ -112,7 +112,7 @@ function TopicsPage(): JSX.Element {
       }}
       onOpenWiki={(topic) => {
         const projectId = topic.project_id?.trim() || "default";
-        const pageId = topicWikiPageId(projectId, topic.slug, topic.kind);
+        const pageId = topicWikiPageId(projectId, topic.slug, topic.kind, topic.tags);
         void navigate({
           to: "/wiki",
           search: { page: pageId ?? "" },
