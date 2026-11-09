@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import { isDefined } from "../lib/nullish";
 import type { ProviderQuota } from "../lib/types";
 import type { MetricMode } from "./types";
@@ -16,20 +17,7 @@ const bigTone = {
   generic: "text-foreground",
 } as const;
 
-export function QuotaProviderCardHeader({
-  name,
-  ico,
-  icoClass,
-  count,
-  metricMode,
-  pq,
-  knownQuota,
-  capacity,
-  observedAt,
-  headline,
-  unit,
-  capLabel,
-}: {
+export function QuotaProviderCardHeader(props: {
   name: string;
   ico: string;
   icoClass: "claude" | "codex" | "generic";
@@ -42,46 +30,46 @@ export function QuotaProviderCardHeader({
   headline: number;
   unit: string;
   capLabel: string;
-}): React.ReactElement {
+}): JSX.Element {
   return (
-    <div className="mb-2.5 flex items-start justify-between gap-4">
-      <div className="flex items-center gap-2.5">
+    <div class="mb-2.5 flex items-start justify-between gap-4">
+      <div class="flex items-center gap-2.5">
         <div
-          className={cn(
+          class={cn(
             "grid size-7 place-items-center rounded-lg text-[13px] font-bold",
-            icoTone[icoClass],
+            icoTone[props.icoClass],
           )}
         >
-          {ico}
+          {props.ico}
         </div>
         <div>
-          <h2 className="m-0 text-[15px] font-semibold">{name}</h2>
-          <div className="text-xs text-muted-foreground">
-            {count} account{count === 1 ? "" : "s"}
-            {pq !== null ? ` · ${pq.known_count ?? 0}/${count} reporting` : ""}
-            {knownQuota ? ` · pool ${Math.round(capacity)}%` : ""} · {metricMode}
-            {isDefined(observedAt) && observedAt !== "" ? (
+          <h2 class="m-0 text-[15px] font-semibold">{props.name}</h2>
+          <div class="text-xs text-muted-foreground">
+            {props.count} account{props.count === 1 ? "" : "s"}
+            {props.pq !== null ? ` · ${props.pq.known_count ?? 0}/${props.count} reporting` : ""}
+            {props.knownQuota ? ` · pool ${Math.round(props.capacity)}%` : ""} · {props.metricMode}
+            {isDefined(props.observedAt) && props.observedAt !== "" ? (
               <>
                 {" "}
-                · <StaleStamp observedAt={observedAt} />
+                · <StaleStamp observedAt={props.observedAt} />
               </>
             ) : null}
           </div>
         </div>
       </div>
-      <div className="text-right" title="Sum of remaining % across loaded accounts vs capacity">
+      <div class="text-right" title="Sum of remaining % across loaded accounts vs capacity">
         <div
-          className={cn(
+          class={cn(
             "text-[28px] leading-none font-bold tracking-tight tabular-nums",
-            bigTone[icoClass],
+            bigTone[props.icoClass],
           )}
         >
-          {headline}
-          <span className="ml-1.5 text-[13px] font-medium tracking-normal text-muted-foreground">
-            {unit}
+          {props.headline}
+          <span class="ml-1.5 text-[13px] font-medium tracking-normal text-muted-foreground">
+            {props.unit}
           </span>
         </div>
-        <div className="mt-1 text-xs text-muted-foreground">{capLabel}</div>
+        <div class="mt-1 text-xs text-muted-foreground">{props.capLabel}</div>
       </div>
     </div>
   );

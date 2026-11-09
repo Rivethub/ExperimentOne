@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import { formatSynced } from "../../lib/format-utils";
 import type { SettingsTab, Status } from "../../lib/types";
 import { Button } from "../../ui";
@@ -16,8 +17,8 @@ export function RuntimeRivetdCard({
   lastSyncedAt: number | null;
   onOpenSettings: (tab: SettingsTab) => void;
   onRefresh: () => void;
-}): React.ReactElement {
-  const foot = useMemo(
+}): JSX.Element {
+  const foot = createMemo(
     () => (
       <>
         <Button onClick={onRefresh}>Sync now</Button>
@@ -38,7 +39,7 @@ export function RuntimeRivetdCard({
       title="rivetd"
       statusLabel={apiOnline ? "online" : "offline"}
       statusTone={apiOnline ? "ok" : "bad"}
-      foot={foot}
+      foot={foot()}
     >
       <RuntimeKv label="Synced" value={formatSynced(lastSyncedAt)} />
       <RuntimeKv

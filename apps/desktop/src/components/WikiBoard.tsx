@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { createStore } from "solid-js/store";
+import { createEffect, createMemo, onCleanup, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import { Alert, AlertDescription } from "#components/ui/alert";
+import { Card, CardDescription, CardHeader, CardTitle } from "#components/ui/card";
 import { Actions, Button, Panel } from "../ui";
-import styles from "../styles/app.module.css";
 import {
   archiveSlugForPage,
   buildWikiProjects,
@@ -10,6 +12,7 @@ import {
   coverTone,
 } from "./wiki-board-logic";
 import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wiki-reader-markdown";
+import { styles } from "#styles";
 
 export type WikiPageCard = {
   id: string;
@@ -82,87 +85,84 @@ type WikiReaderProps = {
   onCloseArchive: () => void;
 };
 
-function WikiReader({
-  reader,
-  onClose,
-  onOpenFolder,
-  pageList,
-  onOpenPage,
-  onOpenArchive,
-  onCloseArchive,
-}: WikiReaderProps): ReactElement {
-  const viewingArchive = reader.archiveFile !== null;
-  const docContent = viewingArchive ? (reader.archiveContent ?? "") : (reader.content ?? "");
+function WikiReader(props: WikiReaderProps): JSX.Element {
+  const viewingArchive = createMemo(() => props.reader.archiveFile !== null);
+  const docContent = createMemo(() =>
+    viewingArchive() ? (props.reader.archiveContent ?? "") : (props.reader.content ?? ""),
+  );
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <Button variant="ghost" onClick={onClose}>
+    <div class="flex min-h-0 flex-1 flex-col">
+      <div class="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <div class="min-w-0 flex-1">
+          <Button variant="ghost" onClick={() => props.onClose()}>
             ← Projects
           </Button>
-          <div className="mt-1 min-w-0">
-            <strong className="block truncate text-sm">
-              {viewingArchive
-                ? `${reader.activeTitle} · ${reader.archiveFile}`
-                : reader.activeTitle}
+          <div class="mt-1 min-w-0">
+            <strong class="block truncate text-sm">
+              {viewingArchive()
+                ? `${props.reader.activeTitle} · ${props.reader.archiveFile}`
+                : props.reader.activeTitle}
             </strong>
-            <span className="block truncate text-xs text-muted-foreground">
-              {viewingArchive
-                ? `archive/${reader.archiveSlug}/${reader.archiveFile}`
-                : reader.activePath}
-              {!viewingArchive && reader.activeUpdated !== ""
-                ? ` · ${relativeWhen(reader.activeUpdated)}`
+            <span class="block truncate text-xs text-muted-foreground">
+              {viewingArchive()
+                ? `archive/${props.reader.archiveSlug}/${props.reader.archiveFile}`
+                : props.reader.activePath}
+              {!viewingArchive() && props.reader.activeUpdated !== ""
+                ? ` · ${relativeWhen(props.reader.activeUpdated)}`
                 : ""}
-              {reader.loadingPage || reader.archiveLoading ? " · loading" : ""}
+              {props.reader.loadingPage || props.reader.archiveLoading ? " · loading" : ""}
             </span>
           </div>
         </div>
-        {viewingArchive ? (
-          <Button variant="ghost" onClick={onCloseArchive}>
+        <Show when={viewingArchive()}>
+          <Button variant="ghost" onClick={() => props.onCloseArchive()}>
             Live page
           </Button>
-        ) : null}
-        <Button variant="ghost" onClick={onOpenFolder}>
+        </Show>
+        <Button variant="ghost" onClick={() => props.onOpenFolder()}>
           Reveal
         </Button>
       </div>
-      {reader.archiveFiles.length > 0 ? (
-        <div className={styles.wikiArchiveBar} role="navigation" aria-label="Archive segments">
-          <span className={styles.wikiArchiveLabel}>Archive</span>
-          {reader.archiveFiles.map((file) => (
+      <Show when={props.reader.archiveFiles.length > 0}>
+        <div class={styles.wikiArchiveBar} role="navigation" aria-label="Archive segments">
+          <span class={styles.wikiArchiveLabel}>Archive</span>
+          {props.reader.archiveFiles.map((file) => (
             <button
-              key={file}
               type="button"
-              className={
-                reader.archiveFile === file
+              class={
+                props.reader.archiveFile === file
                   ? `${styles.wikiArchiveChip} ${styles.wikiArchiveChipActive}`
                   : styles.wikiArchiveChip
               }
               onClick={() => {
-                onOpenArchive(file);
+                props.onOpenArchive(file);
               }}
             >
               {file.replace(/\.md$/u, "")}
             </button>
           ))}
         </div>
-      ) : null}
-      {((reader.pageError !== null && reader.pageError !== "") ||
-        (reader.archiveError !== null && reader.archiveError !== "")) && (
-        <Alert variant="destructive" className="mx-4 mt-3">
-          <AlertDescription>{reader.archiveError || reader.pageError}</AlertDescription>
+      </Show>
+      <Show
+        when={
+          (props.reader.pageError !== null && props.reader.pageError !== "") ||
+          (props.reader.archiveError !== null && props.reader.archiveError !== "")
+        }
+      >
+        <Alert variant="destructive" class="mx-4 mt-3">
+          <AlertDescription>{props.reader.archiveError || props.reader.pageError}</AlertDescription>
         </Alert>
-      )}
-      <article className={styles.wikiDoc}>
+      </Show>
+      <article class={styles.wikiDoc}>
         <WikiReaderMarkdown
-          content={docContent}
+          content={docContent()}
           activePath={
-            viewingArchive
-              ? `archive/${reader.archiveSlug}/${reader.archiveFile}`
-              : reader.activePath
+            viewingArchive()
+              ? `archive/${props.reader.archiveSlug}/${props.reader.archiveFile}`
+              : props.reader.activePath
           }
-          pageList={pageList}
-          onOpenPage={onOpenPage}
+          pageList={props.pageList}
+          onOpenPage={props.onOpenPage}
         />
       </article>
     </div>
@@ -178,110 +178,97 @@ type WikiGridProps = {
   onOpenPage: (page: WikiPageCard) => void;
 };
 
-function WikiProjectGrid({
-  projects,
-  busy,
-  wikiEnabled,
-  onEnable,
-  onOpenFolder,
-  onOpenPage,
-}: WikiGridProps): ReactElement {
-  if (projects.length === 0) {
-    return (
-      <Panel
-        className="mx-auto mb-0 max-w-md"
-        title="No project README yet"
-        lede="Enable the wiki worker or add a README.md to the project folder."
-      >
-        <Actions spaced={false}>
-          <Button variant="primary" disabled={busy} onClick={onEnable}>
-            {wikiEnabled ? "Open Settings" : "Enable in Settings"}
-          </Button>
-          <Button onClick={onOpenFolder}>Open folder</Button>
-        </Actions>
-      </Panel>
-    );
-  }
-
+function WikiProjectGrid(props: WikiGridProps): JSX.Element {
   return (
-    <section>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-        {projects.map(({ projectId, label, readme }) => {
-          const hue = coverTone(`${projectId}/${label}`);
-          const preview = readme.preview !== "" ? readme.preview : "_Empty README_";
-          return (
-            <button
-              key={projectId}
-              type="button"
-              className="group overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-border/90 hover:bg-secondary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={`Open ${label} README`}
-              onClick={() => {
-                onOpenPage(readme);
-              }}
-            >
-              <div
-                className="relative h-40 overflow-hidden px-3.5 py-3"
-                style={{
-                  background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
+    <Show
+      when={props.projects.length > 0}
+      fallback={
+        <Panel
+          class="mx-auto mb-0 max-w-md"
+          title="No project README yet"
+          lede="Enable the wiki worker or add a README.md to the project folder."
+        >
+          <Actions spaced={false}>
+            <Button variant="primary" disabled={props.busy} onClick={() => props.onEnable()}>
+              {props.wikiEnabled ? "Open Settings" : "Enable in Settings"}
+            </Button>
+            <Button onClick={() => props.onOpenFolder()}>Open folder</Button>
+          </Actions>
+        </Panel>
+      }
+    >
+      <section>
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+          {props.projects.map(({ projectId, label, readme }) => {
+            const hue = coverTone(`${projectId}/${label}`);
+            const preview = readme.preview !== "" ? readme.preview : "_Empty README_";
+            return (
+              <button
+                type="button"
+                class="group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
+                aria-label={`Open ${label} README`}
+                onClick={() => {
+                  props.onOpenPage(readme);
                 }}
               >
-                <div
-                  className="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
-                  aria-hidden
-                >
-                  <WikiTilePreviewMarkdown preview={preview} />
-                </div>
-              </div>
-              <div className="border-t border-border px-3.5 py-2.5">
-                <strong className="block truncate text-sm">{label}</strong>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  README.md
-                  <em className="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </section>
+                <Card class="gap-0 overflow-hidden py-0 shadow-none transition group-hover:bg-secondary/20">
+                  <div
+                    class="relative h-40 overflow-hidden px-3.5 py-3"
+                    style={{
+                      background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
+                    }}
+                  >
+                    <div
+                      class="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
+                      aria-hidden
+                    >
+                      <WikiTilePreviewMarkdown preview={preview} />
+                    </div>
+                  </div>
+                  <CardHeader class="gap-1 border-t border-border px-3.5 py-2.5">
+                    <CardTitle class="truncate text-sm">{label}</CardTitle>
+                    <CardDescription class="truncate text-xs">
+                      README.md
+                      <em class="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </Show>
   );
 }
 
-export function WikiBoard({
-  wiki,
-  busy,
-  wikiEnabled,
-  onOpenFolder,
-  onEnable,
-  loadPage,
-  listArchives,
-  loadArchive,
-}: WikiBoardProps): ReactElement {
-  const [reader, setReader] = useState<ReaderState>(emptyReader);
+export function WikiBoard(props: WikiBoardProps): JSX.Element {
+  const [reader, setReader] = createStore<ReaderState>(emptyReader());
 
-  const pageList = useMemo(() => wiki?.pages ?? [], [wiki?.pages]);
+  const pageList = createMemo(() => props.wiki?.pages ?? []);
+  const projects = createMemo(() => buildWikiProjects(pageList(), props.wiki?.project_id));
 
-  useEffect(() => {
+  createEffect(() => {
     let stale = false;
+    const activeId = reader.activeId;
+    const pages = pageList();
+    const loadPage = props.loadPage;
+    onCleanup(() => {
+      stale = true;
+    });
 
-    if (reader.activeId === null) {
-      return () => {
-        stale = true;
-      };
+    if (activeId === null) {
+      return;
     }
-    const page = pageList.find((p) => p.id === reader.activeId);
+    const page = pages.find((p) => p.id === activeId);
     if (!page) {
       setReader(emptyReader());
-      return () => {
-        stale = true;
-      };
+      return;
     }
     if (page.updated_at === reader.activeUpdated) {
-      return () => {
-        stale = true;
-      };
+      return;
     }
-    const reload = async (): Promise<void> => {
+    void (async (): Promise<void> => {
       setReader((prev) => ({
         ...prev,
         activeTitle: page.title,
@@ -296,7 +283,7 @@ export function WikiBoard({
         }
         setReader((prev) => ({
           ...prev,
-          content: ensureReadmeToc(full, page.relative_path, page.project_id, pageList),
+          content: ensureReadmeToc(full, page.relative_path, page.project_id, pageList()),
           pageError: null,
           loadingPage: false,
         }));
@@ -310,25 +297,24 @@ export function WikiBoard({
           loadingPage: false,
         }));
       }
-    };
-    void reload();
-    return () => {
-      stale = true;
-    };
-  }, [pageList, reader.activeId, reader.activeUpdated, loadPage]);
+    })();
+  });
 
-  useEffect(() => {
+  createEffect(() => {
     let stale = false;
-    if (reader.activeId === null || !listArchives) {
-      return () => {
-        stale = true;
-      };
+    const activeId = reader.activeId;
+    const listArchives = props.listArchives;
+    const pages = pageList();
+    onCleanup(() => {
+      stale = true;
+    });
+
+    if (activeId === null || !listArchives) {
+      return;
     }
-    const page = pageList.find((p) => p.id === reader.activeId);
+    const page = pages.find((p) => p.id === activeId);
     if (!page) {
-      return () => {
-        stale = true;
-      };
+      return;
     }
     const slug = archiveSlugForPage(page);
     if (!slug) {
@@ -340,11 +326,9 @@ export function WikiBoard({
         archiveContent: null,
         archiveError: null,
       }));
-      return () => {
-        stale = true;
-      };
+      return;
     }
-    const load = async (): Promise<void> => {
+    void (async (): Promise<void> => {
       try {
         const files = await listArchives(page.project_id, slug);
         if (stale) {
@@ -367,17 +351,8 @@ export function WikiBoard({
           archiveError: e instanceof Error ? e.message : String(e),
         }));
       }
-    };
-    void load();
-    return () => {
-      stale = true;
-    };
-  }, [pageList, reader.activeId, listArchives]);
-
-  const projects = useMemo(
-    () => buildWikiProjects(pageList, wiki?.project_id),
-    [pageList, wiki?.project_id],
-  );
+    })();
+  });
 
   async function openPage(page: WikiPageCard): Promise<void> {
     setReader({
@@ -386,15 +361,15 @@ export function WikiBoard({
       activeTitle: page.title,
       activePath: page.relative_path,
       activeUpdated: page.updated_at,
-      content: ensureReadmeToc(page.preview, page.relative_path, page.project_id, pageList),
+      content: ensureReadmeToc(page.preview, page.relative_path, page.project_id, pageList()),
       loadingPage: true,
       archiveSlug: archiveSlugForPage(page),
     });
     try {
-      const full = await loadPage(page);
+      const full = await props.loadPage(page);
       setReader((prev) => ({
         ...prev,
-        content: ensureReadmeToc(full, page.relative_path, page.project_id, pageList),
+        content: ensureReadmeToc(full, page.relative_path, page.project_id, pageList()),
         loadingPage: false,
       }));
     } catch (e: unknown) {
@@ -407,13 +382,15 @@ export function WikiBoard({
   }
 
   async function openArchive(file: string): Promise<void> {
+    const loadArchive = props.loadArchive;
     if (!loadArchive || reader.archiveSlug === null || reader.activeId === null) {
       return;
     }
-    const page = pageList.find((p) => p.id === reader.activeId);
+    const page = pageList().find((p) => p.id === reader.activeId);
     if (!page) {
       return;
     }
+    const archiveSlug = reader.archiveSlug;
     setReader((prev) => ({
       ...prev,
       archiveFile: file,
@@ -421,7 +398,7 @@ export function WikiBoard({
       archiveError: null,
     }));
     try {
-      const content = await loadArchive(page.project_id, reader.archiveSlug, file);
+      const content = await loadArchive(page.project_id, archiveSlug, file);
       setReader((prev) => ({
         ...prev,
         archiveContent: content,
@@ -436,15 +413,34 @@ export function WikiBoard({
     }
   }
 
-  if (reader.activeId !== null) {
-    return (
+  return (
+    <Show
+      when={reader.activeId !== null}
+      fallback={
+        <div class="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 md:px-6">
+          <p class="mb-4 max-w-[68ch] text-[13px] text-muted-foreground">
+            One README per project — open it, then follow links.
+          </p>
+          <WikiProjectGrid
+            projects={projects()}
+            busy={props.busy}
+            wikiEnabled={props.wikiEnabled}
+            onEnable={() => props.onEnable()}
+            onOpenFolder={() => props.onOpenFolder()}
+            onOpenPage={(p) => {
+              void openPage(p);
+            }}
+          />
+        </div>
+      }
+    >
       <WikiReader
         reader={reader}
         onClose={() => {
           setReader(emptyReader());
         }}
-        onOpenFolder={onOpenFolder}
-        pageList={pageList}
+        onOpenFolder={() => props.onOpenFolder()}
+        pageList={pageList()}
         onOpenPage={(p) => {
           void openPage(p);
         }}
@@ -460,24 +456,6 @@ export function WikiBoard({
           }));
         }}
       />
-    );
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto px-6 py-4">
-      <p className="mb-4 max-w-[68ch] text-[13px] text-muted-foreground">
-        One README per project — open it, then follow links.
-      </p>
-      <WikiProjectGrid
-        projects={projects}
-        busy={busy}
-        wikiEnabled={wikiEnabled}
-        onEnable={onEnable}
-        onOpenFolder={onOpenFolder}
-        onOpenPage={(p) => {
-          void openPage(p);
-        }}
-      />
-    </div>
+    </Show>
   );
 }

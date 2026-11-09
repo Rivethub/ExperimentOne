@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import type { Account, SettingsTab, Status } from "../../lib/types";
 import { RuntimeMcpCard } from "./mcp-card";
 import { RuntimeProxyCard } from "./proxy-card";
@@ -20,7 +21,7 @@ export function RuntimePaneInfraCards({
   onCopyText: (text: string) => void;
   onOpenSettings: (tab: SettingsTab) => void;
   onRefresh: () => void;
-}): React.ReactElement {
+}): JSX.Element {
   return (
     <>
       <RuntimeProxyCard status={status} onCopyText={onCopyText} />

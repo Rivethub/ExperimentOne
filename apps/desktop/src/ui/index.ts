@@ -11,4 +11,5 @@ export { Kv, KvRow, type KvRowProps } from "./Kv";
 export { Lede, Panel, type PanelProps } from "./Panel";
 export { Modal, ModalActions, type ModalProps } from "./Modal";
 export { Pill, type PillProps, type PillTone } from "./Pill";
+export { SegControl, type SegControlProps, type SegOption } from "./SegControl";
 export { Snippet } from "./Snippet";

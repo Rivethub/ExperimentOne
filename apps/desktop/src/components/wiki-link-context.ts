@@ -1,4 +1,4 @@
-import { createContext } from "react";
+import { createContext } from "solid-js";
 import type { WikiPageCard } from "./WikiBoard";
 
 export type WikiLinkContextValue = {

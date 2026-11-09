@@ -1,4 +1,5 @@
-import { useCallback, useState, type Dispatch, type SetStateAction } from "react";
+import type { Accessor, Setter } from "solid-js";
+import { createSignal } from "solid-js";
 import type { MultiAccountWarnState } from "../components/MultiAccountWarnModal";
 import { rivetErrorMessage } from "../effect";
 import type { HarnessInstallTarget } from "../lib/format-utils";
@@ -9,23 +10,23 @@ import { useAccountsHarness, useAccountsLogin, useAccountsVertex } from "./use-a
 import { useRivetMutations } from "./use-rivet-mutations";
 
 type AccountsOpts = {
-  accounts: Account[];
+  accounts: Accessor<Account[]>;
   ensureSession: () => Promise<void>;
   refresh: () => Promise<void>;
-  horizon?: "1h" | "3h" | "6h";
+  horizon: Accessor<"1h" | "3h" | "6h">;
   openSettings: (tab?: SettingsTab) => void;
   setBusy: (v: boolean) => void;
 };
 
 export type UseAccountsResult = {
   login: LoginStatus | null;
-  setLogin: Dispatch<SetStateAction<LoginStatus | null>>;
+  setLogin: Setter<LoginStatus | null>;
   showAddAccount: boolean;
-  setShowAddAccount: Dispatch<SetStateAction<boolean>>;
+  setShowAddAccount: Setter<boolean>;
   multiAccountWarn: MultiAccountWarnState;
-  setMultiAccountWarn: Dispatch<SetStateAction<MultiAccountWarnState>>;
+  setMultiAccountWarn: Setter<MultiAccountWarnState>;
   vertexPath: string;
-  setVertexPath: Dispatch<SetStateAction<string>>;
+  setVertexPath: Setter<string>;
   harnessNote: HarnessWrite | null;
   snippet: string;
   providerAccountCount: (provider: string) => number;
@@ -45,12 +46,12 @@ export type UseAccountsResult = {
 };
 
 export function useAccounts(opts: AccountsOpts): UseAccountsResult {
-  const { accounts, refresh, horizon = "1h", openSettings, setBusy } = opts;
-  const mutations = useRivetMutations({ horizon });
-  const [multiAccountWarn, setMultiAccountWarn] = useState<MultiAccountWarnState>(null);
-  const clearMultiAccountWarn = useCallback(() => {
+  const { refresh, openSettings, setBusy } = opts;
+  const mutations = useRivetMutations({ horizon: opts.horizon });
+  const [multiAccountWarn, setMultiAccountWarn] = createSignal<MultiAccountWarnState>(null);
+  const clearMultiAccountWarn = () => {
     setMultiAccountWarn(null);
-  }, []);
+  };
 
   const coreOpts = {
     refresh,
@@ -62,90 +63,91 @@ export function useAccounts(opts: AccountsOpts): UseAccountsResult {
   const vertexApi = useAccountsVertex(coreOpts, loginApi, clearMultiAccountWarn);
   const harnessApi = useAccountsHarness({ setBusy, mutations });
 
-  const providerAccountCount = useCallback(
-    (provider: string) => {
-      const key = providerKey(provider);
-      return accounts.filter((a) => providerKey(a.provider) === key).length;
-    },
-    [accounts],
-  );
+  const providerAccountCount = (provider: string) => {
+    const key = providerKey(provider);
+    return opts.accounts().filter((a) => providerKey(a.provider) === key).length;
+  };
 
-  const requestLogin = useCallback(
-    (provider: string, method?: "browser" | "device") => {
-      if (providerAccountCount(provider) >= 1) {
-        setMultiAccountWarn({ provider, method, kind: "login" });
-        return;
-      }
-      void loginApi.startLogin(provider, method);
-    },
-    [providerAccountCount, loginApi],
-  );
+  const requestLogin = (provider: string, method?: "browser" | "device") => {
+    if (providerAccountCount(provider) >= 1) {
+      setMultiAccountWarn({ provider, method, kind: "login" });
+      return;
+    }
+    void loginApi.startLogin(provider, method);
+  };
 
-  const requestVertexImport = useCallback(() => {
+  const requestVertexImport = () => {
     if (providerAccountCount("vertex") >= 1) {
       setMultiAccountWarn({ provider: "vertex", kind: "vertex" });
       return;
     }
     void vertexApi.importVertex();
-  }, [providerAccountCount, vertexApi]);
+  };
 
-  const beginAddAccount = useCallback(() => {
+  const beginAddAccount = () => {
     loginApi.setShowAddAccount(true);
     openSettings("accounts");
-  }, [openSettings, loginApi]);
+  };
 
-  const removeAccount = useCallback(
-    async (id: string) => {
-      const confirmed = await (async (): Promise<boolean> => {
-        try {
-          const { ask } = await import("@tauri-apps/plugin-dialog");
-          return await ask(`Remove account “${id}”? This deletes the local credential file.`, {
-            title: "Remove account",
-            kind: "warning",
-          });
-        } catch {
-          notify.error("Removal requires the desktop app confirmation dialog.");
-          return false;
-        }
-      })();
-      if (!confirmed) {
-        return;
-      }
-      setBusy(true);
+  const removeAccount = async (id: string) => {
+    const confirmed = await (async (): Promise<boolean> => {
       try {
-        await mutations.removeAccount.mutateAsync(id);
-        notify.success("Account removed");
-      } catch (err) {
-        notify.error(rivetErrorMessage(err));
-      } finally {
-        setBusy(false);
+        const { ask } = await import("@tauri-apps/plugin-dialog");
+        return await ask(`Remove account “${id}”? This deletes the local credential file.`, {
+          title: "Remove account",
+          kind: "warning",
+        });
+      } catch {
+        notify.error("Removal requires the desktop app confirmation dialog.");
+        return false;
       }
-    },
-    [mutations.removeAccount, setBusy],
-  );
-  const confirmMultiAccountWarn = useCallback(
-    (pending: NonNullable<MultiAccountWarnState>) => {
-      setMultiAccountWarn(null);
-      if (pending.kind === "vertex") {
-        void vertexApi.importVertex();
-      } else {
-        void loginApi.startLogin(pending.provider, pending.method);
-      }
-    },
-    [vertexApi, loginApi],
-  );
+    })();
+    if (!confirmed) {
+      return;
+    }
+    setBusy(true);
+    try {
+      await mutations.removeAccount.mutateAsync(id);
+      notify.success("Account removed");
+    } catch (err) {
+      notify.error(rivetErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmMultiAccountWarn = (pending: NonNullable<MultiAccountWarnState>) => {
+    setMultiAccountWarn(null);
+    if (pending.kind === "vertex") {
+      void vertexApi.importVertex();
+    } else {
+      void loginApi.startLogin(pending.provider, pending.method);
+    }
+  };
 
   return {
-    login: loginApi.login,
+    get login() {
+      return loginApi.login;
+    },
     setLogin: loginApi.setLogin,
-    showAddAccount: loginApi.showAddAccount,
+    get showAddAccount() {
+      return loginApi.showAddAccount;
+    },
     setShowAddAccount: loginApi.setShowAddAccount,
-    multiAccountWarn,
+    get multiAccountWarn() {
+      return multiAccountWarn();
+    },
     setMultiAccountWarn,
-    vertexPath: vertexApi.vertexPath,
+    get vertexPath() {
+      return vertexApi.vertexPath;
+    },
     setVertexPath: vertexApi.setVertexPath,
-    harnessNote: harnessApi.harnessNote,
-    snippet: harnessApi.snippet,
+    get harnessNote() {
+      return harnessApi.harnessNote;
+    },
+    get snippet() {
+      return harnessApi.snippet;
+    },
     providerAccountCount,
     requestLogin,
     startLogin: loginApi.startLogin,

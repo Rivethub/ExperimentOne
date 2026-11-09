@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type { HTMLAttributes, ReactElement } from "react";
+import type { JSX } from "solid-js";
+import { splitProps } from "solid-js";
 import { Badge } from "#components/ui/badge";
 import { cn } from "#lib/utils";
 
@@ -21,13 +22,18 @@ const pillTone = cva("", {
 
 export type PillTone = NonNullable<VariantProps<typeof pillTone>["tone"]>;
 
-export type PillProps = HTMLAttributes<HTMLSpanElement> & VariantProps<typeof pillTone>;
+export type PillProps = JSX.HTMLAttributes<HTMLSpanElement> & VariantProps<typeof pillTone>;
 
-export function Pill({ tone = "default", className, ...rest }: PillProps): ReactElement {
+export function Pill(props: PillProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["tone", "class"]);
   return (
     <Badge
       variant="secondary"
-      className={cn("gap-1.5 px-2 py-0.5 text-[11px] font-semibold", pillTone({ tone }), className)}
+      class={cn(
+        "gap-1.5 px-2 py-0.5 text-[11px] font-semibold",
+        pillTone({ tone: local.tone }),
+        local.class,
+      )}
       {...rest}
     />
   );

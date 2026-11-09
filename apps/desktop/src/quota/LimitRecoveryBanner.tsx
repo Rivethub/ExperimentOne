@@ -1,3 +1,6 @@
+import type { JSX } from "solid-js";
+import { Show, createMemo } from "solid-js";
+import { Alert, AlertDescription, AlertTitle } from "#components/ui/alert";
 import { Button as ShadcnButton } from "#components/ui/button";
 import {
   DropdownMenu,
@@ -8,64 +11,72 @@ import {
 import { formatCountdownTo } from "#lib/provider-utils";
 import { isDefined } from "#lib/nullish";
 import { cn } from "#lib/utils";
-import { Ellipsis, TriangleAlert } from "lucide-react";
+import { Ellipsis, TriangleAlert } from "lucide-solid";
 import type { LimitHitInfo } from "./types";
 
-export function LimitRecoveryBanner({
-  hit,
-  onRefreshCredentials,
-  onSwitchAccount,
-  onWait,
-}: {
+export function LimitRecoveryBanner(props: {
   hit: LimitHitInfo | null;
   onRefreshCredentials: () => void;
   onSwitchAccount: () => void;
   onWait: () => void;
-}): React.ReactElement | null {
-  if (!isDefined(hit)) {
-    return null;
-  }
-  const resetNote =
-    isDefined(hit.resetAt) && hit.resetAt !== ""
-      ? `Reset in ${formatCountdownTo(hit.resetAt)} (${new Date(hit.resetAt).toLocaleString()})`
-      : null;
+}): JSX.Element {
+  const resetNote = createMemo(() => {
+    const hit = props.hit;
+    if (!isDefined(hit) || !isDefined(hit.resetAt) || hit.resetAt === "") {
+      return null;
+    }
+    return `Reset in ${formatCountdownTo(hit.resetAt)} (${new Date(hit.resetAt).toLocaleString()})`;
+  });
 
   return (
-    <div
-      role="alert"
-      className={cn(
-        "mb-3.5 flex flex-wrap items-start justify-between gap-3 rounded-lg border px-4 py-3",
-        "border-amber-800/70 bg-[#1c1410] text-amber-100",
-      )}
-    >
-      <div className="flex min-w-0 flex-1 gap-3">
-        <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
-        <div className="min-w-0">
-          <div className="font-medium tracking-tight text-amber-100">{hit.windowLabel}</div>
-          <div className="mt-0.5 text-sm text-amber-200/90">
-            <span>{hit.reason}</span>
-            {resetNote !== null ? (
-              <span className="mt-1 block text-amber-200/70">{resetNote}</span>
-            ) : null}
+    <Show when={props.hit}>
+      {(hit) => (
+        <Alert
+          class={cn(
+            "mb-3.5 grid-cols-[auto_1fr_auto] items-start gap-x-3",
+            "border-amber-800/70 bg-[#1c1410] text-amber-100 [&>svg]:text-amber-300",
+            "*:data-[slot=alert-description]:text-amber-200/90",
+          )}
+        >
+          <TriangleAlert aria-hidden />
+          <div class="min-w-0">
+            <AlertTitle class="text-amber-100">{hit().windowLabel}</AlertTitle>
+            <AlertDescription>
+              <span>{hit().reason}</span>
+              <Show when={resetNote() !== null}>
+                <span class="mt-1 block text-amber-200/70">{resetNote()}</span>
+              </Show>
+            </AlertDescription>
           </div>
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        <ShadcnButton size="sm" variant="secondary" onClick={onRefreshCredentials}>
-          Refresh credentials
-        </ShadcnButton>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <ShadcnButton size="icon-sm" variant="ghost" aria-label="More recovery actions">
-              <Ellipsis />
+          <div class="col-start-3 row-span-2 flex shrink-0 items-center gap-2 self-start">
+            <ShadcnButton
+              size="sm"
+              variant="secondary"
+              onClick={() => props.onRefreshCredentials()}
+            >
+              Refresh credentials
             </ShadcnButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onSelect={onSwitchAccount}>Switch account</DropdownMenuItem>
-            <DropdownMenuItem onSelect={onWait}>Dismiss until next hit</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
+            <DropdownMenu placement="bottom-end">
+              <DropdownMenuTrigger
+                as={ShadcnButton}
+                size="icon-sm"
+                variant="ghost"
+                aria-label="More recovery actions"
+              >
+                <Ellipsis />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent>
+                <DropdownMenuItem onSelect={() => props.onSwitchAccount()}>
+                  Switch account
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => props.onWait()}>
+                  Dismiss until next hit
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </Alert>
+      )}
+    </Show>
   );
 }

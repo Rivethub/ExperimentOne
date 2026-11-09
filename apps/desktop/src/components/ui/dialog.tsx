@@ -1,142 +1,150 @@
-import * as React from "react";
-import { cn } from "#lib/utils";
-import { XIcon } from "lucide-react";
-import { Dialog as DialogPrimitive } from "radix-ui";
+import type { ComponentProps, ValidComponent } from "solid-js";
+import { Show, mergeProps, splitProps } from "solid-js";
+import { Dialog as DialogPrimitive } from "@kobalte/core/dialog";
 
-import { Button } from "#components/ui/button";
+import { cx } from "#lib/cva";
 
-function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
-  return <DialogPrimitive.Root data-slot="dialog" {...props} />;
-}
+export const DialogPortal = DialogPrimitive.Portal;
 
-function DialogTrigger({ ...props }: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
+export type DialogProps = ComponentProps<typeof DialogPrimitive>;
+
+export const Dialog = (props: DialogProps) => {
+  return <DialogPrimitive data-slot="dialog" {...props} />;
+};
+
+export type DialogTriggerProps<T extends ValidComponent = "button"> = ComponentProps<
+  typeof DialogPrimitive.Trigger<T>
+>;
+
+export const DialogTrigger = <T extends ValidComponent = "button">(
+  props: DialogTriggerProps<T>,
+) => {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
-}
+};
 
-function DialogPortal({ ...props }: React.ComponentProps<typeof DialogPrimitive.Portal>) {
-  return <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />;
-}
+export type DialogCloseButtonProps<T extends ValidComponent = "button"> = ComponentProps<
+  typeof DialogPrimitive.CloseButton<T>
+>;
 
-function DialogClose({ ...props }: React.ComponentProps<typeof DialogPrimitive.Close>) {
-  return <DialogPrimitive.Close data-slot="dialog-close" {...props} />;
-}
+export const DialogCloseButton = <T extends ValidComponent = "button">(
+  props: DialogCloseButtonProps<T>,
+) => {
+  return <DialogPrimitive.CloseButton data-slot="dialog-close" {...props} />;
+};
 
-function DialogOverlay({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
-  return (
-    <DialogPrimitive.Overlay
-      data-slot="dialog-overlay"
-      className={cn(
-        "fixed inset-0 z-50 bg-black/50 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-function DialogContent({
-  className,
-  children,
-  showCloseButton = true,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Content> & {
+export type DialogContentProps<T extends ValidComponent = "div"> = ComponentProps<
+  typeof DialogPrimitive.Content<T>
+> & {
   showCloseButton?: boolean;
-}) {
+};
+
+export const DialogContent = <T extends ValidComponent = "div">(props: DialogContentProps<T>) => {
+  const merge = mergeProps(
+    {
+      showCloseButton: true,
+    } as DialogContentProps,
+    props,
+  );
+  const [, rest] = splitProps(merge, ["class", "children", "showCloseButton"]);
+
   return (
-    <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+    <DialogPrimitive.Portal>
+      <DialogPrimitive.Overlay
+        data-slot="dialog-overlay"
+        class="data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 fixed inset-0 z-50 bg-black/50"
+      />
       <DialogPrimitive.Content
         data-slot="dialog-content"
-        className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 sm:max-w-lg",
-          className,
+        class={cx(
+          "bg-background data-[expanded]:animate-in data-[closed]:animate-out data-[closed]:fade-out-0 data-[expanded]:fade-in-0 data-[closed]:zoom-out-95 data-[expanded]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          props.class,
         )}
-        {...props}
+        {...rest}
       >
-        {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="dialog-close"
-            className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+        {props.children}
+        <Show when={merge.showCloseButton}>
+          <DialogPrimitive.CloseButton
+            aria-label="Close"
+            class="focus-visible:ring-ring absolute top-4 right-4 rounded-xs opacity-70 transition-[opacity,box-shadow] duration-200 hover:opacity-100 focus-visible:ring-2 focus-visible:outline-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+              <path
+                fill="none"
+                stroke="currentColor"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18 6L6 18M6 6l12 12"
+              />
+            </svg>
+          </DialogPrimitive.CloseButton>
+        </Show>
       </DialogPrimitive.Content>
-    </DialogPortal>
+    </DialogPrimitive.Portal>
   );
-}
+};
 
-function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
+/** @deprecated Prefer DialogCloseButton */
+export const DialogClose = DialogCloseButton;
+
+export type DialogHeaderProps = ComponentProps<"div">;
+
+export const DialogHeader = (props: DialogHeaderProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
-      {...props}
+      class={cx("flex flex-col gap-2 text-center sm:text-left", props.class)}
+      {...rest}
     />
   );
-}
+};
 
-function DialogFooter({
-  className,
-  showCloseButton = false,
-  children,
-  ...props
-}: React.ComponentProps<"div"> & {
-  showCloseButton?: boolean;
-}) {
+export type DialogFooterProps = ComponentProps<"div">;
+
+export const DialogFooter = (props: DialogFooterProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="dialog-footer"
-      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
-      {...props}
-    >
-      {children}
-      {showCloseButton && (
-        <DialogPrimitive.Close asChild>
-          <Button variant="outline">Close</Button>
-        </DialogPrimitive.Close>
-      )}
-    </div>
+      class={cx("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", props.class)}
+      {...rest}
+    />
   );
-}
+};
 
-function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
+export type DialogTitleProps<T extends ValidComponent = "h2"> = ComponentProps<
+  typeof DialogPrimitive.Title<T>
+>;
+
+export const DialogTitle = <T extends ValidComponent = "h2">(props: DialogTitleProps<T>) => {
+  const [, rest] = splitProps(props as DialogTitleProps, ["class"]);
+
   return (
     <DialogPrimitive.Title
       data-slot="dialog-title"
-      className={cn("text-lg leading-none font-semibold", className)}
-      {...props}
+      class={cx("text-lg leading-none font-semibold", props.class)}
+      {...rest}
     />
   );
-}
+};
 
-function DialogDescription({
-  className,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Description>) {
+export type DialogDescriptionProps<T extends ValidComponent = "p"> = ComponentProps<
+  typeof DialogPrimitive.Description<T>
+>;
+
+export const DialogDescription = <T extends ValidComponent = "p">(
+  props: DialogDescriptionProps<T>,
+) => {
+  const [, rest] = splitProps(props as DialogDescriptionProps, ["class"]);
+
   return (
     <DialogPrimitive.Description
       data-slot="dialog-description"
-      className={cn("text-sm text-muted-foreground", className)}
-      {...props}
+      class={cx("text-muted-foreground text-sm", props.class)}
+      {...rest}
     />
   );
-}
-
-export {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogOverlay,
-  DialogPortal,
-  DialogTitle,
-  DialogTrigger,
 };

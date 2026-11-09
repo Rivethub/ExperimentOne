@@ -6,7 +6,7 @@ import {
   Settings,
   Tags,
   type LucideIcon,
-} from "lucide-react";
+} from "lucide-solid";
 import type { CatalogProvider } from "./provider-utils";
 import type { Page, SettingsTab } from "./types";
 

@@ -1,27 +1,24 @@
-"use client";
+import type { ComponentProps, ValidComponent } from "solid-js";
+import { splitProps } from "solid-js";
+import { Root as SeparatorPrimitive } from "@kobalte/core/separator";
 
-import * as React from "react";
-import { cn } from "#lib/utils";
-import { Separator as SeparatorPrimitive } from "radix-ui";
+import { cx } from "#lib/cva";
 
-function Separator({
-  className,
-  orientation = "horizontal",
-  decorative = true,
-  ...props
-}: React.ComponentProps<typeof SeparatorPrimitive.Root>) {
+export type SeparatorProps<T extends ValidComponent = "hr"> = ComponentProps<
+  typeof SeparatorPrimitive<T>
+>;
+
+export const Separator = <T extends ValidComponent = "hr">(props: SeparatorProps<T>) => {
+  const [, rest] = splitProps(props as SeparatorProps, ["class"]);
+
   return (
-    <SeparatorPrimitive.Root
+    <SeparatorPrimitive
       data-slot="separator"
-      decorative={decorative}
-      orientation={orientation}
-      className={cn(
-        "shrink-0 bg-border data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px",
-        className,
+      class={cx(
+        "bg-border shrink-0 border-none data-[orientation=horizontal]:h-px data-[orientation=horizontal]:w-full data-[orientation=vertical]:h-full data-[orientation=vertical]:w-px",
+        props.class,
       )}
-      {...props}
+      {...rest}
     />
   );
-}
-
-export { Separator };
+};

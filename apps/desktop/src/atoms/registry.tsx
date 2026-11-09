@@ -1,10 +1,12 @@
-import { RegistryContext } from "@effect/atom-react";
+import { RegistryContext } from "@effect/atom-solid";
 import * as AtomRegistry from "effect/reactivity/AtomRegistry";
-import { createElement, type ReactNode } from "react";
+import type { JSX, ParentProps } from "solid-js";
 
-/** Shared registry so mutations can refresh atoms outside React subscriptions. */
+/** Shared registry so mutations can refresh atoms outside Solid subscriptions. */
 export const appAtomRegistry = AtomRegistry.make();
 
-export function AppAtomRegistryProvider({ children }: { children: ReactNode }) {
-  return createElement(RegistryContext.Provider, { value: appAtomRegistry }, children);
+export function AppAtomRegistryProvider(props: ParentProps): JSX.Element {
+  return (
+    <RegistryContext.Provider value={appAtomRegistry}>{props.children}</RegistryContext.Provider>
+  );
 }

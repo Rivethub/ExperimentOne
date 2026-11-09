@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type { HTMLAttributes, ReactElement } from "react";
+import type { JSX } from "solid-js";
+import { splitProps } from "solid-js";
 import { Alert } from "#components/ui/alert";
 import { cn } from "#lib/utils";
 
@@ -18,13 +19,15 @@ const bannerTone = cva("rounded-lg text-[13px] leading-snug", {
 
 export type BannerTone = NonNullable<VariantProps<typeof bannerTone>["tone"]>;
 
-export type BannerProps = HTMLAttributes<HTMLDivElement> & VariantProps<typeof bannerTone>;
+export type BannerProps = JSX.HTMLAttributes<HTMLDivElement> & VariantProps<typeof bannerTone>;
 
-export function Banner({ tone = "note", className, ...rest }: BannerProps): ReactElement {
+export function Banner(props: BannerProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["tone", "class"]);
+  const tone = () => local.tone ?? "note";
   return (
     <Alert
-      variant={tone === "error" ? "destructive" : "default"}
-      className={cn(bannerTone({ tone }), className)}
+      variant={tone() === "error" ? "destructive" : "default"}
+      class={cn(bannerTone({ tone: tone() }), local.class)}
       {...rest}
     />
   );

@@ -1,8 +1,6 @@
-import { parseDiffFromFile, parsePatchFiles } from "@pierre/diffs";
-import { FileDiff, MultiFileDiff, PatchDiff } from "@pierre/diffs/react";
-import type { ReactElement, ReactNode } from "react";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import type { JSX } from "solid-js";
+import { Show } from "solid-js";
+import { cx, styles } from "#styles";
 
 type FilePair = {
   name: string;
@@ -14,13 +12,6 @@ type ToolDiffKind =
   | { kind: "pair"; pair: FilePair }
   | { kind: "patch"; patch: string }
   | { kind: "none" };
-
-const DIFF_OPTS = {
-  theme: { dark: "pierre-dark", light: "pierre-light" },
-  themeType: "dark",
-  diffStyle: "unified",
-  overflow: "wrap",
-} as const;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
@@ -80,7 +71,7 @@ function pairFromRecord(record: Record<string, unknown>): FilePair | null {
   };
 }
 
-function detectToolDiff(value: unknown): ToolDiffKind {
+export function detectToolDiff(value: unknown): ToolDiffKind {
   if (typeof value === "string" && looksLikeUnifiedDiff(value)) {
     return { kind: "patch", patch: value };
   }
@@ -103,61 +94,46 @@ function detectToolDiff(value: unknown): ToolDiffKind {
   return { kind: "none" };
 }
 
-function DiffShell({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx(styles.t3ToolDiff, className)}>{children}</div>;
+function DiffShell(props: { class?: string; children: JSX.Element }): JSX.Element {
+  return <div class={cx(styles.t3ToolDiff, props.class)}>{props.children}</div>;
 }
 
-function PairDiff({ pair }: { pair: FilePair }): ReactElement {
-  const oldFile = { name: pair.name, contents: pair.oldContents };
-  const newFile = { name: pair.name, contents: pair.newContents };
-  try {
-    const fileDiff = parseDiffFromFile(oldFile, newFile);
-    return (
-      <DiffShell>
-        <FileDiff fileDiff={fileDiff} options={DIFF_OPTS} disableWorkerPool />
-      </DiffShell>
-    );
-  } catch {
-    return (
-      <DiffShell>
-        <MultiFileDiff oldFile={oldFile} newFile={newFile} options={DIFF_OPTS} disableWorkerPool />
-      </DiffShell>
-    );
-  }
-}
-
-function PatchView({ patch }: { patch: string }): ReactElement {
-  const files = (() => {
-    try {
-      return parsePatchFiles(patch).flatMap((p) => p.files);
-    } catch {
-      return [];
-    }
-  })();
-
-  if (files.length === 1 && files[0]) {
-    return (
-      <DiffShell>
-        <FileDiff fileDiff={files[0]} options={DIFF_OPTS} disableWorkerPool />
-      </DiffShell>
-    );
-  }
-
+function PairDiff(props: { pair: FilePair }): JSX.Element {
   return (
     <DiffShell>
-      <PatchDiff patch={patch} options={DIFF_OPTS} disableWorkerPool />
+      <div class={styles.t3ToolCaption}>{props.pair.name}</div>
+      <pre
+        class={styles.t3ToolPre}
+      >{`--- a/${props.pair.name}\n+++ b/${props.pair.name}\n@@\n${props.pair.oldContents
+        .split("\n")
+        .map((line) => `-${line}`)
+        .join("\n")}\n${props.pair.newContents
+        .split("\n")
+        .map((line) => `+${line}`)
+        .join("\n")}`}</pre>
     </DiffShell>
   );
 }
 
-/** Render a pierre diff when tool I/O looks like a file edit; otherwise null. */
-export function ToolDiff({ value }: { value: unknown }): ReactElement | null {
-  const detected = detectToolDiff(value);
-  if (detected.kind === "pair") {
-    return <PairDiff pair={detected.pair} />;
-  }
-  if (detected.kind === "patch") {
-    return <PatchView patch={detected.patch} />;
-  }
-  return null;
+function PatchView(props: { patch: string }): JSX.Element {
+  return (
+    <DiffShell>
+      <pre class={styles.t3ToolPre}>{props.patch}</pre>
+    </DiffShell>
+  );
+}
+
+/** Render a text diff when tool I/O looks like a file edit; otherwise null. */
+export function ToolDiff(props: { value: unknown }): JSX.Element {
+  const detected = () => detectToolDiff(props.value);
+  return (
+    <Show when={detected().kind !== "none"} fallback={null}>
+      <Show when={detected().kind === "pair"}>
+        <PairDiff pair={(detected() as { kind: "pair"; pair: FilePair }).pair} />
+      </Show>
+      <Show when={detected().kind === "patch"}>
+        <PatchView patch={(detected() as { kind: "patch"; patch: string }).patch} />
+      </Show>
+    </Show>
+  );
 }

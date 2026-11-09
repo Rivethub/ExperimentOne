@@ -1,8 +1,8 @@
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
-import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
+import solid from "vite-plugin-solid";
 
 const host = process.env.TAURI_DEV_HOST;
 const mockIpc = process.env.VITE_MOCK_IPC === "1" || process.env.VITE_MOCK_IPC === "true";
@@ -36,16 +36,36 @@ export default defineConfig({
   },
   plugins: lazyPlugins(() => [
     TanStackRouterVite({
-      target: "react",
+      target: "solid",
       quoteStyle: "double",
       semicolons: true,
     }),
-    react({ compiler: true }),
+    solid(),
     tailwindcss(),
   ]),
   clearScreen: false,
   resolve: {
     alias,
+    dedupe: ["solid-js", "solid-js/web", "solid-js/store"],
+  },
+  // solid-markdown keeps a `solid` export condition, so vite-plugin-solid
+  // leaves it (and its remark/rehype graph) unbundled. Prebundle the CJS
+  // edges — especially `debug` via micromark — or the browser throws
+  // "does not provide an export named 'default'" and the page stays blank.
+  optimizeDeps: {
+    include: [
+      "debug",
+      "extend",
+      "micromark",
+      "micromark-core-commonmark",
+      "remark-parse",
+      "remark-rehype",
+      "remark-gfm",
+      "remark-breaks",
+      "rehype-sanitize",
+      "solid-markdown > debug",
+      "solid-markdown > micromark",
+    ],
   },
   server: {
     port: 1420,

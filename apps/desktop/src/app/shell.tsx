@@ -1,6 +1,8 @@
-import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { Outlet, useNavigate, useRouterState } from "@tanstack/solid-router";
+import type { JSX } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import { MultiAccountWarnModal } from "#components/MultiAccountWarnModal";
+import { SidebarInset, SidebarProvider } from "#components/ui/sidebar";
 import { useAccounts, useAppOperations, useQuotaDerived, useRivetData } from "#hooks";
 import type { SettingsTab } from "#lib/types";
 import { cn } from "#lib/utils";
@@ -17,27 +19,29 @@ import {
 import { AppProvider } from "./context";
 import { pageFromPathname, pageSubtitle, pageTitle, settingsTabFromPathname } from "./route-meta";
 
-export function AppShell(): React.ReactElement {
+export function AppShell(): JSX.Element {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const page = pageFromPathname(pathname);
-  const settingsTab = settingsTabFromPathname(pathname);
+  const page = () => pageFromPathname(pathname());
+  const settingsTab = () => settingsTabFromPathname(pathname());
 
-  const [horizon, setHorizon] = useState<"1h" | "3h" | "6h">("3h");
-  const [detailAccount, setDetailAccount] = useState<QuotaAccountUx | null>(null);
-  const [onboardingDismissed, setOnboardingDismissed] = useState(isOnboardingDismissed);
-  const [limitBannerHidden, setLimitBannerHidden] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+  const [horizon, setHorizon] = createSignal<"1h" | "3h" | "6h">("3h");
+  const [detailAccount, setDetailAccount] = createSignal<QuotaAccountUx | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = createSignal(isOnboardingDismissed());
+  const [limitBannerHidden, setLimitBannerHidden] = createSignal(false);
+  const [busy, setBusy] = createSignal(false);
+  const [syncing, setSyncing] = createSignal(false);
 
-  const onModelsHydratedRef = useRef(
-    (_opts: {
+  const onModelsHydratedRef: {
+    current: (opts: {
       embedModel: string;
       wikiModel: string;
       embedAccountId?: string;
       wikiAccountId?: string;
-    }) => {},
-  );
+    }) => void;
+  } = {
+    current: () => {},
+  };
 
   const rivet = useRivetData({
     horizon,
@@ -48,21 +52,18 @@ export function AppShell(): React.ReactElement {
   const ops = useAppOperations({
     horizon,
     setBusy,
-    status: rivet.status,
-    runtimeLogsEnabled: page === "runtime",
+    status: () => rivet.status,
+    runtimeLogsEnabled: () => page() === "runtime",
   });
 
   onModelsHydratedRef.current = ops.hydrateModels;
 
-  const openSettings = useCallback(
-    (tab: SettingsTab = "accounts") => {
-      void navigate({ to: "/settings/$tab", params: { tab } });
-    },
-    [navigate],
-  );
+  const openSettings = (tab: SettingsTab = "accounts") => {
+    void navigate({ to: "/settings/$tab", params: { tab } });
+  };
 
   const accountsHook = useAccounts({
-    accounts: rivet.accounts,
+    accounts: () => rivet.accounts,
     ensureSession: rivet.ensureSession,
     refresh: rivet.refresh,
     horizon,
@@ -71,98 +72,74 @@ export function AppShell(): React.ReactElement {
   });
 
   const derived = useQuotaDerived({
-    filter: "all",
+    filter: () => "all",
     limitBannerHidden,
-    catalog: rivet.catalog,
-    accounts: rivet.accounts,
-    quota: rivet.quota,
-    recent: rivet.recent,
+    catalog: () => rivet.catalog,
+    accounts: () => rivet.accounts,
+    quota: () => rivet.quota,
+    recent: () => rivet.recent,
   });
 
-  const hideLimitBanner = useCallback(() => setLimitBannerHidden(true), []);
-  const dismissOnboardingUi = useCallback(() => setOnboardingDismissed(true), []);
+  const hideLimitBanner = () => setLimitBannerHidden(true);
+  const dismissOnboardingUi = () => setOnboardingDismissed(true);
 
-  const title = pageTitle(page, settingsTab);
-  const subtitle = pageSubtitle({
-    page,
-    settingsTab,
-    status: rivet.status,
-    quota: rivet.quota,
-    accountCount: rivet.accounts.length,
-    recentCount: rivet.recent.length,
-    wiki: null,
-  });
+  const title = () => pageTitle(page(), settingsTab());
+  const subtitle = () =>
+    pageSubtitle({
+      page: page(),
+      settingsTab: settingsTab(),
+      status: rivet.status,
+      quota: rivet.quota,
+      accountCount: rivet.accounts.length,
+      recentCount: rivet.recent.length,
+      wiki: null,
+    });
 
-  const appValue = useMemo(
-    () => ({
-      rivet,
-      ops,
-      accounts: accountsHook,
-      derived,
-      busy,
-      horizon,
-      setHorizon,
-      limitBannerHidden,
-      hideLimitBanner,
-      detailAccount,
-      setDetailAccount,
-      onboardingDismissed,
-      dismissOnboardingUi,
-      openSettings,
-    }),
-    [
-      rivet,
-      ops,
-      accountsHook,
-      derived,
-      busy,
-      horizon,
-      limitBannerHidden,
-      hideLimitBanner,
-      detailAccount,
-      onboardingDismissed,
-      dismissOnboardingUi,
-      openSettings,
-    ],
-  );
+  const appValue = {
+    rivet,
+    ops,
+    accounts: accountsHook,
+    derived,
+    busy,
+    horizon,
+    setHorizon,
+    limitBannerHidden,
+    hideLimitBanner,
+    detailAccount,
+    setDetailAccount,
+    onboardingDismissed,
+    dismissOnboardingUi,
+    openSettings,
+  };
 
   return (
     <AppProvider value={appValue}>
-      <div
-        className={cn(
-          "grid h-screen min-h-[640px] grid-cols-[212px_1fr] grid-rows-[1fr_auto]",
-          "max-[860px]:grid-cols-1 max-[860px]:grid-rows-[auto_1fr_auto]",
-        )}
-      >
+      <SidebarProvider class="h-svh min-h-[640px] overflow-hidden">
         <MockDevBar />
         <AppSidebar
-          page={page}
-          settingsTab={settingsTab}
+          page={page()}
+          settingsTab={settingsTab()}
           accountCount={rivet.accounts.length}
           captureEventCount={rivet.status?.usage.events ?? 0}
         />
 
-        <div
-          className={cn(
-            "col-start-2 row-start-1 flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
-            "max-[860px]:col-start-1 max-[860px]:row-start-2 max-[860px]:h-auto max-[860px]:min-h-0",
-          )}
-        >
+        <SidebarInset class="min-h-0 overflow-hidden">
           <AppTopbar
-            title={title}
-            subtitle={subtitle}
-            page={page}
-            busy={busy}
+            title={title()}
+            subtitle={subtitle()}
+            page={page()}
+            settingsTab={settingsTab()}
+            busy={busy()}
             onRefresh={() => void rivet.refresh()}
             quota={
-              page === "quota"
+              page() === "quota"
                 ? {
                     onManageCredentials: () => openSettings("accounts"),
                   }
                 : undefined
             }
             wiki={
-              page === "wiki"
+              page() === "wiki"
                 ? {
                     wikiEnabled: !!rivet.status?.capabilities.wiki,
                     onOpenSettings: () => openSettings("intelligence"),
@@ -171,7 +148,7 @@ export function AppShell(): React.ReactElement {
                 : undefined
             }
             runtime={
-              page === "runtime"
+              page() === "runtime"
                 ? {
                     proxyRunning: !!rivet.status?.proxy_running,
                     apiOnline: rivet.apiOnline,
@@ -183,7 +160,7 @@ export function AppShell(): React.ReactElement {
                 : undefined
             }
             data={
-              page === "data"
+              page() === "data"
                 ? {
                     canRevealExport: !!ops.bagPath,
                     onExport: () => void ops.exportBag(),
@@ -196,50 +173,59 @@ export function AppShell(): React.ReactElement {
           />
 
           <div
-            className={cn(
-              "flex min-h-0 flex-1 flex-col overflow-auto px-6 pt-2 pb-5",
+            class={cn(
+              "@container/main flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-2 pb-5 md:px-6",
               "data-[page=data]:overflow-hidden data-[page=data]:pb-0",
+              "data-[page=topics]:overflow-hidden data-[page=topics]:pb-0",
               "data-[page=wiki]:overflow-hidden data-[page=wiki]:p-0",
               "data-[page=runtime]:overflow-hidden data-[page=runtime]:p-0",
               "data-[page=settings]:overflow-hidden data-[page=settings]:p-0",
             )}
-            data-page={page}
+            data-page={page()}
           >
             <Outlet />
           </div>
-        </div>
+
+          <AppStatusBar
+            syncing={syncing()}
+            onSync={() => {
+              void (async () => {
+                setSyncing(true);
+                try {
+                  await rivet.refresh();
+                } finally {
+                  setSyncing(false);
+                }
+              })();
+            }}
+            accountCount={derived.counts.all ?? 0}
+            status={rivet.status}
+            apiOnline={rivet.apiOnline}
+            onOpenRuntime={() => void navigate({ to: "/runtime" })}
+          />
+        </SidebarInset>
 
         <MultiAccountWarnModal
           warn={accountsHook.multiAccountWarn}
-          busy={busy}
+          busy={busy()}
           catalog={rivet.catalog}
           providerAccountCount={accountsHook.providerAccountCount}
           onDismiss={() => accountsHook.setMultiAccountWarn(null)}
           onConfirm={accountsHook.confirmMultiAccountWarn}
         />
 
-        <AppStatusBar
-          syncing={syncing}
-          onSync={() => {
-            void (async () => {
-              setSyncing(true);
-              try {
-                await rivet.refresh();
-              } finally {
-                setSyncing(false);
-              }
-            })();
-          }}
-          accountCount={derived.counts.all ?? 0}
-          status={rivet.status}
-          apiOnline={rivet.apiOnline}
-          onOpenRuntime={() => void navigate({ to: "/runtime" })}
-        />
-        {rivet.status?.onboarding &&
-          onboardingIncomplete(rivet.status.onboarding) &&
-          !onboardingDismissed && (
+        <Show
+          when={
+            rivet.status?.onboarding &&
+            onboardingIncomplete(rivet.status.onboarding) &&
+            !onboardingDismissed()
+              ? rivet.status.onboarding
+              : false
+          }
+        >
+          {(onboarding) => (
             <OnboardingOverlay
-              onboarding={rivet.status.onboarding}
+              onboarding={onboarding()}
               onDismiss={() => {
                 dismissOnboarding();
                 dismissOnboardingUi();
@@ -249,13 +235,14 @@ export function AppShell(): React.ReactElement {
               onHarness={(target) => void accountsHook.writeHarness(target, "user")}
             />
           )}
+        </Show>
 
         <AccountDetailSheet
-          account={detailAccount}
+          account={detailAccount()}
           catalog={rivet.catalog}
           onClose={() => setDetailAccount(null)}
         />
-      </div>
+      </SidebarProvider>
     </AppProvider>
   );
 }

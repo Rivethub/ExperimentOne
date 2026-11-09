@@ -1,3 +1,4 @@
+import type { JSX } from "solid-js";
 import type { SettingsTab, Status } from "../../lib/types";
 import { RuntimeVectorCard } from "./vector-card";
 import { RuntimeWikiCard } from "./wiki-card";
@@ -8,7 +9,7 @@ export function RuntimePaneWorkerCards({
 }: {
   status: Status | null;
   onOpenSettings: (tab: SettingsTab) => void;
-}): React.ReactElement {
+}): JSX.Element {
   return (
     <>
       <RuntimeVectorCard status={status} />

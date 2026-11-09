@@ -92,7 +92,11 @@ await page.addStyleTag({
 for (const shot of shots) {
   const dest = path.join(OUT, shot.file);
   await page.goto(`${BASE}${shot.url}`, { waitUntil: "networkidle", timeout: 60000 });
-  await page.locator("h1", { hasText: shot.title }).waitFor({ state: "visible", timeout: 20000 });
+  // Site header uses breadcrumbs (not h1) after the sidebar-01 shell.
+  await page
+    .getByText(shot.title, { exact: true })
+    .first()
+    .waitFor({ state: "visible", timeout: 20000 });
   // Charts / virtual lists settle
   await page.waitForTimeout(1200);
   if (shot.after) await shot.after(page);

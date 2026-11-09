@@ -1,5 +1,6 @@
 import { cva, type VariantProps } from "class-variance-authority";
-import type { ButtonHTMLAttributes, ReactElement, ReactNode } from "react";
+import type { JSX } from "solid-js";
+import { Show, splitProps } from "solid-js";
 import { Button } from "#components/ui/button";
 import { isDefined } from "#lib/nullish";
 import { cn } from "#lib/utils";
@@ -19,36 +20,36 @@ const chipVariants = cva(
   },
 );
 
-export type ChipProps = ButtonHTMLAttributes<HTMLButtonElement> &
+export type ChipProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> &
   VariantProps<typeof chipVariants> & {
     dotColor?: string;
-    count?: ReactNode;
+    count?: JSX.Element;
   };
 
-export function Chip({
-  active = false,
-  dotColor,
-  count,
-  className,
-  type = "button",
-  children,
-  ...rest
-}: ChipProps): ReactElement {
-  const hasDot = dotColor !== undefined && dotColor !== "";
+export function Chip(props: ChipProps): JSX.Element {
+  const [local, rest] = splitProps(props, [
+    "active",
+    "dotColor",
+    "count",
+    "class",
+    "type",
+    "children",
+  ]);
+  const hasDot = () => local.dotColor !== undefined && local.dotColor !== "";
   return (
     <Button
-      type={type}
+      type={local.type ?? "button"}
       variant="ghost"
-      className={cn(chipVariants({ active }), className)}
+      class={cn(chipVariants({ active: local.active }), local.class)}
       {...rest}
     >
-      {hasDot ? (
-        <span className="size-2 shrink-0 rounded-full" style={{ background: dotColor }} />
-      ) : null}
-      {children}
-      {isDefined(count) ? (
-        <span className="tabular-nums text-muted-foreground/80">{count}</span>
-      ) : null}
+      <Show when={hasDot()}>
+        <span class="size-2 shrink-0 rounded-full" style={{ background: local.dotColor }} />
+      </Show>
+      {local.children}
+      <Show when={isDefined(local.count)}>
+        <span class="tabular-nums text-muted-foreground/80">{local.count}</span>
+      </Show>
     </Button>
   );
 }

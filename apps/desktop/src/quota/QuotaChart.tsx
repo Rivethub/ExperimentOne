@@ -1,35 +1,35 @@
-import { useEffect, useRef, type ReactElement } from "react";
+import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import type { JSX } from "solid-js";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { Card, CardContent } from "#components/ui/card";
+import { cx, styles } from "#styles";
 
-export function QuotaChart({
-  recorded,
-  projected,
-  color,
-  empty,
-  emptyLabel,
-  legend,
-}: {
+export function QuotaChart(props: {
   recorded: number[];
   projected?: number[];
   color: string;
   empty?: boolean;
   emptyLabel?: string;
   legend?: string;
-}): ReactElement {
-  const hostRef = useRef<HTMLDivElement>(null);
-  const plotRef = useRef<uPlot | null>(null);
+}): JSX.Element {
+  const [hostEl, setHostEl] = createSignal<HTMLDivElement | undefined>();
+  let plotRef: uPlot | undefined;
 
-  useEffect(() => {
+  createEffect(() => {
+    const empty = props.empty;
+    const recorded = props.recorded;
+    const projected = props.projected;
+    const color = props.color;
+    const legend = props.legend;
+    const host = hostEl();
+
     if (empty === true) {
-      plotRef.current?.destroy();
-      plotRef.current = null;
+      plotRef?.destroy();
+      plotRef = undefined;
       return;
     }
 
-    const host = hostRef.current;
     if (!host) {
       return;
     }
@@ -107,44 +107,50 @@ export function QuotaChart({
       },
     };
 
-    plotRef.current?.destroy();
-    plotRef.current = new uPlot(opts, data, host);
+    plotRef?.destroy();
+    plotRef = new uPlot(opts, data, host);
 
     const ro = new ResizeObserver(() => {
-      const plot = plotRef.current;
-      if (!plot || !hostRef.current) {
+      const plot = plotRef;
+      const currentHost = hostEl();
+      if (!plot || !currentHost) {
         return;
       }
       plot.setSize({
-        width: Math.max(hostRef.current.clientWidth || 640, 120),
+        width: Math.max(currentHost.clientWidth || 640, 120),
         height: 160,
       });
     });
     ro.observe(host);
 
-    return () => {
+    onCleanup(() => {
       ro.disconnect();
-      plotRef.current?.destroy();
-      plotRef.current = null;
-    };
-  }, [recorded, projected, color, empty, legend]);
-
-  if (empty === true) {
-    return (
-      <div className={cx(styles.chartWrap, styles.chartWrapEmpty)}>
-        <p>{emptyLabel ?? "No captures in this window"}</p>
-      </div>
-    );
-  }
+      plotRef?.destroy();
+      plotRef = undefined;
+    });
+  });
 
   return (
-    <div className={styles.chartWrap}>
-      <div ref={hostRef} className={styles.chartUplotHost} />
-      <div className={styles.chartLegend} style={{ color }}>
-        <span>
-          <i className={styles.swatch} /> {legend ?? "Measured capture burn"}
-        </span>
-      </div>
-    </div>
+    <Card class="gap-0 border-border/60 bg-transparent py-0 shadow-none">
+      <CardContent class="p-0">
+        <Show
+          when={props.empty !== true}
+          fallback={
+            <div class={cx(styles.chartWrap, styles.chartWrapEmpty)}>
+              <p>{props.emptyLabel ?? "No captures in this window"}</p>
+            </div>
+          }
+        >
+          <div class={styles.chartWrap}>
+            <div ref={setHostEl} class={styles.chartUplotHost} />
+            <div class={styles.chartLegend} style={{ color: props.color }}>
+              <span>
+                <i class={styles.swatch} /> {props.legend ?? "Measured capture burn"}
+              </span>
+            </div>
+          </div>
+        </Show>
+      </CardContent>
+    </Card>
   );
 }

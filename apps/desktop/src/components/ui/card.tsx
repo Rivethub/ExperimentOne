@@ -1,74 +1,98 @@
-import * as React from "react";
-import { cn } from "#lib/utils";
+import type { ComponentProps } from "solid-js";
+import { splitProps } from "solid-js";
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+import { cx } from "#lib/cva";
+
+export type CardProps = ComponentProps<"div">;
+
+export const Card = (props: CardProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="card"
-      className={cn(
-        "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
-        className,
+      class={cx(
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border py-6 shadow-sm",
+        props.class,
       )}
-      {...props}
+      {...rest}
     />
   );
-}
+};
 
-function CardHeader({ className, ...props }: React.ComponentProps<"div">) {
+export type CardHeaderProps = ComponentProps<"div">;
+
+export const CardHeader = (props: CardHeaderProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="card-header"
-      className={cn(
-        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-2 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
-        className,
+      class={cx(
+        "@container/card-header grid auto-rows-min grid-rows-[auto_auto] items-start gap-1.5 px-6 has-data-[slot=card-action]:grid-cols-[1fr_auto] [.border-b]:pb-6",
+        props.class,
       )}
-      {...props}
+      {...rest}
     />
   );
-}
+};
 
-function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
+export type CardTitleProps = ComponentProps<"div">;
+
+export const CardTitle = (props: CardTitleProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
-    <div
-      data-slot="card-title"
-      className={cn("leading-none font-semibold", className)}
-      {...props}
-    />
+    <div data-slot="card-title" class={cx("leading-none font-semibold", props.class)} {...rest} />
   );
-}
+};
 
-function CardDescription({ className, ...props }: React.ComponentProps<"div">) {
+export type CardDescriptionProps = ComponentProps<"div">;
+
+export const CardDescription = (props: CardDescriptionProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="card-description"
-      className={cn("text-sm text-muted-foreground", className)}
-      {...props}
+      class={cx("text-muted-foreground text-sm", props.class)}
+      {...rest}
     />
   );
-}
+};
 
-function CardAction({ className, ...props }: React.ComponentProps<"div">) {
+export type CardActionProps = ComponentProps<"div">;
+
+export const CardAction = (props: CardActionProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="card-action"
-      className={cn("col-start-2 row-span-2 row-start-1 self-start justify-self-end", className)}
-      {...props}
+      class={cx("col-start-2 row-span-2 row-start-1 self-start justify-self-end", props.class)}
+      {...rest}
     />
   );
-}
+};
 
-function CardContent({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="card-content" className={cn("px-6", className)} {...props} />;
-}
+export type CardContentProps = ComponentProps<"div">;
 
-function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
+export const CardContent = (props: CardContentProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
+  return <div data-slot="card-content" class={cx("px-6", props.class)} {...rest} />;
+};
+
+export type CardFooterProps = ComponentProps<"div">;
+
+export const CardFooter = (props: CardFooterProps) => {
+  const [, rest] = splitProps(props, ["class"]);
+
   return (
     <div
       data-slot="card-footer"
-      className={cn("flex items-center px-6 [.border-t]:pt-6", className)}
-      {...props}
+      class={cx("flex items-center px-6 [.border-t]:pt-6", props.class)}
+      {...rest}
     />
   );
-}
-
-export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent };
+};

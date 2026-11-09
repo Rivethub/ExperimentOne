@@ -1,18 +1,20 @@
-import type { HTMLAttributes, ReactElement } from "react";
+import type { JSX } from "solid-js";
+import { splitProps } from "solid-js";
 import { cn } from "#lib/utils";
 
-export type FieldRowProps = HTMLAttributes<HTMLDivElement> & {
+export type FieldRowProps = JSX.HTMLAttributes<HTMLDivElement> & {
   /** Remove the default top margin. */
   flush?: boolean;
 };
 
-export function FieldRow({ flush, className, ...rest }: FieldRowProps): ReactElement {
+export function FieldRow(props: FieldRowProps): JSX.Element {
+  const [local, rest] = splitProps(props, ["flush", "class"]);
   return (
     <div
-      className={cn(
+      class={cn(
         "flex flex-wrap items-center gap-2",
-        flush === true ? "mt-0" : "mt-3",
-        className,
+        local.flush === true ? "mt-0" : "mt-3",
+        local.class,
       )}
       {...rest}
     />

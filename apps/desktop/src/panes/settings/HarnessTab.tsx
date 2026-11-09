@@ -1,4 +1,5 @@
-import { Ellipsis } from "lucide-react";
+import type { JSX } from "solid-js";
+import { Ellipsis } from "lucide-solid";
 import { Button as ShadcnButton } from "#components/ui/button";
 import {
   DropdownMenu,
@@ -14,13 +15,13 @@ import { Actions, Button, Kv, KvRow, Panel, Snippet } from "../../ui";
 export function HarnessTab({
   hidden,
   ...harness
-}: SettingsHarnessProps & { hidden?: boolean }): React.ReactElement {
+}: SettingsHarnessProps & { hidden?: boolean }): JSX.Element {
   const note = harness.harnessNote;
   const envHint = note?.env_hint;
 
   return (
     <Panel
-      className="m-0"
+      class="m-0"
       hidden={hidden}
       aria-hidden={hidden}
       title="Harness (advanced)"
@@ -33,9 +34,9 @@ export function HarnessTab({
         </>
       }
     >
-      <div className="mb-4">
-        <strong className="text-sm">Capture ladder</strong>
-        <p className="mt-1 mb-2 text-[13px] text-muted-foreground">
+      <div class="mb-4">
+        <strong class="text-sm">Capture ladder</strong>
+        <p class="mt-1 mb-2 text-[13px] text-muted-foreground">
           Live capture is proxy-only. Plugins are optional fidelity for that path. Offline import
           backfills history and never replaces the proxy. Capture stores cwd/bodies as signals and
           sets `project_id` only on hard evidence (explicit field/header, harness {"projects/<id>/"}{" "}
@@ -56,7 +57,7 @@ export function HarnessTab({
             value="Hard evidence only; wire headers + optional plugin beat cwd scraping"
           />
         </Kv>
-        <Actions spaced={false} className="mt-2">
+        <Actions spaced={false} class="mt-2">
           <Button
             variant="primary"
             disabled={harness.busy}
@@ -69,7 +70,7 @@ export function HarnessTab({
         </Actions>
       </div>
 
-      <div className="mb-2 text-xs tracking-wide text-muted-foreground">Write into home config</div>
+      <div class="mb-2 text-xs tracking-wide text-muted-foreground">Write into home config</div>
       <Actions>
         <Button
           variant="primary"
@@ -81,7 +82,7 @@ export function HarnessTab({
           Install Claude + Codex + Cursor
         </Button>
       </Actions>
-      <p className="mt-2 mb-2 text-[13px] text-muted-foreground">
+      <p class="mt-2 mb-2 text-[13px] text-muted-foreground">
         Writes proxy settings plus optional session→project bindings and Rivet MCP. Capture works
         with proxy routing alone. Restart Claude Code, Codex, and Cursor afterward so config loads.
       </p>
@@ -110,13 +111,16 @@ export function HarnessTab({
         >
           Install into ~/.cursor
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <ShadcnButton variant="ghost" size="icon" aria-label="More harness actions">
-              <Ellipsis />
-            </ShadcnButton>
+        <DropdownMenu placement="bottom-end">
+          <DropdownMenuTrigger
+            as={ShadcnButton}
+            variant="ghost"
+            size="icon"
+            aria-label="More harness actions"
+          >
+            <Ellipsis />
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent>
             <DropdownMenuItem disabled={harness.busy} onSelect={harness.onLoadClaude}>
               Copy Claude snippet
             </DropdownMenuItem>
@@ -147,8 +151,8 @@ export function HarnessTab({
         </DropdownMenu>
       </Actions>
       {isDefined(note) && (
-        <div className="mt-4 border-t border-border/60 pt-3">
-          <p className="mb-2 text-[13px] text-muted-foreground">{note.note}</p>
+        <div class="mt-4 border-t border-border/60 pt-3">
+          <p class="mb-2 text-[13px] text-muted-foreground">{note.note}</p>
           <Kv>
             <KvRow label="Path" value={note.path} />
             {isDefined(note.backup_path) && note.backup_path !== "" ? (
@@ -171,7 +175,7 @@ export function HarnessTab({
         </div>
       )}
       {isDefined(harness.snippet) && harness.snippet !== "" && (
-        <div className="mt-3">
+        <div class="mt-3">
           <Actions>
             <Button
               variant="ghost"

@@ -1,7 +1,7 @@
-import { useDebouncedValue } from "@tanstack/react-pacer";
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { Effect } from "effect";
-import { useCallback, useEffect, useRef } from "react";
+import type { Accessor } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { rivetErrorMessage, runApp } from "../effect";
 import * as Rivet from "../effect/rivet";
 import { notify } from "../lib/notify";
@@ -49,58 +49,79 @@ async function fetchConversationEvents(id: string): Promise<CaptureEvent[]> {
   );
 }
 
+function useDebounced<T>(source: Accessor<T>, wait: number): Accessor<T> {
+  const [debounced, setDebounced] = createSignal(source());
+  createEffect(() => {
+    const value = source();
+    const timer = setTimeout(() => setDebounced(() => value), wait);
+    onCleanup(() => clearTimeout(timer));
+  });
+  return debounced;
+}
+
 export function useConversations(opts: {
-  enabled: boolean;
-  query: string;
-  mode: SearchMode;
-  selectedId: string | null;
+  enabled: Accessor<boolean>;
+  query: Accessor<string>;
+  mode: Accessor<SearchMode>;
+  selectedId: Accessor<string | null>;
 }) {
-  const { enabled, query, mode, selectedId } = opts;
   const queryClient = useQueryClient();
-  const [debouncedQuery] = useDebouncedValue(query, { wait: SEARCH_DEBOUNCE_MS });
-  const [debouncedMode] = useDebouncedValue(mode, { wait: SEARCH_DEBOUNCE_MS });
-  const lastListError = useRef<unknown>(null);
-  const lastEventsError = useRef<unknown>(null);
+  const debouncedQuery = useDebounced(opts.query, SEARCH_DEBOUNCE_MS);
+  const debouncedMode = useDebounced(opts.mode, SEARCH_DEBOUNCE_MS);
+  const lastListError = { current: null as unknown };
+  const lastEventsError = { current: null as unknown };
 
-  const listQuery = useQuery({
-    queryKey: queryKeys.conversations(debouncedQuery, debouncedMode),
-    queryFn: () => fetchConversations(debouncedQuery, debouncedMode),
-    enabled,
+  const listQuery = useQuery(() => ({
+    queryKey: queryKeys.conversations(debouncedQuery(), debouncedMode()),
+    queryFn: () => fetchConversations(debouncedQuery(), debouncedMode()),
+    enabled: opts.enabled(),
     placeholderData: keepPreviousData,
+  }));
+
+  const eventsQuery = useQuery(() => ({
+    queryKey: queryKeys.conversationEvents(opts.selectedId() ?? ""),
+    queryFn: () => fetchConversationEvents(opts.selectedId()!),
+    enabled: opts.selectedId() != null && opts.selectedId() !== "",
+  }));
+
+  createEffect(() => {
+    const error = listQuery.error;
+    if (error != null && error !== lastListError.current) {
+      lastListError.current = error;
+      notify.error(rivetErrorMessage(error));
+    }
   });
 
-  const eventsQuery = useQuery({
-    queryKey: queryKeys.conversationEvents(selectedId ?? ""),
-    queryFn: () => fetchConversationEvents(selectedId!),
-    enabled: selectedId != null && selectedId !== "",
+  createEffect(() => {
+    const error = eventsQuery.error;
+    if (error != null && error !== lastEventsError.current) {
+      lastEventsError.current = error;
+      notify.error(rivetErrorMessage(error));
+    }
   });
 
-  useEffect(() => {
-    if (listQuery.error != null && listQuery.error !== lastListError.current) {
-      lastListError.current = listQuery.error;
-      notify.error(rivetErrorMessage(listQuery.error));
-    }
-  }, [listQuery.error]);
-
-  useEffect(() => {
-    if (eventsQuery.error != null && eventsQuery.error !== lastEventsError.current) {
-      lastEventsError.current = eventsQuery.error;
-      notify.error(rivetErrorMessage(eventsQuery.error));
-    }
-  }, [eventsQuery.error]);
-
-  const refreshConversations = useCallback(async () => {
+  const refreshConversations = async () => {
     await queryClient.invalidateQueries({ queryKey: ["conversations"] });
-  }, [queryClient]);
-
-  const searchPending = query !== debouncedQuery || mode !== debouncedMode;
+  };
 
   return {
-    conversations: listQuery.data?.results ?? [],
-    searchModeLabel: listQuery.data?.modeLabel ?? null,
-    listSearching: searchPending || listQuery.isFetching,
-    messages: eventsQuery.data ?? [],
-    eventsLoading: eventsQuery.isFetching,
+    get conversations() {
+      return listQuery.data?.results ?? [];
+    },
+    get searchModeLabel() {
+      return listQuery.data?.modeLabel ?? null;
+    },
+    get listSearching() {
+      return (
+        opts.query() !== debouncedQuery() || opts.mode() !== debouncedMode() || listQuery.isFetching
+      );
+    },
+    get messages() {
+      return eventsQuery.data ?? [];
+    },
+    get eventsLoading() {
+      return eventsQuery.isFetching;
+    },
     refreshConversations,
   };
 }

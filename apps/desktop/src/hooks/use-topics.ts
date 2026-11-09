@@ -1,7 +1,6 @@
-import { useAtomValue } from "@effect/atom-react";
+import { useAtomValue } from "@effect/atom-solid";
 import { Effect } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { useCallback } from "react";
 import { refreshTopicsAtom, topicsAtom } from "../atoms/topics";
 import type {
   FlaggedJobCard,
@@ -32,22 +31,21 @@ const emptySnapshot = {
 };
 
 /**
- * Topics via @effect/atom-react. Call only from the topics route so the atom
+ * Topics via @effect/atom-solid. Call only from the topics route so the atom
  * polls while the pane is mounted.
  */
 export function useTopics(): UseTopicsResult {
-  const result = useAtomValue(topicsAtom);
-  const snapshot = AsyncResult.getOrElse(result, () => emptySnapshot);
+  const result = useAtomValue(() => topicsAtom);
 
-  const refreshTopics = useCallback(async () => {
+  const refreshTopics = async () => {
     try {
       refreshTopicsAtom();
     } catch {
       /* soft-fail while rivetd is down */
     }
-  }, []);
+  };
 
-  const decideTidy = useCallback(async (id: string, status: "approved" | "rejected") => {
+  const decideTidy = async (id: string, status: "approved" | "rejected") => {
     const outcome = await runAppExit(
       Effect.gen(function* decide() {
         yield* Rivet.requireBackend;
@@ -59,9 +57,9 @@ export function useTopics(): UseTopicsResult {
       return;
     }
     refreshTopicsAtom();
-  }, []);
+  };
 
-  const decideTag = useCallback(async (id: string, status: "accepted" | "rejected") => {
+  const decideTag = async (id: string, status: "accepted" | "rejected") => {
     const outcome = await runAppExit(
       Effect.gen(function* decide() {
         yield* Rivet.requireBackend;
@@ -73,9 +71,9 @@ export function useTopics(): UseTopicsResult {
       return;
     }
     refreshTopicsAtom();
-  }, []);
+  };
 
-  const retryFlagged = useCallback(async (task: string, jobKey: string) => {
+  const retryFlagged = async (task: string, jobKey: string) => {
     const outcome = await runAppExit(
       Effect.gen(function* retry() {
         yield* Rivet.requireBackend;
@@ -87,13 +85,21 @@ export function useTopics(): UseTopicsResult {
       return;
     }
     refreshTopicsAtom();
-  }, []);
+  };
 
   return {
-    topics: snapshot.topics,
-    tidy: snapshot.tidy,
-    tags: snapshot.tags,
-    flagged: snapshot.flagged,
+    get topics() {
+      return AsyncResult.getOrElse(result(), () => emptySnapshot).topics;
+    },
+    get tidy() {
+      return AsyncResult.getOrElse(result(), () => emptySnapshot).tidy;
+    },
+    get tags() {
+      return AsyncResult.getOrElse(result(), () => emptySnapshot).tags;
+    },
+    get flagged() {
+      return AsyncResult.getOrElse(result(), () => emptySnapshot).flagged;
+    },
     refreshTopics,
     decideTidy,
     decideTag,

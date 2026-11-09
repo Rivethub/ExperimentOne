@@ -1,4 +1,9 @@
+import type { JSX } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
+import { Card, CardDescription, CardHeader, CardTitle } from "#components/ui/card";
 import {
+  formatCheckedAgo,
+  fmtPct,
   providerBadge,
   providerChipLabel,
   providerColor,
@@ -18,9 +23,8 @@ import {
   seriesFromRemainingHistory,
 } from "../lib/quota-series";
 import { isDefined } from "../lib/nullish";
-import { Button, Chip, Panel } from "../ui";
+import { Button, Chip, Panel, SegControl } from "../ui";
 import { quotaMetricModeTitle } from "./quota-pane-toolbar";
-import { cn } from "#lib/utils";
 import type {
   ProviderFilter,
   ProviderQuota,
@@ -29,6 +33,18 @@ import type {
   QuotaSnapshot,
   CaptureEvent,
 } from "../lib/types";
+
+const METRIC_OPTIONS = [
+  { value: "limits" as const, label: "Limits", title: quotaMetricModeTitle("limits") },
+  { value: "tokens" as const, label: "Tokens", title: quotaMetricModeTitle("tokens") },
+  { value: "cost" as const, label: "Cost", title: quotaMetricModeTitle("cost") },
+];
+
+const HORIZON_OPTIONS = [
+  { value: "1h" as const, label: "1h" },
+  { value: "3h" as const, label: "3h" },
+  { value: "6h" as const, label: "6h" },
+];
 
 export type QuotaPaneProps = {
   counts: Record<string, number>;
@@ -56,188 +72,177 @@ export type QuotaPaneProps = {
   onAccountSelect: (account: QuotaAccountUx) => void;
 };
 
-function SegButton({
-  active,
-  onClick,
-  title,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title?: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <button
-      type="button"
-      title={title}
-      className={cn(
-        "border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium text-muted-foreground",
-        "[&:not(:first-child)]:border-l [&:not(:first-child)]:border-border",
-        active && "bg-secondary text-foreground",
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
+export function QuotaPane(props: QuotaPaneProps): JSX.Element {
+  const credentialsLoaded = createMemo(
+    () => props.quota?.credentials_loaded ?? props.counts.all ?? 0,
   );
-}
+  const credentialsTotal = createMemo(
+    () => props.quota?.credentials_total ?? props.counts.all ?? 0,
+  );
+  const worstRemaining = createMemo(() => {
+    let worst: number | null = null;
+    for (const id of props.visibleProviders) {
+      const pq = props.providerQuota(id);
+      if (pq !== null && Number.isFinite(pq.remaining_pct)) {
+        if (worst === null || pq.remaining_pct < worst) {
+          worst = pq.remaining_pct;
+        }
+      }
+    }
+    return worst;
+  });
+  const staleLabel = createMemo(() => {
+    const observed = props.quota?.observed_at;
+    if (!isDefined(observed) || observed === "") return "—";
+    return formatCheckedAgo(observed);
+  });
 
-export function QuotaPane({
-  counts,
-  filter,
-  onFilterChange,
-  providerIds,
-  catalog,
-  limitHit,
-  limitActions,
-  metricMode,
-  onMetricModeChange,
-  horizon,
-  onHorizonChange,
-  quota,
-  quotaHistory,
-  visibleProviders,
-  providerQuota,
-  recent,
-  accountsFor,
-  onAddCredentials,
-  onAccountSelect,
-}: QuotaPaneProps): React.ReactElement {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {(counts.all ?? 0) > 0 ? (
-        <>
-          <LimitRecoveryBanner
-            hit={limitHit}
-            onRefreshCredentials={limitActions.onRefreshCredentials}
-            onSwitchAccount={limitActions.onSwitchAccount}
-            onWait={limitActions.onWait}
-          />
-          <div className="mb-3.5 flex flex-wrap gap-2">
-            <Chip
-              active={filter === "all"}
-              count={counts.all ?? 0}
-              onClick={() => {
-                onFilterChange("all");
-              }}
-            >
-              All
-            </Chip>
-            {providerIds.map((id) => (
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <Show
+        when={(props.counts.all ?? 0) > 0}
+        fallback={
+          <Panel
+            class="mb-0"
+            title="No accounts yet"
+            lede="Live quota needs at least one signed-in account"
+            actions={
+              <Button variant="primary" onClick={() => props.onAddCredentials()}>
+                Add account
+              </Button>
+            }
+          >
+            <p class="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
+              Add a provider account to track remaining limits and burn from captures.
+            </p>
+          </Panel>
+        }
+      >
+        <LimitRecoveryBanner
+          hit={props.limitHit}
+          onRefreshCredentials={() => props.limitActions.onRefreshCredentials()}
+          onSwitchAccount={() => props.limitActions.onSwitchAccount()}
+          onWait={() => props.limitActions.onWait()}
+        />
+
+        <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Credentials</CardDescription>
+              <CardTitle class="text-lg tabular-nums">
+                {credentialsLoaded()}/{credentialsTotal()}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Worst remaining</CardDescription>
+              <CardTitle class="text-lg tabular-nums">{fmtPct(worstRemaining())}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Horizon</CardDescription>
+              <CardTitle class="text-lg tabular-nums">{props.horizon}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Last checked</CardDescription>
+              <CardTitle class="truncate text-lg">{staleLabel()}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+
+        <div class="mb-3.5 flex flex-wrap gap-2">
+          <Chip
+            active={props.filter === "all"}
+            count={props.counts.all ?? 0}
+            onClick={() => {
+              props.onFilterChange("all");
+            }}
+          >
+            All
+          </Chip>
+          <For each={props.providerIds}>
+            {(id) => (
               <Chip
-                key={id}
-                active={filter === id}
-                dotColor={providerColor(id, catalog)}
-                count={counts[id] ?? 0}
+                active={props.filter === id}
+                dotColor={providerColor(id, props.catalog)}
+                count={props.counts[id] ?? 0}
                 onClick={() => {
-                  onFilterChange(id);
+                  props.onFilterChange(id);
                 }}
               >
-                {providerChipLabel(id, catalog)}
+                {providerChipLabel(id, props.catalog)}
               </Chip>
-            ))}
-          </div>
+            )}
+          </For>
+        </div>
 
-          <div className="mb-4.5 flex flex-wrap items-center gap-2">
-            <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card">
-              {(
-                [
-                  ["limits", "Limits"],
-                  ["tokens", "Tokens"],
-                  ["cost", "Cost"],
-                ] as const
-              ).map(([id, label]) => (
-                <SegButton
-                  key={id}
-                  active={metricMode === id}
-                  title={quotaMetricModeTitle(id)}
-                  onClick={() => {
-                    onMetricModeChange(id);
-                  }}
-                >
-                  {label}
-                </SegButton>
-              ))}
-            </div>
-            <div className="inline-flex overflow-hidden rounded-lg border border-border bg-card">
-              {(["1h", "3h", "6h"] as const).map((h) => (
-                <SegButton
-                  key={h}
-                  active={horizon === h}
-                  onClick={() => {
-                    onHorizonChange(h);
-                  }}
-                >
-                  {h}
-                </SegButton>
-              ))}
-            </div>
-            <span className="py-2 text-[13px] text-muted-foreground" title={quota?.note}>
-              {quota?.source === "management"
-                ? `Live credentials · ${quota.credentials_loaded}/${quota.credentials_total} loaded · quota ≤5m · ${horizon} history`
-                : `Local fallback · ${horizon} window · refresh after proxy is up`}
-              {isDefined(quota?.observed_at) && quota.observed_at !== "" ? (
-                <>
-                  {" "}
-                  · <StaleStamp observedAt={quota.observed_at} />
-                </>
-              ) : null}
-            </span>
-          </div>
+        <div class="mb-4.5 flex flex-wrap items-center gap-2">
+          <SegControl
+            aria-label="Metric mode"
+            value={props.metricMode}
+            onChange={(mode) => props.onMetricModeChange(mode)}
+            options={METRIC_OPTIONS}
+          />
+          <SegControl
+            aria-label="History horizon"
+            value={props.horizon}
+            onChange={(horizon) => props.onHorizonChange(horizon)}
+            options={HORIZON_OPTIONS}
+          />
+          <span class="py-2 text-[13px] text-muted-foreground" title={props.quota?.note}>
+            {props.quota?.source === "management"
+              ? `Live credentials · ${props.quota.credentials_loaded}/${props.quota.credentials_total} loaded · quota ≤5m · ${props.horizon} history`
+              : `Local fallback · ${props.horizon} window · refresh after proxy is up`}
+            {isDefined(props.quota?.observed_at) && props.quota.observed_at !== "" ? (
+              <>
+                {" "}
+                · <StaleStamp observedAt={props.quota.observed_at} />
+              </>
+            ) : null}
+          </span>
+        </div>
 
-          <div className="flex flex-col gap-3.5">
-            {visibleProviders.map((id) => {
-              const pq = providerQuota(id);
-              const series =
-                metricMode === "limits"
+        <div class="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+          <For each={props.visibleProviders}>
+            {(id) => {
+              const pq = () => props.providerQuota(id);
+              const series = () =>
+                props.metricMode === "limits"
                   ? seriesFromRemainingHistory(
-                      historyPointsForProvider(quotaHistory, id),
-                      horizon,
+                      historyPointsForProvider(props.quotaHistory, id),
+                      props.horizon,
                       24,
-                      pq?.remaining_pct,
-                      pq?.capacity_pct,
+                      pq()?.remaining_pct,
+                      pq()?.capacity_pct,
                     )
-                  : seriesFromEvents(recent, id, horizon, 24, pq?.remaining_pct);
+                  : seriesFromEvents(props.recent, id, props.horizon, 24, pq()?.remaining_pct);
               return (
                 <QuotaProviderCard
-                  key={id}
-                  name={providerChipLabel(id, catalog)}
-                  ico={providerBadge(id, catalog)}
+                  name={providerChipLabel(id, props.catalog)}
+                  ico={providerBadge(id, props.catalog)}
                   icoClass={id === "claude" || id === "codex" ? id : "generic"}
-                  color={providerColor(id, catalog)}
-                  count={counts[id] ?? 0}
-                  metricMode={metricMode}
-                  series={series}
-                  pq={pq}
-                  accounts={accountsFor(id)}
-                  horizon={horizon}
-                  observedAt={quota?.observed_at}
+                  color={providerColor(id, props.catalog)}
+                  count={props.counts[id] ?? 0}
+                  metricMode={props.metricMode}
+                  series={series()}
+                  pq={pq()}
+                  accounts={props.accountsFor(id)}
+                  horizon={props.horizon}
+                  observedAt={props.quota?.observed_at}
                   providerId={id}
-                  recent={recent}
-                  onAddCredentials={onAddCredentials}
-                  onAccountSelect={onAccountSelect}
+                  recent={props.recent}
+                  onAddCredentials={() => props.onAddCredentials()}
+                  onAccountSelect={(account) => props.onAccountSelect(account)}
                 />
               );
-            })}
-          </div>
-        </>
-      ) : (
-        <Panel
-          className="mb-0"
-          title="No accounts yet"
-          lede="Live quota needs at least one signed-in account"
-          actions={
-            <Button variant="primary" onClick={onAddCredentials}>
-              Add account
-            </Button>
-          }
-        >
-          <p className="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">
-            Add a provider account to track remaining limits and burn from captures.
-          </p>
-        </Panel>
-      )}
+            }}
+          </For>
+        </div>
+      </Show>
     </div>
   );
 }

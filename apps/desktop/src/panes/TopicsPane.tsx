@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import type { JSX } from "solid-js";
+import { Button } from "#components/ui/button";
+import { cn } from "#lib/utils";
 import { Empty, Input, Panel, Pill } from "../ui";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+
 export type TopicCard = {
   slug: string;
   title: string;
@@ -72,7 +74,7 @@ export type TopicsPaneProps = {
 
 type TreeRow = { topic: TopicCard; depth: number };
 
-/** Flatten topics into a depth-first tree (≤4 levels), orphans after roots. */
+/** Flatten topics into a depth-first tree() (≤4 levels), orphans after roots. */
 export function flattenTopicTree(topics: TopicCard[]): TreeRow[] {
   const bySlug = new Map(topics.map((t) => [t.slug, t]));
   const children = new Map<string, TopicCard[]>();
@@ -103,30 +105,20 @@ export function flattenTopicTree(topics: TopicCard[]): TreeRow[] {
   return out;
 }
 
-export function TopicsPane({
-  active,
-  topics,
-  tidy = [],
-  tags = [],
-  flagged = [],
-  busy,
-  selectedSlug,
-  onSelect,
-  onOpenSession,
-  onFilterData,
-  onTidyDecide,
-  onTagDecide,
-  onFlaggedRetry,
-  loadKnowledge,
-  loadArchive,
-}: TopicsPaneProps): React.ReactElement {
-  const [query, setQuery] = useState("");
-  const [knowledge, setKnowledge] = useState<TopicKnowledge | null>(null);
-  const [archiveFile, setArchiveFile] = useState<string | null>(null);
-  const [archiveBody, setArchiveBody] = useState<string | null>(null);
-  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+export function TopicsPane(props: TopicsPaneProps): JSX.Element {
+  const [query, setQuery] = createSignal("");
+  const [knowledge, setKnowledge] = createSignal<TopicKnowledge | null>(null);
+  const [archiveFile, setArchiveFile] = createSignal<string | null>(null);
+  const [archiveBody, setArchiveBody] = createSignal<string | null>(null);
+  const [knowledgeError, setKnowledgeError] = createSignal<string | null>(null);
+
+  const tidy = createMemo(() => props.tidy ?? []);
+  const tags = createMemo(() => props.tags ?? []);
+  const flagged = createMemo(() => props.flagged ?? []);
+
+  const filtered = createMemo(() => {
+    const topics = props.topics;
+    const q = query().trim().toLowerCase();
     if (!q) return topics;
     const matched = new Set(
       topics
@@ -140,7 +132,7 @@ export function TopicsPane({
         )
         .map((t) => t.slug),
     );
-    // Keep ancestors so the tree still reads when filtering.
+    // Keep ancestors so the tree() still reads when filtering.
     const bySlug = new Map(topics.map((t) => [t.slug, t]));
     const keep = new Set(matched);
     for (const slug of matched) {
@@ -151,24 +143,31 @@ export function TopicsPane({
       }
     }
     return topics.filter((t) => keep.has(t.slug));
-  }, [topics, query]);
-  const tree = useMemo(() => flattenTopicTree(filtered), [filtered]);
-  const selected =
-    filtered.find((t) => t.slug === selectedSlug) ?? tree[0]?.topic ?? filtered[0] ?? null;
+  });
+  const tree = createMemo(() => flattenTopicTree(filtered()));
+  const selected = createMemo(
+    () =>
+      filtered().find((t) => t.slug === props.selectedSlug) ??
+      tree()[0]?.topic ??
+      filtered()[0] ??
+      null,
+  );
 
-  useEffect(() => {
+  createEffect(() => {
     let stale = false;
+    const topic = selected();
+    const loadKnowledge = props.loadKnowledge;
     setArchiveFile(null);
     setArchiveBody(null);
     setKnowledge(null);
     setKnowledgeError(null);
-    if (!selected || !loadKnowledge) {
-      return () => {
-        stale = true;
-      };
+    onCleanup(() => {
+      stale = true;
+    });
+    if (!topic || !loadKnowledge) {
+      return;
     }
-    const topic = selected;
-    const run = async (): Promise<void> => {
+    void (async (): Promise<void> => {
       try {
         const next = await loadKnowledge(topic);
         if (stale) {
@@ -181,285 +180,344 @@ export function TopicsPane({
         }
         setKnowledgeError(e instanceof Error ? e.message : String(e));
       }
-    };
-    void run();
-    return () => {
-      stale = true;
-    };
-  }, [selected?.slug, selected?.updated_at, selected?.kind, selected?.project_id, loadKnowledge]);
+    })();
+  });
 
   return (
     <div
-      className={cx(styles.viewPane, active ? styles.isActive : "")}
-      hidden={!active}
-      aria-hidden={!active}
+      class={cn("flex min-h-0 min-w-0 flex-1 flex-col", !props.active && "hidden")}
+      hidden={!props.active}
+      aria-hidden={!props.active}
     >
       <Panel
-        className={styles.dataPage}
+        class="mb-0 flex min-h-0 flex-1 flex-col"
         title="Topics"
         lede="Nested subjects (≤4 levels), tidy proposals, tags, and dead worker jobs."
       >
-        <div className={cx(styles.dataLayout, selected ? styles.hasThread : "")}>
-          <div className={styles.dataListPane}>
-            <div className={styles.dataSearchBar}>
+        <div
+          class={cn(
+            "mt-3.5 grid min-h-0 flex-1 gap-3",
+            selected()
+              ? "grid-cols-1 md:grid-cols-[minmax(280px,1fr)_minmax(0,1.4fr)]"
+              : "grid-cols-1",
+          )}
+        >
+          <div class="flex min-h-0 min-w-0 flex-col">
+            <div class="flex min-w-0 items-center gap-2">
               <Input
-                className={styles.dataSearchInput}
+                class="min-w-0 flex-1"
                 tone="plain"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value={query()}
+                onInput={(e) => setQuery(e.currentTarget.value)}
                 placeholder="Filter topics…"
                 aria-label="Filter topics"
               />
-              <span className={styles.dataSearchMeta}>
-                {filtered.length}
-                {busy ? " · updating" : ""}
+              <span class="shrink-0 text-[11px] whitespace-nowrap text-muted-foreground">
+                {filtered().length}
+                {props.busy ? " · updating" : ""}
               </span>
             </div>
-            {tree.length === 0 ? (
-              <div className={styles.conversationList}>
-                <Empty>No topics yet — capture events and run workers to cluster subjects.</Empty>
-              </div>
-            ) : (
-              <div className={styles.conversationList}>
-                {tree.map(({ topic, depth }) => (
-                  <button
-                    key={topic.slug}
-                    type="button"
-                    className={cx(
-                      styles.conversationRow,
-                      selected?.slug === topic.slug && styles.active,
-                    )}
-                    style={{ paddingLeft: `${12 + depth * 16}px` }}
-                    onClick={() => onSelect(topic.slug)}
-                  >
-                    <div className={styles.conversationRowTop}>
-                      <strong className={styles.conversationTitle}>
-                        {depth > 0 ? `${"· ".repeat(depth)}` : ""}
-                        {topic.title}
-                      </strong>
-                      {topic.curated ? <Pill tone="ok">curated</Pill> : null}
-                      {topic.kind === "entity" ? <Pill>entity</Pill> : null}
-                    </div>
-                    <div className={styles.conversationRowMeta}>
-                      <span className={styles.mono}>{topic.slug}</span>
-                      <span className={styles.muted}>
-                        {(topic.event_ids ?? []).length} events · {(topic.session_ids ?? []).length}{" "}
-                        sessions
-                      </span>
-                    </div>
-                    {topic.summary ? (
-                      <div className={styles.conversationPreview}>{topic.summary}</div>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className={styles.dataThreadPane}>
-            {!selected ? (
-              <Empty>Select a topic to see sessions and citations.</Empty>
-            ) : (
-              <>
-                <div className={styles.dataSearchBar}>
-                  <div>
-                    <h2 className={styles.conversationTitle}>{selected.title}</h2>
-                    <div className={styles.conversationRowMeta}>
-                      <span className={styles.mono}>{selected.slug}</span>
-                      {selected.parent_slug ? (
-                        <span className={styles.muted}>under {selected.parent_slug}</span>
-                      ) : null}
-                      {(selected.tags ?? []).map((tag) => (
-                        <Pill key={tag}>{tag}</Pill>
-                      ))}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.searchSegmentBtn}
-                    onClick={() => onFilterData(selected.title)}
-                  >
-                    Search in Data
-                  </button>
+            <Show
+              when={tree().length > 0}
+              fallback={
+                <div class="mt-3 min-h-0 flex-1 overflow-auto rounded-[10px] border border-border/60">
+                  <Empty>No topics yet — capture events and run workers to cluster subjects.</Empty>
                 </div>
-                {selected.summary ? <p>{selected.summary}</p> : null}
-                {knowledgeError ? <p className={styles.muted}>{knowledgeError}</p> : null}
-                {knowledge?.body ? (
-                  <>
-                    <h3>Knowledge</h3>
-                    <pre className={styles.conversationPreview}>{knowledge.body}</pre>
-                    {knowledge.archives.length > 0 ? (
-                      <div className={styles.wikiArchiveBar}>
-                        <span className={styles.wikiArchiveLabel}>Archive</span>
-                        {knowledge.archives.map((file) => (
-                          <button
-                            key={file}
-                            type="button"
-                            className={
-                              archiveFile === file
-                                ? `${styles.wikiArchiveChip} ${styles.wikiArchiveChipActive}`
-                                : styles.wikiArchiveChip
-                            }
-                            onClick={() => {
-                              if (!loadArchive || !knowledge.archiveSlug) {
-                                return;
-                              }
-                              setArchiveFile(file);
-                              void loadArchive(knowledge.projectId, knowledge.archiveSlug, file)
-                                .then((body) => {
-                                  setArchiveBody(body);
-                                })
-                                .catch((e: unknown) => {
-                                  setKnowledgeError(e instanceof Error ? e.message : String(e));
-                                });
-                            }}
-                          >
-                            {file.replace(/\.md$/u, "")}
-                          </button>
-                        ))}
+              }
+            >
+              <div class="mt-3 min-h-0 flex-1 overflow-auto rounded-[10px] border border-border/60">
+                <For each={tree()}>
+                  {({ topic, depth }) => (
+                    <button
+                      type="button"
+                      class={cn(
+                        "flex w-full cursor-pointer flex-col gap-1.5 border-0 border-b border-border/60 bg-transparent px-3.5 py-3 text-left text-foreground",
+                        "hover:bg-accent",
+                        selected()?.slug === topic.slug && "bg-secondary",
+                      )}
+                      style={{ "padding-left": `${14 + depth * 16}px` }}
+                      onClick={() => props.onSelect(topic.slug)}
+                    >
+                      <div class="flex items-baseline justify-between gap-2.5">
+                        <strong class="truncate text-[13px] font-semibold">
+                          {depth > 0 ? `${"· ".repeat(depth)}` : ""}
+                          {topic.title}
+                        </strong>
+                        <div class="flex shrink-0 gap-1">
+                          <Show when={topic.curated}>
+                            <Pill tone="ok">curated</Pill>
+                          </Show>
+                          <Show when={topic.kind === "entity"}>
+                            <Pill>entity</Pill>
+                          </Show>
+                        </div>
                       </div>
-                    ) : null}
-                    {archiveBody ? (
-                      <pre className={styles.conversationPreview}>{archiveBody}</pre>
-                    ) : null}
-                  </>
-                ) : null}
-                {(selected.aliases ?? []).length > 0 ? (
-                  <p className={styles.muted}>Aliases: {(selected.aliases ?? []).join(", ")}</p>
-                ) : null}
-                {(selected.decisions ?? []).length > 0 ? (
-                  <>
-                    <h3>Decisions</h3>
-                    <ul>
-                      {(selected.decisions ?? []).slice(-12).map((d) => (
-                        <li key={d}>{d}</li>
-                      ))}
+                      <div class="flex flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
+                        <span class="font-mono text-xs">{topic.slug}</span>
+                        <span>
+                          {(topic.event_ids ?? []).length} events ·{" "}
+                          {(topic.session_ids ?? []).length} sessions
+                        </span>
+                      </div>
+                      <Show when={topic.summary}>
+                        {(summary) => (
+                          <div class="truncate text-xs text-muted-foreground">{summary()}</div>
+                        )}
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+
+          <div class="bg-card/40 flex min-h-0 min-w-0 flex-col overflow-auto rounded-[10px] border border-border/60 p-3.5">
+            <Show
+              when={selected()}
+              fallback={<Empty>Select a topic to see sessions and citations.</Empty>}
+            >
+              {(sel) => (
+                <div class="flex min-h-0 flex-col gap-3">
+                  <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                      <h2 class="m-0 truncate text-sm font-semibold">{sel().title}</h2>
+                      <div class="mt-1 flex flex-wrap items-center gap-2 text-[11.5px] text-muted-foreground">
+                        <span class="font-mono text-xs">{sel().slug}</span>
+                        <Show when={sel().parent_slug}>
+                          {(parent) => <span>under {parent()}</span>}
+                        </Show>
+                        <For each={sel().tags ?? []}>{(tag) => <Pill>{tag}</Pill>}</For>
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => props.onFilterData(sel().title)}
+                    >
+                      Search in Data
+                    </Button>
+                  </div>
+
+                  <Show when={sel().summary}>
+                    {(summary) => <p class="m-0 text-sm">{summary()}</p>}
+                  </Show>
+                  <Show when={knowledgeError()}>
+                    {(err) => <p class="m-0 text-sm text-muted-foreground">{err()}</p>}
+                  </Show>
+
+                  <Show when={knowledge()?.body}>
+                    {(body) => (
+                      <>
+                        <h3 class="m-0 text-sm font-semibold">Knowledge</h3>
+                        <pre class="m-0 max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2.5 text-xs whitespace-pre-wrap">
+                          {body()}
+                        </pre>
+                        <Show when={(knowledge()?.archives.length ?? 0) > 0}>
+                          <div class="flex flex-wrap items-center gap-2">
+                            <span class="text-xs text-muted-foreground">Archive</span>
+                            <For each={knowledge()?.archives ?? []}>
+                              {(file) => (
+                                <Button
+                                  variant={archiveFile() === file ? "secondary" : "outline"}
+                                  size="sm"
+                                  class="h-7 text-xs"
+                                  onClick={() => {
+                                    const k = knowledge();
+                                    const loadArchive = props.loadArchive;
+                                    if (!loadArchive || !k?.archiveSlug || !k.projectId) {
+                                      return;
+                                    }
+                                    setArchiveFile(file);
+                                    void loadArchive(k.projectId, k.archiveSlug, file)
+                                      .then((next) => {
+                                        setArchiveBody(next);
+                                      })
+                                      .catch((e: unknown) => {
+                                        setKnowledgeError(
+                                          e instanceof Error ? e.message : String(e),
+                                        );
+                                      });
+                                  }}
+                                >
+                                  {file.replace(/\.md$/u, "")}
+                                </Button>
+                              )}
+                            </For>
+                          </div>
+                        </Show>
+                        <Show when={archiveBody()}>
+                          {(archive) => (
+                            <pre class="m-0 max-h-48 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2.5 text-xs whitespace-pre-wrap">
+                              {archive()}
+                            </pre>
+                          )}
+                        </Show>
+                      </>
+                    )}
+                  </Show>
+
+                  <Show when={(sel().aliases ?? []).length > 0}>
+                    <p class="m-0 text-sm text-muted-foreground">
+                      Aliases: {(sel().aliases ?? []).join(", ")}
+                    </p>
+                  </Show>
+
+                  <Show when={(sel().decisions ?? []).length > 0}>
+                    <>
+                      <h3 class="m-0 text-sm font-semibold">Decisions</h3>
+                      <ul class="m-0 list-disc space-y-1 pl-5 text-sm">
+                        <For each={(sel().decisions ?? []).slice(-12)}>{(d) => <li>{d}</li>}</For>
+                      </ul>
+                    </>
+                  </Show>
+
+                  <Show when={tidy().length > 0}>
+                    <>
+                      <h3 class="m-0 text-sm font-semibold">Tidy proposals</h3>
+                      <ul class="m-0 space-y-2 text-sm">
+                        <For each={tidy()}>
+                          {(p) => (
+                            <li class="flex flex-wrap items-center gap-2">
+                              <span class="font-mono text-xs">
+                                {p.action}
+                                {p.from_slug ? ` ${p.from_slug}` : ""}
+                                {p.to_slug ? ` → ${p.to_slug}` : ""}
+                              </span>
+                              <span class="text-muted-foreground">— {p.reason}</span>
+                              <Show when={props.onTidyDecide}>
+                                {(decide) => (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      class="h-7"
+                                      onClick={() => decide()(p.id, "approved")}
+                                    >
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      class="h-7"
+                                      onClick={() => decide()(p.id, "rejected")}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                )}
+                              </Show>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </>
+                  </Show>
+
+                  <Show when={tags().length > 0}>
+                    <>
+                      <h3 class="m-0 text-sm font-semibold">Tag suggestions</h3>
+                      <ul class="m-0 space-y-2 text-sm">
+                        <For each={tags()}>
+                          {(t) => (
+                            <li class="flex flex-wrap items-center gap-2">
+                              <Pill>{t.tag}</Pill>
+                              <span class="text-muted-foreground">
+                                session <code>{t.session_id}</code>
+                              </span>
+                              <Show when={props.onTagDecide}>
+                                {(decide) => (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      class="h-7"
+                                      onClick={() => decide()(t.id, "accepted")}
+                                    >
+                                      Accept
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      class="h-7"
+                                      onClick={() => decide()(t.id, "rejected")}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                )}
+                              </Show>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </>
+                  </Show>
+
+                  <Show when={flagged().length > 0}>
+                    <>
+                      <h3 class="m-0 text-sm font-semibold">Flagged jobs</h3>
+                      <ul class="m-0 space-y-2 text-sm">
+                        <For each={flagged()}>
+                          {(j) => (
+                            <li class="flex flex-wrap items-center gap-2">
+                              <span class="font-mono text-xs">
+                                {j.task} · {j.job_key}
+                              </span>
+                              <Show when={j.last_error}>
+                                {(err) => <span class="text-muted-foreground">— {err()}</span>}
+                              </Show>
+                              <Show when={props.onFlaggedRetry}>
+                                {(retry) => (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    class="h-7"
+                                    onClick={() => retry()(j.task, j.job_key)}
+                                  >
+                                    Retry
+                                  </Button>
+                                )}
+                              </Show>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </>
+                  </Show>
+
+                  <h3 class="m-0 text-sm font-semibold">Sessions</h3>
+                  <Show
+                    when={(sel().session_ids ?? []).length > 0}
+                    fallback={
+                      <p class="m-0 text-sm text-muted-foreground">No linked sessions yet.</p>
+                    }
+                  >
+                    <ul class="m-0 space-y-1">
+                      <For each={(sel().session_ids ?? []).slice(0, 40)}>
+                        {(sid) => (
+                          <li>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              class="h-7 px-2 font-mono text-xs"
+                              onClick={() => props.onOpenSession(sid)}
+                            >
+                              {sid}
+                            </Button>
+                          </li>
+                        )}
+                      </For>
                     </ul>
-                  </>
-                ) : null}
-                {tidy.length > 0 ? (
-                  <>
-                    <h3>Tidy proposals</h3>
-                    <ul>
-                      {tidy.map((p) => (
-                        <li key={p.id}>
-                          <span className={styles.mono}>
-                            {p.action}
-                            {p.from_slug ? ` ${p.from_slug}` : ""}
-                            {p.to_slug ? ` → ${p.to_slug}` : ""}
-                          </span>
-                          <span className={styles.muted}> — {p.reason}</span>
-                          {onTidyDecide ? (
-                            <>
-                              {" "}
-                              <button
-                                type="button"
-                                className={styles.searchSegmentBtn}
-                                onClick={() => onTidyDecide(p.id, "approved")}
-                              >
-                                Approve
-                              </button>{" "}
-                              <button
-                                type="button"
-                                className={styles.searchSegmentBtn}
-                                onClick={() => onTidyDecide(p.id, "rejected")}
-                              >
-                                Reject
-                              </button>
-                            </>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-                {tags.length > 0 ? (
-                  <>
-                    <h3>Tag suggestions</h3>
-                    <ul>
-                      {tags.map((t) => (
-                        <li key={t.id}>
-                          <Pill>{t.tag}</Pill>{" "}
-                          <span className={styles.muted}>
-                            session <code>{t.session_id}</code>
-                          </span>
-                          {onTagDecide ? (
-                            <>
-                              {" "}
-                              <button
-                                type="button"
-                                className={styles.searchSegmentBtn}
-                                onClick={() => onTagDecide(t.id, "accepted")}
-                              >
-                                Accept
-                              </button>{" "}
-                              <button
-                                type="button"
-                                className={styles.searchSegmentBtn}
-                                onClick={() => onTagDecide(t.id, "rejected")}
-                              >
-                                Reject
-                              </button>
-                            </>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-                {flagged.length > 0 ? (
-                  <>
-                    <h3>Flagged jobs</h3>
-                    <ul>
-                      {flagged.map((j) => (
-                        <li key={`${j.task}:${j.job_key}`}>
-                          <span className={styles.mono}>
-                            {j.task} · {j.job_key}
-                          </span>
-                          {j.last_error ? (
-                            <span className={styles.muted}> — {j.last_error}</span>
-                          ) : null}
-                          {onFlaggedRetry ? (
-                            <>
-                              {" "}
-                              <button
-                                type="button"
-                                className={styles.searchSegmentBtn}
-                                onClick={() => onFlaggedRetry(j.task, j.job_key)}
-                              >
-                                Retry
-                              </button>
-                            </>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : null}
-                <h3>Sessions</h3>
-                {(selected.session_ids ?? []).length === 0 ? (
-                  <p className={styles.muted}>No linked sessions yet.</p>
-                ) : (
-                  <ul>
-                    {(selected.session_ids ?? []).slice(0, 40).map((sid) => (
-                      <li key={sid}>
-                        <button
-                          type="button"
-                          className={styles.searchSegmentBtn}
-                          onClick={() => onOpenSession(sid)}
-                        >
-                          <code>{sid}</code>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <h3>Citations</h3>
-                <p className={styles.muted}>
-                  {(selected.event_ids ?? []).length} event id
-                  {(selected.event_ids ?? []).length === 1 ? "" : "s"} linked in meta.
-                </p>
-              </>
-            )}
+                  </Show>
+
+                  <h3 class="m-0 text-sm font-semibold">Citations</h3>
+                  <p class="m-0 text-sm text-muted-foreground">
+                    {(sel().event_ids ?? []).length} event id
+                    {(sel().event_ids ?? []).length === 1 ? "" : "s"} linked in meta.
+                  </p>
+                </div>
+              )}
+            </Show>
           </div>
         </div>
       </Panel>

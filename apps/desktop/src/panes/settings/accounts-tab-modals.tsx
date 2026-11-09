@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import { isDeviceAuthBlocked } from "../../lib/format-utils";
 import { isDefined } from "../../lib/nullish";
 import type { CatalogProvider } from "../../lib/provider-utils";
 import type { LoginStatus } from "../../lib/types";
-import { cn } from "#lib/utils";
-import { Actions, Button, ButtonHint, Modal, Pill, Snippet } from "../../ui";
+import { AlertDescription, AlertTitle } from "#components/ui/alert";
+import { Actions, Banner, Button, ButtonHint, Modal, Pill, Snippet } from "../../ui";
 
 function loginKindHint(loginKind: string): string {
   if (loginKind === "file_import") {
@@ -54,8 +55,8 @@ export function AccountsTabAddModal({
   onToggleAddAccount: () => void;
   onRequestLogin: (provider: string) => void;
   onRequestVertexImport: () => void;
-}): React.ReactElement {
-  const footer = useMemo(
+}): JSX.Element {
+  const footer = createMemo(
     () => <Button onClick={onToggleAddAccount}>Cancel</Button>,
     [onToggleAddAccount],
   );
@@ -67,22 +68,21 @@ export function AccountsTabAddModal({
       title="Add account"
       titleId="add-account-title"
       wide
-      footer={footer}
+      footer={footer()}
     >
-      <p className="m-0 text-[13.5px] text-muted-foreground">
+      <p class="m-0 text-[13.5px] text-muted-foreground">
         Pick a provider to sign in. Codex opens browser OAuth by default.
       </p>
-      <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
+      <div class="mt-3 grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-2">
         {catalog.map((p) => {
           const linked = providerAccountCount(p.id);
           const hint = loginKindHint(p.login_kind);
           const linkedSuffix = linked > 0 ? ` · ${linked} linked` : "";
           return (
             <Button
-              key={p.id}
               variant="provider"
-              className="justify-start text-left"
-              style={{ borderColor: `${p.color}55` }}
+              class="justify-start text-left"
+              style={{ "border-color": `${p.color}55` }}
               disabled={busy || loginActive}
               title={p.hint}
               onClick={() => {
@@ -94,13 +94,13 @@ export function AccountsTabAddModal({
               }}
             >
               <span
-                className="grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold"
+                class="grid size-8 shrink-0 place-items-center rounded-lg text-sm font-semibold"
                 style={{ background: `${p.color}22`, color: p.color }}
               >
                 {p.badge}
               </span>
-              <span className="min-w-0">
-                <strong className="block text-[13px] font-semibold">{p.label}</strong>
+              <span class="min-w-0">
+                <strong class="block text-[13px] font-semibold">{p.label}</strong>
                 <ButtonHint>
                   {hint}
                   {linkedSuffix}
@@ -128,14 +128,14 @@ export function AccountsTabLoginModal({
   onDismissLogin: () => void;
   onCancelLogin: () => void;
   onRequestLogin: (provider: string, method?: "browser" | "device") => void;
-}): React.ReactElement | null {
-  const headerExtra = useMemo(() => {
+}): JSX.Element | null {
+  const headerExtra = createMemo(() => {
     if (!isDefined(login)) {
       return null;
     }
     return <Pill tone={loginPillTone(login)}>{loginPillLabel(login)}</Pill>;
   }, [login]);
-  const footer = useMemo(() => {
+  const footer = createMemo(() => {
     if (!isDefined(login) || login.active) {
       return null;
     }
@@ -161,11 +161,11 @@ export function AccountsTabLoginModal({
       title={`Login (${login.provider})`}
       titleId="login-progress-title"
       wide
-      headerExtra={headerExtra}
-      footer={footer}
+      headerExtra={headerExtra()}
+      footer={footer()}
     >
       {(login.active || (login.done && !login.success)) && (
-        <Actions spaced={false} className="mb-3">
+        <Actions spaced={false} class="mb-3">
           {login.active && (
             <Button variant="danger" onClick={onCancelLogin}>
               Cancel login
@@ -186,21 +186,18 @@ export function AccountsTabLoginModal({
       )}
 
       {showDeviceBanner && (
-        <div
-          role="alert"
-          className={cn(
-            "mb-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border px-3.5 py-3",
-            "border-amber-800/70 bg-[#1c1410] text-amber-100",
-          )}
+        <Banner
+          tone="warn"
+          class="mb-3 flex flex-wrap items-start justify-between gap-3 border-amber-800/70 px-3.5 py-3"
         >
-          <div className="min-w-0 max-w-[52ch]">
-            <div className="font-medium tracking-tight">ChatGPT blocked device code sign-in</div>
-            <p className="mt-1 m-0 text-[13px] leading-snug text-amber-200/85">
+          <div class="min-w-0 max-w-[52ch]">
+            <AlertTitle class="text-amber-100">ChatGPT blocked device code sign-in</AlertTitle>
+            <AlertDescription class="text-amber-200/85">
               Enable device code for Codex in ChatGPT Security Settings, then retry — or use browser
               OAuth instead (recommended).
-            </p>
+            </AlertDescription>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <div class="flex shrink-0 flex-wrap items-center gap-2">
             <Button
               variant="primary"
               disabled={busy}
@@ -220,7 +217,7 @@ export function AccountsTabLoginModal({
               Retry device code
             </Button>
           </div>
-        </div>
+        </Banner>
       )}
 
       <Snippet>{outputText}</Snippet>

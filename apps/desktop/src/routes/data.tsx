@@ -1,5 +1,6 @@
-import { createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo } from "react";
+import { createFileRoute, useNavigate, useParams } from "@tanstack/solid-router";
+import type { JSX } from "solid-js";
+import { createEffect, createMemo } from "solid-js";
 import { useApp } from "#app/context";
 import { validateDataSearch } from "#app/search";
 import { useConversations } from "#hooks";
@@ -10,54 +11,52 @@ export const Route = createFileRoute("/data")({
   component: DataLayout,
 });
 
-function DataLayout(): React.ReactElement {
+function DataLayout(): JSX.Element {
   const { rivet, derived, hideLimitBanner, openSettings, ops, busy } = useApp();
   const search = Route.useSearch();
-  const { q, mode, thread } = search;
   const navigate = Route.useNavigate();
   const rootNavigate = useNavigate();
-  const { conversationId } = useParams({ strict: false });
-  const selectedId = conversationId ?? null;
+  const params = useParams({ strict: false });
+  const selectedId = () => params().conversationId ?? null;
 
-  const vectorSearchEnabled = !!rivet.status?.capabilities.vector_search;
+  const vectorSearchEnabled = () => !!rivet.status?.capabilities.vector_search;
 
-  useEffect(() => {
-    if (vectorSearchEnabled || mode !== "vector") return;
+  createEffect(() => {
+    if (vectorSearchEnabled() || search().mode !== "vector") {
+      return;
+    }
     void navigate({ search: (prev) => ({ ...prev, mode: "keyword" }) });
-  }, [vectorSearchEnabled, mode, navigate]);
+  });
 
   const conversations = useConversations({
-    enabled: true,
-    query: q,
-    mode,
+    enabled: () => true,
+    query: () => search().q,
+    mode: () => search().mode,
     selectedId,
   });
 
-  const limitActions = useMemo(
-    () => ({
-      onRefreshCredentials: () => void rivet.refreshCredentials(),
-      onSwitchAccount: () => openSettings("accounts"),
-      onWait: () => hideLimitBanner(),
-    }),
-    [rivet, openSettings, hideLimitBanner],
-  );
+  const limitActions = createMemo(() => ({
+    onRefreshCredentials: () => void rivet.refreshCredentials(),
+    onSwitchAccount: () => openSettings("accounts"),
+    onWait: () => hideLimitBanner(),
+  }));
 
   return (
     <DataPane
       limitHit={derived.limitHit}
-      limitActions={limitActions}
+      limitActions={limitActions()}
       catalog={rivet.catalog}
-      listQuery={q}
+      listQuery={search().q}
       onListQueryChange={(next) => void navigate({ search: (prev) => ({ ...prev, q: next }) })}
-      searchMode={mode}
+      searchMode={search().mode}
       onSearchModeChange={(next) => void navigate({ search: (prev) => ({ ...prev, mode: next }) })}
-      vectorSearchEnabled={vectorSearchEnabled}
+      vectorSearchEnabled={vectorSearchEnabled()}
       searchModeLabel={conversations.searchModeLabel}
       listPending={conversations.listSearching}
       conversations={conversations.conversations}
-      selectedId={selectedId}
+      selectedId={selectedId()}
       onSelectConversation={(id) => {
-        const nextSearch = { ...search, thread: "" };
+        const nextSearch = { ...search(), thread: "" };
         if (id === null) {
           void rootNavigate({ to: "/data", search: nextSearch });
           return;
@@ -69,11 +68,11 @@ function DataLayout(): React.ReactElement {
         });
       }}
       messages={conversations.messages}
-      threadQuery={thread}
+      threadQuery={search().thread}
       onThreadQueryChange={(next) =>
         void navigate({ search: (prev) => ({ ...prev, thread: next }) })
       }
-      busy={busy}
+      busy={busy()}
       onExportConversations={(ids) => void ops.exportBag(ids)}
     />
   );

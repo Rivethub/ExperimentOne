@@ -1,4 +1,5 @@
-import { useMemo } from "react";
+import { createMemo } from "solid-js";
+import type { JSX } from "solid-js";
 import { isDefined } from "../../lib/nullish";
 import { AccountConnectCards } from "../../quota";
 import { Panel } from "../../ui";
@@ -10,10 +11,10 @@ export function AccountsTab({
   hidden,
   login,
   ...accounts
-}: SettingsAccountsProps & { hidden?: boolean }): React.ReactElement {
+}: SettingsAccountsProps & { hidden?: boolean }): JSX.Element {
   const showLoginModal = isDefined(login) && (login.active || login.output !== "");
 
-  const panelActions = useMemo(
+  const panelActions = createMemo(
     () => (
       <AccountsTabActions
         busy={accounts.busy}
@@ -26,12 +27,12 @@ export function AccountsTab({
 
   return (
     <Panel
-      className="m-0"
+      class="m-0"
       hidden={hidden}
       aria-hidden={hidden}
       title="Accounts"
       lede="Signed-in provider credentials. Tokens stay local and are never included in `.rivetbag` exports."
-      actions={panelActions}
+      actions={panelActions()}
     >
       <AccountConnectCards
         accounts={accounts.accounts}
