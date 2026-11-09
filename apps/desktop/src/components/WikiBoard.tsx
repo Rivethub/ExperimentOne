@@ -1,5 +1,5 @@
 import { createStore } from "solid-js/store";
-import { createEffect, createMemo, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { Alert, AlertDescription } from "#components/ui/alert";
 import { Card, CardDescription, CardHeader, CardTitle } from "#components/ui/card";
@@ -10,6 +10,7 @@ import {
   ensureReadmeToc,
   relativeWhen,
   coverTone,
+  topicSlugFromWikiPage,
 } from "./wiki-board-logic";
 import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wiki-reader-markdown";
 import { styles } from "#styles";
@@ -36,8 +37,14 @@ type WikiBoardProps = {
   wiki: WikiInfo | null;
   busy: boolean;
   wikiEnabled: boolean;
+  /** Deep-link page id (`project/topics/slug`) from `/wiki?page=…`. */
+  initialPageId?: string | null;
   onOpenFolder: () => void;
   onEnable: () => void;
+  onOpenTopic?: (slug: string) => void;
+  onBrowseTopics?: () => void;
+  /** Clear `/wiki?page=` after the reader is closed or the deep link is applied. */
+  onClearInitialPage?: () => void;
   loadPage: (page: WikiPageCard) => Promise<string>;
   listArchives?: (projectId: string, slug: string) => Promise<string[]>;
   loadArchive?: (projectId: string, slug: string, file: string) => Promise<string>;
@@ -77,8 +84,10 @@ const emptyReader = (): ReaderState => ({
 
 type WikiReaderProps = {
   reader: ReaderState;
+  topicSlug: string | null;
   onClose: () => void;
   onOpenFolder: () => void;
+  onOpenTopic?: (slug: string) => void;
   pageList: WikiPageCard[];
   onOpenPage: (page: WikiPageCard) => void;
   onOpenArchive: (file: string) => void;
@@ -118,6 +127,17 @@ function WikiReader(props: WikiReaderProps): JSX.Element {
           <Button variant="ghost" onClick={() => props.onCloseArchive()}>
             Live page
           </Button>
+        </Show>
+        <Show when={props.topicSlug}>
+          {(slug) => (
+            <Show when={props.onOpenTopic}>
+              {(openTopic) => (
+                <Button variant="ghost" onClick={() => openTopic()(slug())}>
+                  Open in Topics
+                </Button>
+              )}
+            </Show>
+          )}
         </Show>
         <Button variant="ghost" onClick={() => props.onOpenFolder()}>
           Reveal
@@ -169,84 +189,146 @@ function WikiReader(props: WikiReaderProps): JSX.Element {
   );
 }
 
-type WikiGridProps = {
-  projects: ReturnType<typeof buildWikiProjects>;
+type WikiEmptyProps = {
   busy: boolean;
   wikiEnabled: boolean;
+  pageCount: number;
   onEnable: () => void;
   onOpenFolder: () => void;
+  onOpenTopics?: () => void;
+};
+
+function WikiEmptyState(props: WikiEmptyProps): JSX.Element {
+  const title = () => {
+    if (!props.wikiEnabled) return "Wiki worker is off";
+    if (props.pageCount > 0) return "No project README yet";
+    return "Wiki is empty";
+  };
+  const lede = () => {
+    if (!props.wikiEnabled) {
+      return "Turn on the wiki worker so Rivet can build a README for each project from captures.";
+    }
+    if (props.pageCount > 0) {
+      return "Pages are on disk, but none have a project-root README.md to open from this board.";
+    }
+    return "When the wiki worker runs, each project gets a README you can open and follow links from.";
+  };
+  const nextStep = () => {
+    if (!props.wikiEnabled) {
+      return "Enable the worker under Settings → Workers, keep the proxy capturing, then come back here.";
+    }
+    if (props.pageCount > 0) {
+      return "Add or generate a README.md at the project root, or open the wiki folder to inspect what’s already there.";
+    }
+    return "Capture some sessions through the proxy, then let the wiki worker draft the first README.";
+  };
+
+  return (
+    <div class="flex min-h-0 flex-1 items-center justify-center px-4 py-8 md:px-6">
+      <Panel
+        class="mb-0 w-full max-w-lg"
+        title={title()}
+        lede={lede()}
+        actions={
+          <Button variant="primary" disabled={props.busy} onClick={() => props.onEnable()}>
+            {props.wikiEnabled ? "Open Settings" : "Enable wiki"}
+          </Button>
+        }
+      >
+        <p class="m-0 max-w-[56ch] text-[13px] leading-snug text-muted-foreground">{nextStep()}</p>
+        <Actions spaced={false} class="mt-3.5">
+          <Button onClick={() => props.onOpenFolder()}>Open folder</Button>
+          <Show when={props.onOpenTopics}>
+            {(openTopics) => (
+              <Button variant="ghost" onClick={() => openTopics()()}>
+                Browse Topics
+              </Button>
+            )}
+          </Show>
+        </Actions>
+      </Panel>
+    </div>
+  );
+}
+
+type WikiGridProps = {
+  projects: ReturnType<typeof buildWikiProjects>;
   onOpenPage: (page: WikiPageCard) => void;
 };
 
 function WikiProjectGrid(props: WikiGridProps): JSX.Element {
   return (
-    <Show
-      when={props.projects.length > 0}
-      fallback={
-        <Panel
-          class="mx-auto mb-0 max-w-md"
-          title="No project README yet"
-          lede="Enable the wiki worker or add a README.md to the project folder."
-        >
-          <Actions spaced={false}>
-            <Button variant="primary" disabled={props.busy} onClick={() => props.onEnable()}>
-              {props.wikiEnabled ? "Open Settings" : "Enable in Settings"}
-            </Button>
-            <Button onClick={() => props.onOpenFolder()}>Open folder</Button>
-          </Actions>
-        </Panel>
-      }
-    >
-      <section>
-        <div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
-          {props.projects.map(({ projectId, label, readme }) => {
-            const hue = coverTone(`${projectId}/${label}`);
-            const preview = readme.preview !== "" ? readme.preview : "_Empty README_";
-            return (
-              <button
-                type="button"
-                class="group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
-                aria-label={`Open ${label} README`}
-                onClick={() => {
-                  props.onOpenPage(readme);
-                }}
-              >
-                <Card class="gap-0 overflow-hidden py-0 shadow-none transition group-hover:bg-secondary/20">
+    <section>
+      <div class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-4">
+        {props.projects.map(({ projectId, label, readme }) => {
+          const hue = coverTone(`${projectId}/${label}`);
+          const preview = readme.preview !== "" ? readme.preview : "_Empty README_";
+          return (
+            <button
+              type="button"
+              class="group rounded-xl text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+              aria-label={`Open ${label} README`}
+              onClick={() => {
+                props.onOpenPage(readme);
+              }}
+            >
+              <Card class="gap-0 overflow-hidden py-0 shadow-none transition group-hover:bg-secondary/20">
+                <div
+                  class="relative h-40 overflow-hidden px-3.5 py-3"
+                  style={{
+                    background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
+                  }}
+                >
                   <div
-                    class="relative h-40 overflow-hidden px-3.5 py-3"
-                    style={{
-                      background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
-                    }}
+                    class="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
+                    aria-hidden
                   >
-                    <div
-                      class="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
-                      aria-hidden
-                    >
-                      <WikiTilePreviewMarkdown preview={preview} />
-                    </div>
+                    <WikiTilePreviewMarkdown preview={preview} />
                   </div>
-                  <CardHeader class="gap-1 border-t border-border px-3.5 py-2.5">
-                    <CardTitle class="truncate text-sm">{label}</CardTitle>
-                    <CardDescription class="truncate text-xs">
-                      README.md
-                      <em class="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-              </button>
-            );
-          })}
-        </div>
-      </section>
-    </Show>
+                </div>
+                <CardHeader class="gap-1 border-t border-border px-3.5 py-2.5">
+                  <CardTitle class="truncate text-sm">{label}</CardTitle>
+                  <CardDescription class="truncate text-xs">
+                    README.md
+                    <em class="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
 export function WikiBoard(props: WikiBoardProps): JSX.Element {
   const [reader, setReader] = createStore<ReaderState>(emptyReader());
+  const [openedInitialPage, setOpenedInitialPage] = createSignal<string | null>(null);
 
   const pageList = createMemo(() => props.wiki?.pages ?? []);
   const projects = createMemo(() => buildWikiProjects(pageList(), props.wiki?.project_id));
+  const activeTopicSlug = createMemo(() => {
+    const id = reader.activeId;
+    if (id === null) return null;
+    const page = pageList().find((p) => p.id === id);
+    return page ? topicSlugFromWikiPage(page) : null;
+  });
+
+  createEffect(() => {
+    const pageId = props.initialPageId?.trim() || "";
+    if (pageId === "") {
+      // Allow the same ?page= id to reopen after clear/close.
+      setOpenedInitialPage(null);
+      return;
+    }
+    if (openedInitialPage() === pageId) return;
+    const page = pageList().find((p) => p.id === pageId);
+    if (!page) return;
+    setOpenedInitialPage(pageId);
+    void openPage(page);
+    props.onClearInitialPage?.();
+  });
 
   createEffect(() => {
     let stale = false;
@@ -417,29 +499,42 @@ export function WikiBoard(props: WikiBoardProps): JSX.Element {
     <Show
       when={reader.activeId !== null}
       fallback={
-        <div class="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 md:px-6">
-          <p class="mb-4 max-w-[68ch] text-[13px] text-muted-foreground">
-            One README per project — open it, then follow links.
-          </p>
-          <WikiProjectGrid
-            projects={projects()}
-            busy={props.busy}
-            wikiEnabled={props.wikiEnabled}
-            onEnable={() => props.onEnable()}
-            onOpenFolder={() => props.onOpenFolder()}
-            onOpenPage={(p) => {
-              void openPage(p);
-            }}
-          />
-        </div>
+        <Show
+          when={projects().length > 0}
+          fallback={
+            <WikiEmptyState
+              busy={props.busy}
+              wikiEnabled={props.wikiEnabled}
+              pageCount={pageList().length}
+              onEnable={() => props.onEnable()}
+              onOpenFolder={() => props.onOpenFolder()}
+              onOpenTopics={props.onBrowseTopics}
+            />
+          }
+        >
+          <div class="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 md:px-6">
+            <p class="mb-4 max-w-[68ch] text-[13px] text-muted-foreground">
+              One README per project — open it, then follow links. Topic pages can jump to Topics.
+            </p>
+            <WikiProjectGrid
+              projects={projects()}
+              onOpenPage={(p) => {
+                void openPage(p);
+              }}
+            />
+          </div>
+        </Show>
       }
     >
       <WikiReader
         reader={reader}
+        topicSlug={activeTopicSlug()}
         onClose={() => {
           setReader(emptyReader());
+          props.onClearInitialPage?.();
         }}
         onOpenFolder={() => props.onOpenFolder()}
+        onOpenTopic={props.onOpenTopic}
         pageList={pageList()}
         onOpenPage={(p) => {
           void openPage(p);

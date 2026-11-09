@@ -14,7 +14,6 @@ import {
 } from "solid-js";
 import type { ElementOf } from "@kobalte/core";
 import { Polymorphic } from "@kobalte/core";
-import { Badge } from "@kobalte/core/badge";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import type { VariantProps } from "cva";
 
@@ -202,7 +201,8 @@ export const Sidebar = (props: SidebarProps) => {
           <div
             data-slot="sidebar-container"
             class={cx(
-              "fixed inset-y-0 z-10 hidden h-svh w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
+              // Leave bottom-7 clear so the app status bar can span under the nav.
+              "fixed top-0 bottom-7 z-10 hidden h-auto w-(--sidebar-width) transition-[left,right,width] duration-200 ease-linear md:flex",
               merge.side === "left"
                 ? "left-0 group-data-[collapsible=offcanvas]:left-[calc(var(--sidebar-width)*-1)]"
                 : "right-0 group-data-[collapsible=offcanvas]:right-[calc(var(--sidebar-width)*-1)]",
@@ -692,24 +692,21 @@ export const SidebarMenuAction = <T extends ValidComponent = "button">(
   );
 };
 
-export type SidebarMenuBadgeProps<T extends ValidComponent = "span"> = ComponentProps<
-  typeof Badge<T>
->;
+export type SidebarMenuBadgeProps = ComponentProps<"div">;
 
-export const SidebarMenuBadge = <T extends ValidComponent = "span">(
-  props: SidebarMenuBadgeProps<T>,
-) => {
-  const [, rest] = splitProps(props as SidebarMenuBadgeProps, ["class"]);
+export const SidebarMenuBadge = (props: SidebarMenuBadgeProps) => {
+  const [, rest] = splitProps(props, ["class"]);
 
   return (
-    <Badge
+    <div
       data-slot="sidebar-menu-badge"
       data-sidebar="menu-badge"
       class={cx(
-        "text-sidebar-foreground pointer-events-none absolute right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums select-none",
+        // Default top-1.5 so the badge stays on the row even when Tooltip wraps the
+        // peer menu button and peer-size selectors never match.
+        "text-sidebar-foreground pointer-events-none absolute top-1.5 right-1 flex h-5 min-w-5 items-center justify-center rounded-md px-1 text-xs font-medium tabular-nums select-none",
         "peer-hover/menu-button:text-sidebar-accent-foreground peer-data-[active=true]/menu-button:text-sidebar-accent-foreground",
         "peer-data-[size=sm]/menu-button:top-1",
-        "peer-data-[size=default]/menu-button:top-1.5",
         "peer-data-[size=lg]/menu-button:top-2.5",
         "group-data-[collapsible=icon]:hidden",
         props.class,

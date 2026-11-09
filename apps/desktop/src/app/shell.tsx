@@ -114,96 +114,97 @@ export function AppShell(): JSX.Element {
 
   return (
     <AppProvider value={appValue}>
-      <SidebarProvider class="h-svh min-h-[640px] overflow-hidden">
+      <SidebarProvider class="flex h-svh min-h-[640px] flex-col overflow-hidden">
         <MockDevBar />
-        <AppSidebar
-          page={page()}
-          settingsTab={settingsTab()}
-          accountCount={rivet.accounts.length}
-          captureEventCount={rivet.status?.usage.events ?? 0}
-        />
-
-        <SidebarInset class="min-h-0 overflow-hidden">
-          <AppTopbar
-            title={title()}
-            subtitle={subtitle()}
+        <div class="flex min-h-0 w-full flex-1">
+          <AppSidebar
             page={page()}
             settingsTab={settingsTab()}
-            busy={busy()}
-            onRefresh={() => void rivet.refresh()}
-            quota={
-              page() === "quota"
-                ? {
-                    onManageCredentials: () => openSettings("accounts"),
-                  }
-                : undefined
-            }
-            wiki={
-              page() === "wiki"
-                ? {
-                    wikiEnabled: !!rivet.status?.capabilities.wiki,
-                    onOpenSettings: () => openSettings("intelligence"),
-                    onOpenFolder: () => void ops.openWiki(),
-                  }
-                : undefined
-            }
-            runtime={
-              page() === "runtime"
-                ? {
-                    proxyRunning: !!rivet.status?.proxy_running,
-                    apiOnline: rivet.apiOnline,
-                    onProxyStart: () => void ops.proxyAction("start"),
-                    onProxyStop: () => void ops.proxyAction("stop"),
-                    onProxyRestart: () => void ops.proxyAction("restart"),
-                    onRunWorkers: () => void ops.runWorkers(),
-                  }
-                : undefined
-            }
-            data={
-              page() === "data"
-                ? {
-                    canRevealExport: !!ops.bagPath,
-                    onExport: () => void ops.exportBag(),
-                    onImport: () => void ops.importBag(),
-                    onIngestLocal: () => void ops.ingestLocal(),
-                    onRevealExport: () => void ops.revealExport(),
-                  }
-                : undefined
-            }
+            captureEventCount={rivet.status?.usage.events ?? 0}
           />
 
-          <div
-            class={cn(
-              "@container/main flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-2 pb-5 md:px-6",
-              "data-[page=data]:overflow-hidden data-[page=data]:pb-0",
-              "data-[page=topics]:overflow-hidden data-[page=topics]:pb-0",
-              "data-[page=wiki]:overflow-hidden data-[page=wiki]:p-0",
-              "data-[page=runtime]:overflow-hidden data-[page=runtime]:p-0",
-              "data-[page=settings]:overflow-hidden data-[page=settings]:p-0",
-            )}
-            data-page={page()}
-          >
-            <Outlet />
-          </div>
+          <SidebarInset class="min-h-0 overflow-hidden">
+            <AppTopbar
+              title={title()}
+              subtitle={subtitle()}
+              page={page()}
+              settingsTab={settingsTab()}
+              busy={busy()}
+              onRefresh={() => void rivet.refresh()}
+              quota={
+                page() === "quota"
+                  ? {
+                      onManageCredentials: () => openSettings("accounts"),
+                    }
+                  : undefined
+              }
+              wiki={
+                page() === "wiki"
+                  ? {
+                      wikiEnabled: !!rivet.status?.capabilities.wiki,
+                      onOpenSettings: () => openSettings("intelligence"),
+                      onOpenFolder: () => void ops.openWiki(),
+                    }
+                  : undefined
+              }
+              runtime={
+                page() === "runtime"
+                  ? {
+                      proxyRunning: !!rivet.status?.proxy_running,
+                      apiOnline: rivet.apiOnline,
+                      onProxyStart: () => void ops.proxyAction("start"),
+                      onProxyStop: () => void ops.proxyAction("stop"),
+                      onProxyRestart: () => void ops.proxyAction("restart"),
+                      onRunWorkers: () => void ops.runWorkers(),
+                    }
+                  : undefined
+              }
+              data={
+                page() === "data"
+                  ? {
+                      canRevealExport: !!ops.bagPath,
+                      onExport: () => void ops.exportBag(),
+                      onImport: () => void ops.importBag(),
+                      onIngestLocal: () => void ops.ingestLocal(),
+                      onRevealExport: () => void ops.revealExport(),
+                    }
+                  : undefined
+              }
+            />
 
-          <AppStatusBar
-            syncing={syncing()}
-            onSync={() => {
-              void (async () => {
-                setSyncing(true);
-                try {
-                  await rivet.refresh();
-                } finally {
-                  setSyncing(false);
-                }
-              })();
-            }}
-            accountCount={derived.counts.all ?? 0}
-            status={rivet.status}
-            apiOnline={rivet.apiOnline}
-            onOpenRuntime={() => void navigate({ to: "/runtime" })}
-          />
-        </SidebarInset>
+            <div
+              class={cn(
+                "@container/main flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-2 pb-5 md:px-6",
+                "data-[page=data]:overflow-hidden data-[page=data]:pb-0",
+                "data-[page=topics]:overflow-hidden data-[page=topics]:pb-0",
+                "data-[page=wiki]:overflow-hidden data-[page=wiki]:p-0",
+                "data-[page=runtime]:overflow-hidden data-[page=runtime]:p-0",
+                "data-[page=settings]:overflow-hidden data-[page=settings]:p-0",
+              )}
+              data-page={page()}
+            >
+              <Outlet />
+            </div>
+          </SidebarInset>
+        </div>
+
+        <AppStatusBar
+          syncing={syncing()}
+          onSync={() => {
+            void (async () => {
+              setSyncing(true);
+              try {
+                await rivet.refresh();
+              } finally {
+                setSyncing(false);
+              }
+            })();
+          }}
+          accountCount={derived.counts.all ?? 0}
+          status={rivet.status}
+          apiOnline={rivet.apiOnline}
+          onOpenRuntime={() => void navigate({ to: "/runtime" })}
+        />
 
         <MultiAccountWarnModal
           warn={accountsHook.multiAccountWarn}

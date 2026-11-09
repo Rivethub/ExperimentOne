@@ -34,41 +34,17 @@ export function HarnessTab({
         </>
       }
     >
-      <div class="mb-4">
-        <strong class="text-sm">Capture ladder</strong>
-        <p class="mt-1 mb-2 text-[13px] text-muted-foreground">
-          Live capture is proxy-only. Plugins are optional fidelity for that path. Offline import
-          backfills history and never replaces the proxy. Capture stores cwd/bodies as signals and
-          sets `project_id` only on hard evidence (explicit field/header, harness {"projects/<id>/"}{" "}
-          key, or the Rivet harness plugin).
-        </p>
-        <Kv>
-          <KvRow label="L1 Route" value="Point harness at Rivet proxy (install buttons below)" />
-          <KvRow label="L2 Wire" value="Live sessions with real harness IDs (best fidelity)" />
-          <KvRow label="L2 Soft" value="No session marker → stable soft: hash grouping" />
-          <KvRow
-            label="L2.5 Plugin (optional)"
-            value="Session bind cwd → project_id at ingest + Rivet MCP; no content ingress"
-          />
-          <KvRow label="L3 Bodies" value="Full turns spilled to blobs/ (preview stays short)" />
-          <KvRow label="L4 Import" value="Optional offline Claude / Codex / Cursor transcripts" />
-          <KvRow
-            label="Project"
-            value="Hard evidence only; wire headers + optional plugin beat cwd scraping"
-          />
-        </Kv>
-        <Actions spaced={false} class="mt-2">
-          <Button
-            variant="primary"
-            disabled={harness.busy}
-            onClick={() => {
-              harness.onIngestLocal();
-            }}
-          >
-            Import local sessions
-          </Button>
-        </Actions>
-      </div>
+      <Actions spaced={false} class="mb-4">
+        <Button
+          variant="primary"
+          disabled={harness.busy}
+          onClick={() => {
+            harness.onIngestLocal();
+          }}
+        >
+          Import local sessions
+        </Button>
+      </Actions>
 
       <div class="mb-2 text-xs tracking-wide text-muted-foreground">Write into home config</div>
       <Actions>
