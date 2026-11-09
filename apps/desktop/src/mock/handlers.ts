@@ -529,8 +529,8 @@ export async function handleApiRequest(
       .filter((id) => id.length > 0);
     const events =
       ids.length === 0
-        ? s.traffic
-        : s.traffic.filter((ev) => {
+        ? s.captures
+        : s.captures.filter((ev) => {
             const sid = ev.session_id?.trim();
             const convId = sid && sid.length > 0 ? sid : `event:${ev.id}`;
             return ids.includes(convId);

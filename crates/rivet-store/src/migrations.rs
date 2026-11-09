@@ -153,8 +153,7 @@ pub async fn run(client: &Client) -> Result<u32> {
         info!(version = migration.version, name = migration.name, "applying clickhouse migration");
 
         if migration.version == 6 {
-            // Existing installs: rename. Fresh installs after v1–5: same.
-            // Already-renamed / partially upgraded: no-op if capture_events exists.
+            // Existing/fresh after v1–5: rename. Already renamed: no-op.
             let has_old = table_exists(client, "traffic_events").await?;
             let has_new = table_exists(client, "capture_events").await?;
             if has_old && !has_new {
@@ -164,60 +163,11 @@ pub async fn run(client: &Client) -> Result<u32> {
                     .await
                     .with_context(|| format!("migration {} ({})", migration.version, migration.name))?;
             } else if !has_new {
-                // Should not happen if v1 applied; create empty capture_events as safety net.
-                client
-                    .query(
-                        r"
-CREATE TABLE IF NOT EXISTS capture_events (
-  id UUID,
-  ts DateTime64(3, 'UTC'),
-  provider LowCardinality(String),
-  account_label Nullable(String),
-  model LowCardinality(Nullable(String)),
-  session_id Nullable(String),
-  project_id Nullable(String),
-  request_id Nullable(String),
-  role LowCardinality(String),
-  content Nullable(String),
-  tokens_in UInt32,
-  tokens_out UInt32,
-  latency_ms Nullable(UInt64),
-  status_code Nullable(UInt16),
-  body_ref Nullable(String),
-  capture_quality LowCardinality(Nullable(String)),
-  cwd Nullable(String),
-  agent_id Nullable(String),
-  parent_agent_id Nullable(String),
-  parent_session_id Nullable(String),
-  request_class LowCardinality(Nullable(String)),
-  agent_type Nullable(String),
-  cache_read_tokens UInt32 DEFAULT 0,
-  cache_creation_tokens UInt32 DEFAULT 0,
-  thinking_tokens UInt32 DEFAULT 0,
-  git_branch Nullable(String),
-  git_repo Nullable(String),
-  task_id Nullable(String),
-  turn_id Nullable(String),
-  upstream_host Nullable(String),
-  attempt_count UInt32 DEFAULT 0,
-  stop_reason LowCardinality(Nullable(String)),
-  tool_names Nullable(String),
-  stream_complete Nullable(UInt8),
-  request_path Nullable(String),
-  api_format LowCardinality(Nullable(String)),
-  error_type LowCardinality(Nullable(String)),
-  error_message Nullable(String),
-  auth_id Nullable(String),
-  has_thinking Nullable(UInt8),
-  media_count UInt32 DEFAULT 0,
-  tool_call_count UInt32 DEFAULT 0
-) ENGINE = MergeTree
-ORDER BY (ts, id)
-",
-                    )
-                    .execute()
-                    .await
-                    .with_context(|| format!("migration {} fallback create", migration.version))?;
+                anyhow::bail!(
+                    "migration {} ({}): neither traffic_events nor capture_events exists after earlier migrations",
+                    migration.version,
+                    migration.name
+                );
             }
         } else {
             client
