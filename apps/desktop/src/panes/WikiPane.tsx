@@ -16,35 +16,22 @@ export type WikiPaneProps = {
   loadArchive?: (projectId: string, slug: string, file: string) => Promise<string>;
 };
 
-export function WikiPane({
-  wiki,
-  busy,
-  wikiEnabled,
-  initialPageId,
-  onOpenFolder,
-  onEnable,
-  onOpenTopic,
-  onBrowseTopics,
-  onClearInitialPage,
-  loadPage,
-  listArchives,
-  loadArchive,
-}: WikiPaneProps): JSX.Element {
+export function WikiPane(props: WikiPaneProps): JSX.Element {
   return (
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <WikiBoard
-        wiki={wiki}
-        busy={busy}
-        wikiEnabled={wikiEnabled}
-        initialPageId={initialPageId}
-        onOpenFolder={onOpenFolder}
-        onEnable={onEnable}
-        onOpenTopic={onOpenTopic}
-        onBrowseTopics={onBrowseTopics}
-        onClearInitialPage={onClearInitialPage}
-        loadPage={loadPage}
-        listArchives={listArchives}
-        loadArchive={loadArchive}
+        wiki={props.wiki}
+        busy={props.busy}
+        wikiEnabled={props.wikiEnabled}
+        initialPageId={props.initialPageId}
+        onOpenFolder={() => props.onOpenFolder()}
+        onEnable={() => props.onEnable()}
+        onOpenTopic={props.onOpenTopic}
+        onBrowseTopics={props.onBrowseTopics}
+        onClearInitialPage={props.onClearInitialPage}
+        loadPage={(page) => props.loadPage(page)}
+        listArchives={props.listArchives}
+        loadArchive={props.loadArchive}
       />
     </div>
   );
