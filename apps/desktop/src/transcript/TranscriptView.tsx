@@ -1,13 +1,13 @@
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { Brain, ChevronRight, Terminal, Wrench } from "lucide-solid";
-import { createSignal } from "solid-js";
+import { For, Match, Show, Switch, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
 import { SolidMarkdown } from "solid-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import { reasoningPreview } from "./timeline";
-import { ToolDiff } from "./ToolDiff";
+import { ToolDiff, detectToolDiff } from "./ToolDiff";
 import type { AgentContext, TimelineItem } from "./types";
 import { cx, styles } from "#styles";
 
@@ -17,28 +17,40 @@ function shortAgentId(id: string): string {
   return `${t.slice(0, 6)}…${t.slice(-4)}`;
 }
 
-function AgentBadge({ agent }: { agent?: AgentContext }) {
-  if (!agent?.agent_id && !agent?.request_class && !agent?.agent_type) return null;
-  const label =
-    agent.agent_type?.trim() ||
-    (agent.request_class && agent.request_class !== "main"
-      ? agent.request_class
-      : agent.agent_id
-        ? "subagent"
-        : null);
-  if (!label) return null;
-  const tip = [
-    agent.agent_id ? `agent ${agent.agent_id}` : null,
-    agent.parent_agent_id ? `parent ${agent.parent_agent_id}` : null,
-    agent.request_class ? `class ${agent.request_class}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+function AgentBadge(props: { agent?: AgentContext }) {
+  const agent = () => props.agent;
+  const label = () => {
+    const a = agent();
+    if (!a?.agent_id && !a?.request_class && !a?.agent_type) return null;
+    return (
+      a.agent_type?.trim() ||
+      (a.request_class && a.request_class !== "main"
+        ? a.request_class
+        : a.agent_id
+          ? "subagent"
+          : null)
+    );
+  };
+  const tip = () => {
+    const a = agent();
+    if (!a) return "";
+    return [
+      a.agent_id ? `agent ${a.agent_id}` : null,
+      a.parent_agent_id ? `parent ${a.parent_agent_id}` : null,
+      a.request_class ? `class ${a.request_class}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
   return (
-    <span class={styles.t3AgentBadge} title={tip || undefined}>
-      {label}
-      {agent.agent_id ? ` · ${shortAgentId(agent.agent_id)}` : ""}
-    </span>
+    <Show when={label()}>
+      {(text) => (
+        <span class={styles.t3AgentBadge} title={tip() || undefined}>
+          {text()}
+          {agent()?.agent_id ? ` · ${shortAgentId(agent()!.agent_id!)}` : ""}
+        </span>
+      )}
+    </Show>
   );
 }
 
@@ -60,11 +72,11 @@ function formatJson(value: unknown): string {
   }
 }
 
-function MarkdownBody({ text }: { text: string }) {
+function MarkdownBody(props: { text: string }) {
   return (
     <div class={styles.t3Markdown}>
       <SolidMarkdown remarkPlugins={TRANSCRIPT_REMARK} rehypePlugins={TRANSCRIPT_REHYPE}>
-        {text}
+        {props.text}
       </SolidMarkdown>
     </div>
   );
@@ -103,7 +115,7 @@ function WorkRow(props: {
           {props.icon}
         </span>
         <span class={styles.t3RowLabel}>{props.label}</span>
-        {props.meta ? <span class={styles.t3RowMeta}>{props.meta}</span> : null}
+        <Show when={props.meta}>{(meta) => <span class={styles.t3RowMeta}>{meta()}</span>}</Show>
         <ChevronRight
           class={cx(styles.t3Chevron, props.open && styles.t3ChevronOpen)}
           size={14}
@@ -111,142 +123,179 @@ function WorkRow(props: {
           aria-hidden
         />
       </button>
-      {props.open && props.children ? <div class={styles.t3RowBody}>{props.children}</div> : null}
+      <Show when={props.open && props.children}>
+        <div class={styles.t3RowBody}>{props.children}</div>
+      </Show>
     </div>
   );
 }
 
-function UserMessage({ item }: { item: Extract<TimelineItem, { kind: "user_message" }> }) {
+function UserMessage(props: { item: Extract<TimelineItem, { kind: "user_message" }> }) {
   return (
     <div class={styles.t3User}>
-      <AgentBadge agent={item.agent} />
-      <MarkdownBody text={item.text} />
+      <AgentBadge agent={props.item.agent} />
+      <MarkdownBody text={props.item.text} />
     </div>
   );
 }
 
-function AssistantMessage({
-  item,
-}: {
-  item: Extract<TimelineItem, { kind: "assistant_message" }>;
-}) {
+function AssistantMessage(props: { item: Extract<TimelineItem, { kind: "assistant_message" }> }) {
   return (
     <div class={styles.t3Assistant}>
-      <AgentBadge agent={item.agent} />
-      <MarkdownBody text={item.text} />
+      <AgentBadge agent={props.item.agent} />
+      <MarkdownBody text={props.item.text} />
     </div>
   );
 }
 
-function ReasoningItem({ item }: { item: Extract<TimelineItem, { kind: "reasoning" }> }) {
+function ReasoningItem(props: { item: Extract<TimelineItem, { kind: "reasoning" }> }) {
   const [open, setOpen] = createSignal(false);
   return (
     <WorkRow
       icon={<Brain size={14} strokeWidth={1.75} />}
-      label={open() ? "Thought" : reasoningPreview(item.text)}
-      meta={<AgentBadge agent={item.agent} />}
+      label={open() ? "Thought" : reasoningPreview(props.item.text)}
+      meta={<AgentBadge agent={props.item.agent} />}
       open={open()}
       onToggle={() => setOpen((v) => !v)}
       tone="think"
     >
       <div class={styles.t3ThinkBody}>
-        <MarkdownBody text={item.text} />
+        <MarkdownBody text={props.item.text} />
       </div>
     </WorkRow>
   );
 }
 
-function CommandItem({ item }: { item: Extract<TimelineItem, { kind: "command_execution" }> }) {
+function CommandItem(props: { item: Extract<TimelineItem, { kind: "command_execution" }> }) {
   const [open, setOpen] = createSignal(false);
-  const oneLine = item.command.replace(/\s+/g, " ").trim();
-  const short = oneLine.length > 88 ? `${oneLine.slice(0, 88)}…` : oneLine;
+  const oneLine = () => props.item.command.replace(/\s+/g, " ").trim();
+  const short = () => {
+    const line = oneLine();
+    return line.length > 88 ? `${line.slice(0, 88)}…` : line;
+  };
   return (
     <WorkRow
       icon={<Terminal size={14} strokeWidth={1.75} />}
-      label={<span class={styles.t3CmdLabel}>{short}</span>}
+      label={<span class={styles.t3CmdLabel}>{short()}</span>}
       meta={
         <>
-          <AgentBadge agent={item.agent} />
-          {item.exitCode != null ? (
-            <span class={item.isError ? styles.t3Bad : styles.t3Ok}>exit {item.exitCode}</span>
-          ) : item.isError ? (
-            <span class={styles.t3Bad}>failed</span>
-          ) : null}
+          <AgentBadge agent={props.item.agent} />
+          <Show
+            when={props.item.exitCode != null}
+            fallback={
+              <Show when={props.item.isError}>
+                <span class={styles.t3Bad}>failed</span>
+              </Show>
+            }
+          >
+            <span class={props.item.isError ? styles.t3Bad : styles.t3Ok}>
+              exit {props.item.exitCode}
+            </span>
+          </Show>
         </>
       }
       open={open()}
       onToggle={() => setOpen((v) => !v)}
-      tone={item.isError ? "error" : "cmd"}
+      tone={props.item.isError ? "error" : "cmd"}
     >
       <div class={styles.t3Terminal}>
-        <pre class={styles.t3TerminalCmd}>{item.command}</pre>
-        {item.output ? <pre class={styles.t3TerminalOut}>{item.output}</pre> : null}
+        <pre class={styles.t3TerminalCmd}>{props.item.command}</pre>
+        <Show when={props.item.output}>
+          {(output) => <pre class={styles.t3TerminalOut}>{output()}</pre>}
+        </Show>
       </div>
     </WorkRow>
   );
 }
 
-function ToolJsonOrDiff({ label, value }: { label: string; value: unknown }): JSX.Element {
-  const diff = <ToolDiff value={value} />;
+/** Tool traces: unified diff when detectable, otherwise formatted JSON/text. */
+function ToolJsonOrDiff(props: { label: string; value: unknown }): JSX.Element {
+  const detected = () => detectToolDiff(props.value);
   return (
     <div>
-      <div class={styles.t3ToolCaption}>{label}</div>
-      {diff ?? <pre class={styles.t3ToolPre}>{formatJson(value)}</pre>}
+      <div class={styles.t3ToolCaption}>{props.label}</div>
+      <Show
+        when={detected().kind !== "none"}
+        fallback={<pre class={styles.t3ToolPre}>{formatJson(props.value)}</pre>}
+      >
+        <ToolDiff value={props.value} />
+      </Show>
     </div>
   );
 }
 
-function ToolItem({ item }: { item: Extract<TimelineItem, { kind: "tool" }> }) {
+function ToolItem(props: { item: Extract<TimelineItem, { kind: "tool" }> }) {
   const [open, setOpen] = createSignal(false);
   return (
     <WorkRow
       icon={<Wrench size={14} strokeWidth={1.75} />}
-      label={item.title}
+      label={props.item.title}
       meta={
         <>
-          <AgentBadge agent={item.agent} />
-          {item.isError ? <span class={styles.t3Bad}>error</span> : null}
+          <AgentBadge agent={props.item.agent} />
+          <Show when={props.item.isError}>
+            <span class={styles.t3Bad}>error</span>
+          </Show>
         </>
       }
       open={open()}
       onToggle={() => setOpen((v) => !v)}
-      tone={item.isError ? "error" : "tool"}
+      tone={props.item.isError ? "error" : "tool"}
     >
       <div class={styles.t3ToolBlocks}>
-        <ToolJsonOrDiff label="Input" value={item.input} />
-        {item.output !== undefined && (
-          <ToolJsonOrDiff label={item.isError ? "Error" : "Output"} value={item.output} />
-        )}
+        <ToolJsonOrDiff label="Input" value={props.item.input} />
+        <Show when={props.item.output !== undefined}>
+          <ToolJsonOrDiff
+            label={props.item.isError ? "Error" : "Output"}
+            value={props.item.output}
+          />
+        </Show>
       </div>
     </WorkRow>
   );
 }
 
-function SystemItem({ item }: { item: Extract<TimelineItem, { kind: "system" }> }) {
+function SystemItem(props: { item: Extract<TimelineItem, { kind: "system" }> }) {
   return (
     <div class={styles.t3System}>
-      <MarkdownBody text={item.text} />
+      <MarkdownBody text={props.item.text} />
     </div>
   );
 }
 
-function TimelineRow({ item }: { item: TimelineItem }) {
-  switch (item.kind) {
-    case "user_message":
-      return <UserMessage item={item} />;
-    case "assistant_message":
-      return <AssistantMessage item={item} />;
-    case "reasoning":
-      return <ReasoningItem item={item} />;
-    case "command_execution":
-      return <CommandItem item={item} />;
-    case "tool":
-      return <ToolItem item={item} />;
-    case "system":
-      return <SystemItem item={item} />;
-  }
+function TimelineRow(props: { item: TimelineItem }) {
+  return (
+    <Switch>
+      <Match when={props.item.kind === "user_message" ? props.item : false}>
+        {(item) => <UserMessage item={item() as Extract<TimelineItem, { kind: "user_message" }>} />}
+      </Match>
+      <Match when={props.item.kind === "assistant_message" ? props.item : false}>
+        {(item) => (
+          <AssistantMessage item={item() as Extract<TimelineItem, { kind: "assistant_message" }>} />
+        )}
+      </Match>
+      <Match when={props.item.kind === "reasoning" ? props.item : false}>
+        {(item) => <ReasoningItem item={item() as Extract<TimelineItem, { kind: "reasoning" }>} />}
+      </Match>
+      <Match when={props.item.kind === "command_execution" ? props.item : false}>
+        {(item) => (
+          <CommandItem item={item() as Extract<TimelineItem, { kind: "command_execution" }>} />
+        )}
+      </Match>
+      <Match when={props.item.kind === "tool" ? props.item : false}>
+        {(item) => <ToolItem item={item() as Extract<TimelineItem, { kind: "tool" }>} />}
+      </Match>
+      <Match when={props.item.kind === "system" ? props.item : false}>
+        {(item) => <SystemItem item={item() as Extract<TimelineItem, { kind: "system" }>} />}
+      </Match>
+    </Switch>
+  );
 }
 
+/**
+ * T3-style conversation activity timeline: messages, thinking traces,
+ * shell commands, and tool rows (with diffs when available).
+ */
 export function TranscriptView(props: { items: TimelineItem[] }) {
   let parentRef: HTMLDivElement | undefined;
   const virtualizer = createVirtualizer({
@@ -259,33 +308,34 @@ export function TranscriptView(props: { items: TimelineItem[] }) {
     getItemKey: (index) => props.items[index]?.id ?? index,
   });
 
-  if (props.items.length === 0) return null;
-
   return (
-    <div
-      ref={(el) => {
-        parentRef = el;
-      }}
-      class={styles.t3Timeline}
-    >
-      <div class={styles.t3VirtualInner} style={{ height: `${virtualizer.getTotalSize()}px` }}>
-        {virtualizer.getVirtualItems().map((row) => {
-          const item = props.items[row.index]!;
-          const style = {
-            transform: `translateY(${row.start}px)`,
-          } satisfies JSX.CSSProperties;
-          return (
-            <div
-              data-index={row.index}
-              ref={virtualizer.measureElement}
-              class={cx(styles.t3Item, styles.t3VirtualRow)}
-              style={style}
-            >
-              <TimelineRow item={item} />
-            </div>
-          );
-        })}
+    <Show when={props.items.length > 0}>
+      <div
+        ref={(el) => {
+          parentRef = el;
+        }}
+        class={styles.t3Timeline}
+      >
+        <div class={styles.t3VirtualInner} style={{ height: `${virtualizer.getTotalSize()}px` }}>
+          <For each={virtualizer.getVirtualItems()}>
+            {(row) => {
+              const item = () => props.items[row.index]!;
+              return (
+                <div
+                  data-index={row.index}
+                  ref={virtualizer.measureElement}
+                  class={cx(styles.t3Item, styles.t3VirtualRow)}
+                  style={{
+                    transform: `translateY(${row.start}px)`,
+                  }}
+                >
+                  <TimelineRow item={item()} />
+                </div>
+              );
+            }}
+          </For>
+        </div>
       </div>
-    </div>
+    </Show>
   );
 }

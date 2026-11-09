@@ -71,7 +71,7 @@ function pairFromRecord(record: Record<string, unknown>): FilePair | null {
   };
 }
 
-function detectToolDiff(value: unknown): ToolDiffKind {
+export function detectToolDiff(value: unknown): ToolDiffKind {
   if (typeof value === "string" && looksLikeUnifiedDiff(value)) {
     return { kind: "patch", patch: value };
   }
