@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useRouterState } from "@tanstack/solid-router";
 import type { JSX } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import { MultiAccountWarnModal } from "#components/MultiAccountWarnModal";
+import { SidebarInset, SidebarProvider } from "#components/ui/sidebar";
 import { useAccounts, useAppOperations, useQuotaDerived, useRivetData } from "#hooks";
 import type { SettingsTab } from "#lib/types";
 import { cn } from "#lib/utils";
@@ -113,12 +114,7 @@ export function AppShell(): JSX.Element {
 
   return (
     <AppProvider value={appValue}>
-      <div
-        class={cn(
-          "grid h-screen min-h-[640px] grid-cols-[212px_1fr] grid-rows-[1fr_auto]",
-          "max-[860px]:grid-cols-1 max-[860px]:grid-rows-[auto_1fr_auto]",
-        )}
-      >
+      <SidebarProvider class="h-svh min-h-[640px] overflow-hidden">
         <MockDevBar />
         <AppSidebar
           page={page()}
@@ -127,16 +123,12 @@ export function AppShell(): JSX.Element {
           captureEventCount={rivet.status?.usage.events ?? 0}
         />
 
-        <div
-          class={cn(
-            "col-start-2 row-start-1 flex h-full min-h-0 min-w-0 flex-col overflow-hidden",
-            "max-[860px]:col-start-1 max-[860px]:row-start-2 max-[860px]:h-auto max-[860px]:min-h-0",
-          )}
-        >
+        <SidebarInset class="min-h-0 overflow-hidden">
           <AppTopbar
             title={title()}
             subtitle={subtitle()}
             page={page()}
+            settingsTab={settingsTab()}
             busy={busy()}
             onRefresh={() => void rivet.refresh()}
             quota={
@@ -182,8 +174,9 @@ export function AppShell(): JSX.Element {
 
           <div
             class={cn(
-              "flex min-h-0 flex-1 flex-col overflow-auto px-6 pt-2 pb-5",
+              "@container/main flex min-h-0 flex-1 flex-col overflow-auto px-4 pt-2 pb-5 md:px-6",
               "data-[page=data]:overflow-hidden data-[page=data]:pb-0",
+              "data-[page=topics]:overflow-hidden data-[page=topics]:pb-0",
               "data-[page=wiki]:overflow-hidden data-[page=wiki]:p-0",
               "data-[page=runtime]:overflow-hidden data-[page=runtime]:p-0",
               "data-[page=settings]:overflow-hidden data-[page=settings]:p-0",
@@ -192,7 +185,25 @@ export function AppShell(): JSX.Element {
           >
             <Outlet />
           </div>
-        </div>
+
+          <AppStatusBar
+            syncing={syncing()}
+            onSync={() => {
+              void (async () => {
+                setSyncing(true);
+                try {
+                  await rivet.refresh();
+                } finally {
+                  setSyncing(false);
+                }
+              })();
+            }}
+            accountCount={derived.counts.all ?? 0}
+            status={rivet.status}
+            apiOnline={rivet.apiOnline}
+            onOpenRuntime={() => void navigate({ to: "/runtime" })}
+          />
+        </SidebarInset>
 
         <MultiAccountWarnModal
           warn={accountsHook.multiAccountWarn}
@@ -203,23 +214,6 @@ export function AppShell(): JSX.Element {
           onConfirm={accountsHook.confirmMultiAccountWarn}
         />
 
-        <AppStatusBar
-          syncing={syncing()}
-          onSync={() => {
-            void (async () => {
-              setSyncing(true);
-              try {
-                await rivet.refresh();
-              } finally {
-                setSyncing(false);
-              }
-            })();
-          }}
-          accountCount={derived.counts.all ?? 0}
-          status={rivet.status}
-          apiOnline={rivet.apiOnline}
-          onOpenRuntime={() => void navigate({ to: "/runtime" })}
-        />
         <Show
           when={
             rivet.status?.onboarding &&
@@ -248,7 +242,7 @@ export function AppShell(): JSX.Element {
           catalog={rivet.catalog}
           onClose={() => setDetailAccount(null)}
         />
-      </div>
+      </SidebarProvider>
     </AppProvider>
   );
 }

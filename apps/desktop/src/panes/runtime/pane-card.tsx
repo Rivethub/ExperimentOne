@@ -1,13 +1,8 @@
 import type { JSX } from "solid-js";
+import { Show } from "solid-js";
 import { KvRow, Panel, Pill, type PillTone } from "../../ui";
 
-export function RuntimePaneCard({
-  title,
-  statusLabel,
-  statusTone = "default",
-  children,
-  foot,
-}: {
+export function RuntimePaneCard(props: {
   title: string;
   statusLabel: string;
   statusTone?: PillTone;
@@ -16,24 +11,18 @@ export function RuntimePaneCard({
 }): JSX.Element {
   return (
     <Panel
-      class="mb-0 min-h-[168px] rounded-[14px] bg-gradient-to-b from-[#121216] to-[#0e0e12] py-4 shadow-none"
-      title={title}
-      actions={<Pill tone={statusTone}>{statusLabel}</Pill>}
+      class="bg-card mb-0 min-h-[168px] py-4 shadow-none"
+      title={props.title}
+      actions={<Pill tone={props.statusTone ?? "default"}>{props.statusLabel}</Pill>}
     >
-      <div class="flex flex-1 flex-col gap-0">{children}</div>
-      {foot !== undefined ? <div class="mt-auto flex flex-wrap gap-2 pt-2">{foot}</div> : null}
+      <div class="flex flex-1 flex-col gap-0">{props.children}</div>
+      <Show when={props.foot !== undefined}>
+        <div class="mt-auto flex flex-wrap gap-2 pt-2">{props.foot}</div>
+      </Show>
     </Panel>
   );
 }
 
-export function RuntimeKv({
-  label,
-  value,
-  title,
-}: {
-  label: string;
-  value: string;
-  title?: string;
-}): JSX.Element {
-  return <KvRow label={label} value={value} title={title} />;
+export function RuntimeKv(props: { label: string; value: string; title?: string }): JSX.Element {
+  return <KvRow label={props.label} value={props.value} title={props.title} />;
 }

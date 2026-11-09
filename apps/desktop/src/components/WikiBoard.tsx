@@ -2,6 +2,7 @@ import { createStore } from "solid-js/store";
 import { createEffect, createMemo, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { Alert, AlertDescription } from "#components/ui/alert";
+import { Card, CardDescription, CardHeader, CardTitle } from "#components/ui/card";
 import { Actions, Button, Panel } from "../ui";
 import {
   archiveSlugForPage,
@@ -204,32 +205,34 @@ function WikiProjectGrid(props: WikiGridProps): JSX.Element {
             return (
               <button
                 type="button"
-                class="group overflow-hidden rounded-xl border border-border bg-card text-left transition hover:border-border/90 hover:bg-secondary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="group text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
                 aria-label={`Open ${label} README`}
                 onClick={() => {
                   props.onOpenPage(readme);
                 }}
               >
-                <div
-                  class="relative h-40 overflow-hidden px-3.5 py-3"
-                  style={{
-                    background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
-                  }}
-                >
+                <Card class="gap-0 overflow-hidden py-0 shadow-none transition group-hover:bg-secondary/20">
                   <div
-                    class="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
-                    aria-hidden
+                    class="relative h-40 overflow-hidden px-3.5 py-3"
+                    style={{
+                      background: `linear-gradient(160deg, hsl(${hue} 28% 14%) 0%, hsl(${hue} 18% 8%) 100%)`,
+                    }}
                   >
-                    <WikiTilePreviewMarkdown preview={preview} />
+                    <div
+                      class="pointer-events-none origin-top-left scale-[0.55] text-[11px] leading-snug text-muted-foreground/90 opacity-90"
+                      aria-hidden
+                    >
+                      <WikiTilePreviewMarkdown preview={preview} />
+                    </div>
                   </div>
-                </div>
-                <div class="border-t border-border px-3.5 py-2.5">
-                  <strong class="block truncate text-sm">{label}</strong>
-                  <span class="mt-0.5 block truncate text-xs text-muted-foreground">
-                    README.md
-                    <em class="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
-                  </span>
-                </div>
+                  <CardHeader class="gap-1 border-t border-border px-3.5 py-2.5">
+                    <CardTitle class="truncate text-sm">{label}</CardTitle>
+                    <CardDescription class="truncate text-xs">
+                      README.md
+                      <em class="not-italic opacity-80"> · {relativeWhen(readme.updated_at)}</em>
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
               </button>
             );
           })}
@@ -414,7 +417,7 @@ export function WikiBoard(props: WikiBoardProps): JSX.Element {
     <Show
       when={reader.activeId !== null}
       fallback={
-        <div class="flex min-h-0 flex-1 flex-col overflow-auto px-6 py-4">
+        <div class="flex min-h-0 flex-1 flex-col overflow-auto px-4 py-4 md:px-6">
           <p class="mb-4 max-w-[68ch] text-[13px] text-muted-foreground">
             One README per project — open it, then follow links.
           </p>

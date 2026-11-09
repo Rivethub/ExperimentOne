@@ -1,7 +1,25 @@
-import type { JSX } from "solid-js";
+import type { Component, JSX } from "solid-js";
+import { For, Show } from "solid-js";
 import { Link } from "@tanstack/solid-router";
-import { Badge } from "#components/ui/badge";
-import { cn } from "#lib/utils";
+import { ChevronRight } from "lucide-solid";
+import { Collapsible, CollapsibleContent } from "#components/ui/collapsible";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  SidebarRail,
+} from "#components/ui/sidebar";
+import { fmt } from "#lib/provider-utils";
 import { NAV, SETTINGS_TABS } from "../lib/constants";
 import type { Page, SettingsTab } from "../lib/types";
 
@@ -12,90 +30,121 @@ export type AppSidebarProps = {
   captureEventCount: number;
 };
 
-function navTo(page: Page, settingsTab: SettingsTab) {
-  if (page === "quota") return { to: "/" as const };
-  if (page === "data") return { to: "/data" as const };
-  if (page === "topics") return { to: "/topics" as const };
-  if (page === "runtime") return { to: "/runtime" as const };
-  if (page === "wiki") return { to: "/wiki" as const };
-  return { to: "/settings/$tab" as const, params: { tab: settingsTab } };
+/** TanStack Link + Kobalte polymorphic props don't share a clean route params type. */
+const RouterLink = Link as unknown as Component<Record<string, unknown>>;
+
+function navTo(page: Page, settingsTab: SettingsTab): Record<string, unknown> {
+  if (page === "quota") return { to: "/" };
+  if (page === "data") return { to: "/data" };
+  if (page === "topics") return { to: "/topics" };
+  if (page === "runtime") return { to: "/runtime" };
+  if (page === "wiki") return { to: "/wiki" };
+  return { to: "/settings/$tab", params: { tab: settingsTab } };
 }
 
 export function AppSidebar(props: AppSidebarProps): JSX.Element {
   return (
-    <aside
-      class={cn(
-        "col-start-1 row-start-1 flex w-[212px] min-h-0 flex-col gap-1 overflow-hidden border-r border-sidebar-border bg-gradient-to-b from-[#0c0c0e] to-[#09090b] px-3 py-4",
-        "max-[860px]:col-start-1 max-[860px]:row-start-1 max-[860px]:h-auto max-[860px]:w-full max-[860px]:flex-row max-[860px]:flex-wrap max-[860px]:border-r-0 max-[860px]:border-b",
-      )}
-    >
-      <div class="flex items-center gap-2.5 px-2.5 pb-[18px] pt-1.5">
-        <div class="grid size-7 place-items-center rounded-lg bg-gradient-to-br from-zinc-50 to-zinc-400 text-[13px] font-bold tracking-tight text-zinc-950">
-          R
-        </div>
-        <div>
-          <strong class="block text-sm tracking-tight">Rivet</strong>
-          <span class="text-[11px] text-muted-foreground">local data hub</span>
-        </div>
-      </div>
-      {NAV.map((item) => {
-        const link = () => navTo(item.id === "settings" ? "settings" : item.id, props.settingsTab);
-        const Icon = item.icon;
-        return (
-          <div class="flex flex-col gap-0.5">
-            <Link
-              {...link()}
-              class={cn(
-                "flex w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2.5 py-2.5 text-left no-underline transition-[background,color] duration-100",
-                props.page === item.id
-                  ? "bg-zinc-800 text-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-              )}
+    <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              size="lg"
+              class="pointer-events-none data-[slot=sidebar-menu-button]:p-2!"
             >
-              <Icon class="size-4 shrink-0 opacity-85" size={16} strokeWidth={1.75} aria-hidden />
-              {item.label}
-              {item.id === "settings" && props.accountCount > 0 && (
-                <Badge
-                  variant="secondary"
-                  class="ml-auto min-w-[18px] border-0 bg-zinc-800 px-1.5 py-px text-[11px] tabular-nums text-muted-foreground"
-                >
-                  {props.accountCount}
-                </Badge>
-              )}
-              {item.id === "data" && props.captureEventCount > 0 && (
-                <Badge
-                  variant="secondary"
-                  class="ml-auto min-w-[18px] border-0 bg-zinc-800 px-1.5 py-px text-[11px] tabular-nums text-muted-foreground"
-                >
-                  {props.captureEventCount > 99 ? "99+" : props.captureEventCount}
-                </Badge>
-              )}
-            </Link>
-            {item.id === "settings" && props.page === "settings" && (
-              <div
-                class="flex flex-col gap-px py-0.5 pr-0 pb-1.5 pl-[26px]"
-                role="navigation"
-                aria-label="Settings sections"
-              >
-                {SETTINGS_TABS.map((tab) => (
-                  <Link
-                    to="/settings/$tab"
-                    params={{ tab: tab.id }}
-                    class={cn(
-                      "cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-[12.5px] no-underline",
-                      props.settingsTab === tab.id
-                        ? "bg-zinc-900 text-foreground"
-                        : "text-muted-foreground/80 hover:bg-accent hover:text-foreground",
-                    )}
-                  >
-                    {tab.label}
-                  </Link>
-                ))}
+              <div class="bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded-lg text-sm font-bold tracking-tight">
+                R
               </div>
-            )}
-          </div>
-        );
-      })}
-    </aside>
+              <div class="grid flex-1 text-left text-sm leading-tight">
+                <span class="truncate font-semibold">Rivet</span>
+                <span class="text-sidebar-foreground/70 truncate text-xs">local data hub</span>
+              </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Navigate</SidebarGroupLabel>
+          <SidebarMenu>
+            <For each={NAV}>
+              {(item) => {
+                const Icon = item.icon;
+                return (
+                  <Show
+                    when={item.id === "settings"}
+                    fallback={
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          as={RouterLink}
+                          {...navTo(item.id, props.settingsTab)}
+                          isActive={props.page === item.id}
+                          tooltip={item.label}
+                        >
+                          <Icon />
+                          <span>{item.label}</span>
+                        </SidebarMenuButton>
+                        <Show when={item.id === "data" && props.captureEventCount > 0}>
+                          <SidebarMenuBadge>
+                            {props.captureEventCount > 99 ? "99+" : props.captureEventCount}
+                          </SidebarMenuBadge>
+                        </Show>
+                      </SidebarMenuItem>
+                    }
+                  >
+                    <Collapsible open={props.page === "settings"} class="group/collapsible">
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          as={RouterLink}
+                          to="/settings/$tab"
+                          params={{ tab: props.settingsTab }}
+                          isActive={props.page === "settings"}
+                          tooltip={item.label}
+                        >
+                          <Icon />
+                          <span>{item.label}</span>
+                          <ChevronRight class="ml-auto transition-transform duration-200 group-data-[expanded]:rotate-90" />
+                        </SidebarMenuButton>
+                        <Show when={props.accountCount > 0}>
+                          <SidebarMenuBadge>{props.accountCount}</SidebarMenuBadge>
+                        </Show>
+                        <CollapsibleContent>
+                          <SidebarMenuSub>
+                            <For each={SETTINGS_TABS}>
+                              {(tab) => (
+                                <SidebarMenuSubItem>
+                                  <SidebarMenuSubButton
+                                    as={RouterLink}
+                                    to="/settings/$tab"
+                                    params={{ tab: tab.id }}
+                                    isActive={props.settingsTab === tab.id}
+                                  >
+                                    <span>{tab.label}</span>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              )}
+                            </For>
+                          </SidebarMenuSub>
+                        </CollapsibleContent>
+                      </SidebarMenuItem>
+                    </Collapsible>
+                  </Show>
+                );
+              }}
+            </For>
+          </SidebarMenu>
+        </SidebarGroup>
+      </SidebarContent>
+
+      <SidebarFooter>
+        <Show when={props.captureEventCount > 0}>
+          <p class="text-sidebar-foreground/60 truncate px-2 text-xs">
+            {fmt(props.captureEventCount)} captured events
+          </p>
+        </Show>
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
   );
 }

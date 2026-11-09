@@ -1,6 +1,9 @@
 import type { JSX } from "solid-js";
-import { For, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
+import { Card, CardDescription, CardHeader, CardTitle } from "#components/ui/card";
 import {
+  formatCheckedAgo,
+  fmtPct,
   providerBadge,
   providerChipLabel,
   providerColor,
@@ -70,6 +73,30 @@ export type QuotaPaneProps = {
 };
 
 export function QuotaPane(props: QuotaPaneProps): JSX.Element {
+  const credentialsLoaded = createMemo(
+    () => props.quota?.credentials_loaded ?? props.counts.all ?? 0,
+  );
+  const credentialsTotal = createMemo(
+    () => props.quota?.credentials_total ?? props.counts.all ?? 0,
+  );
+  const worstRemaining = createMemo(() => {
+    let worst: number | null = null;
+    for (const id of props.visibleProviders) {
+      const pq = props.providerQuota(id);
+      if (pq !== null && Number.isFinite(pq.remaining_pct)) {
+        if (worst === null || pq.remaining_pct < worst) {
+          worst = pq.remaining_pct;
+        }
+      }
+    }
+    return worst;
+  });
+  const staleLabel = createMemo(() => {
+    const observed = props.quota?.observed_at;
+    if (!isDefined(observed) || observed === "") return "—";
+    return formatCheckedAgo(observed);
+  });
+
   return (
     <div class="flex min-h-0 min-w-0 flex-1 flex-col">
       <Show
@@ -97,6 +124,36 @@ export function QuotaPane(props: QuotaPaneProps): JSX.Element {
           onSwitchAccount={() => props.limitActions.onSwitchAccount()}
           onWait={() => props.limitActions.onWait()}
         />
+
+        <div class="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Credentials</CardDescription>
+              <CardTitle class="text-lg tabular-nums">
+                {credentialsLoaded()}/{credentialsTotal()}
+              </CardTitle>
+            </CardHeader>
+          </Card>
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Worst remaining</CardDescription>
+              <CardTitle class="text-lg tabular-nums">{fmtPct(worstRemaining())}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Horizon</CardDescription>
+              <CardTitle class="text-lg tabular-nums">{props.horizon}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card class="gap-1 py-3 shadow-none">
+            <CardHeader class="px-4 py-0">
+              <CardDescription>Last checked</CardDescription>
+              <CardTitle class="truncate text-lg">{staleLabel()}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+
         <div class="mb-3.5 flex flex-wrap gap-2">
           <Chip
             active={props.filter === "all"}
@@ -149,7 +206,7 @@ export function QuotaPane(props: QuotaPaneProps): JSX.Element {
           </span>
         </div>
 
-        <div class="flex flex-col gap-3.5">
+        <div class="grid grid-cols-1 gap-3.5 md:grid-cols-2">
           <For each={props.visibleProviders}>
             {(id) => {
               const pq = () => props.providerQuota(id);
