@@ -35,7 +35,12 @@ export type UseRivetDataResult = {
 export function useRivetData(opts: {
   horizon: "1h" | "3h" | "6h";
   setBusy: (v: boolean) => void;
-  onModelsHydrated: (embed: string, wiki: string) => void;
+  onModelsHydrated: (opts: {
+    embedModel: string;
+    wikiModel: string;
+    embedAccountId?: string;
+    wikiAccountId?: string;
+  }) => void;
 }): UseRivetDataResult {
   const { horizon, setBusy, onModelsHydrated } = opts;
   const queryClient = useQueryClient();
@@ -91,7 +96,12 @@ export function useRivetData(opts: {
     if (st == null || modelsHydrated.current) {
       return;
     }
-    onModelsHydrated(st.embedding_model ?? "", st.wiki_model ?? "");
+    onModelsHydrated({
+      embedModel: st.embedding_model ?? "",
+      wikiModel: st.wiki_model ?? "",
+      embedAccountId: st.embedding_account_id ?? "",
+      wikiAccountId: st.wiki_account_id ?? "",
+    });
     modelsHydrated.current = true;
   }, [homeQuery.data?.status, onModelsHydrated]);
 

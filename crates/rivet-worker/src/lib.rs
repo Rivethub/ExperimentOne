@@ -4,8 +4,9 @@
 //! (explicit fields / harness project keys). Workers classify when evidence was
 //! missing — never promote cwd alone to a project at capture time.
 //!
-//! - **Vectorize**: embeds capture content as local lexical 64-d vectors into
-//!   `ClickHouse` HNSW (`LEXICAL_SPACE`).
+//! - **Vectorize**: embeds captures as local lexical 64-d vectors into
+//!   `ClickHouse` (`LEXICAL_SPACE`) by default; optional Codex/OpenAI remote
+//!   re-embed via `POST {proxy}/v1/embeddings` into `openai:{model}` spaces.
 //! - **Wiki**: capture markdown tree + knowledge extract (patch → bound →
 //!   archive → consolidate/recompile) when `wiki_model` is set.
 //! - **Topics**: durable keyword topics with event/session citations in meta.
@@ -29,18 +30,19 @@ use std::time::Duration;
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use rivet_core::{
-    chunk_text, hydrate_events, lexical_embed, looks_unembeddable, normalize_event_turns,
-    project_id_from_cwd, CaptureEvent, CaptureRole, LiveBus, LiveEvent, RivetConfig, RivetPaths,
-    TurnKind, LEXICAL_SPACE,
+    chunk_text, hydrate_events, is_lexical_space, lexical_embed, looks_unembeddable,
+    normalize_event_turns, project_id_from_cwd, remote_embedding_space, CaptureEvent, CaptureRole,
+    LiveBus, LiveEvent, RivetConfig, RivetPaths, TurnKind, LEXICAL_SPACE,
 };
 use rivet_store::{
     CaptureStore, ClaimedJob, ClickHouseCaptureStore, MetaStore, NatsJobStore, PlacementBy,
     SessionBinding, SummaryKind, SummaryMeta, TidyProposal, TopicMeta, WikiPageMeta, WorkerJob,
     WorkerRole, COMPACT_PIPELINE_VERSION, PRIORITY_BACKFILL, PRIORITY_CLASSIFY,
     PRIORITY_LIVE_COMPACT, PRIORITY_WIKI, TASK_CLASSIFY_SESSION, TASK_COMPACT_SESSION,
-    TASK_CONSOLIDATE_WIKI, TASK_EMBED_EVENT, TASK_ENQUEUE_IDLE, TASK_ENQUEUE_UNEMBEDDED,
-    TASK_ENQUEUE_WIKI_BACKFILL, TASK_EXTRACT_WIKI, TASK_RECOMPILE_WIKI, TASK_SUGGEST_TAGS,
-    TASK_SYNTHESIZE_TOOL, TASK_UPSERT_TOPICS,
+    TASK_CONSOLIDATE_WIKI, TASK_EMBED_EVENT, TASK_EMBED_REMOTE_EVENT, TASK_ENQUEUE_IDLE,
+    TASK_ENQUEUE_REMOTE_REEMBED, TASK_ENQUEUE_UNEMBEDDED, TASK_ENQUEUE_WIKI_BACKFILL,
+    TASK_EXTRACT_WIKI, TASK_RECOMPILE_WIKI, TASK_SUGGEST_TAGS, TASK_SYNTHESIZE_TOOL,
+    TASK_UPSERT_TOPICS,
 };
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
@@ -236,13 +238,40 @@ impl WorkerPool {
                     return Ok(());
                 }
                 let event_id = payload_str(&job.payload, "event_id")?;
-                self.embed_one_event(&event_id).await
+                self.embed_one_event(&event_id).await?;
+                // Keep the active remote space current for new traffic (ingest only
+                // enqueues lexical embed jobs).
+                let space = cfg.active_embedding_space();
+                if !is_lexical_space(space) {
+                    self.embed_one_event_remote(&event_id, space).await?;
+                }
+                Ok(())
             },
             TASK_ENQUEUE_UNEMBEDDED => {
                 if !cfg.capabilities.vector_search {
                     return Ok(());
                 }
-                self.enqueue_missing_embeds().await
+                self.enqueue_missing_embeds().await?;
+                let space = cfg.active_embedding_space();
+                if !is_lexical_space(space) {
+                    self.enqueue_missing_remote_embeds(space).await?;
+                }
+                Ok(())
+            },
+            TASK_EMBED_REMOTE_EVENT => {
+                if !cfg.capabilities.vector_search {
+                    return Ok(());
+                }
+                let event_id = payload_str(&job.payload, "event_id")?;
+                let space = payload_str(&job.payload, "space")?;
+                self.embed_one_event_remote(&event_id, &space).await
+            },
+            TASK_ENQUEUE_REMOTE_REEMBED => {
+                if !cfg.capabilities.vector_search {
+                    return Ok(());
+                }
+                let space = payload_str(&job.payload, "space")?;
+                self.enqueue_missing_remote_embeds(&space).await
             },
             TASK_CLASSIFY_SESSION => {
                 let session_id = payload_str(&job.payload, "session_id")?;
@@ -363,6 +392,39 @@ impl WorkerPool {
         Ok(())
     }
 
+    async fn embed_one_event_remote(&self, event_id: &str, space: &str) -> Result<()> {
+        let cfg = self.config.read().await.clone();
+        let model = cfg
+            .embedding_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| anyhow!("embedding_model not configured"))?
+            .to_string();
+        let expected = remote_embedding_space(&model);
+        if space != expected {
+            anyhow::bail!("remote embed space mismatch: job={space} config={expected}");
+        }
+        let existing = self.ch.embedded_event_ids(space).await?;
+        if existing.contains(event_id) {
+            return Ok(());
+        }
+        let mut events = self.store.get_by_ids(&[event_id.to_string()]).await?;
+        let Some(mut event) = events.pop() else {
+            return Ok(());
+        };
+        hydrate_events(&self.paths, std::slice::from_mut(&mut event));
+        let text = event.content.as_deref().unwrap_or("").trim();
+        if text.is_empty() || looks_unembeddable(text) {
+            return Ok(());
+        }
+        // One UUID row per event — ClickHouse event_id is UUID (no `#cN` keys).
+        let chunk = chunk_text(text, 8_000).into_iter().next().unwrap_or_else(|| text.to_string());
+        let dims = self.proxy_embeddings(&cfg, &model, &chunk).await?;
+        self.ch.upsert_embeddings_batch(space, &[(event_id.to_string(), dims)]).await?;
+        Ok(())
+    }
+
     async fn enqueue_missing_embeds(&self) -> Result<()> {
         let all = self.store.export_all().await?;
         let existing = self.ch.embedded_event_ids(LEXICAL_SPACE).await?;
@@ -388,6 +450,75 @@ impl WorkerPool {
         self.jobs.enqueue_jobs(&jobs).await?;
         self.meta.set_job_cursor("vectorize", &Utc::now().to_rfc3339())?;
         Ok(())
+    }
+
+    async fn enqueue_missing_remote_embeds(&self, space: &str) -> Result<()> {
+        let all = self.store.export_all().await?;
+        let existing = self.ch.embedded_event_ids(space).await?;
+        let mut jobs = Vec::new();
+        for event in all {
+            let id = event.id.to_string();
+            if existing.contains(&id) {
+                continue;
+            }
+            let text = event.content.as_deref().unwrap_or("").trim();
+            if text.is_empty() || looks_unembeddable(text) {
+                continue;
+            }
+            jobs.push(WorkerJob::embed_remote_event(&id, space));
+            if jobs.len() >= 120 {
+                break;
+            }
+        }
+        self.jobs.enqueue_jobs(&jobs).await?;
+        self.meta.set_job_cursor("vectorize-remote", &Utc::now().to_rfc3339())?;
+        // Keep draining until the queue covers recent traffic.
+        if jobs.len() >= 120 {
+            self.jobs.enqueue_job(&WorkerJob::enqueue_remote_reembed(space)).await?;
+        }
+        Ok(())
+    }
+
+    /// Call the local proxy's OpenAI-compatible embeddings endpoint (Codex account).
+    pub async fn proxy_embeddings(
+        &self,
+        cfg: &RivetConfig,
+        model: &str,
+        input: &str,
+    ) -> Result<Vec<f32>> {
+        let url = format!("{}/v1/embeddings", cfg.proxy_base_url());
+        let body = json!({
+            "model": model,
+            "input": input,
+        });
+        let mut req = self
+            .http
+            .post(&url)
+            .bearer_auth(&cfg.proxy_access_key)
+            .header("X-Rivet-Internal", "embeddings");
+        if let Some(account_id) =
+            cfg.embedding_account_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        {
+            req = req.header("X-Rivet-Account", account_id);
+        }
+        let res = req.json(&body).send().await.context("embeddings prompt")?;
+        let status = res.status();
+        if !status.is_success() {
+            let detail = res.text().await.unwrap_or_default();
+            anyhow::bail!("embeddings HTTP {status}: {detail}");
+        }
+        let parsed: Value = res.json().await.context("embeddings json")?;
+        let embedding = parsed
+            .pointer("/data/0/embedding")
+            .and_then(|v| v.as_array())
+            .ok_or_else(|| anyhow!("embeddings response missing data[0].embedding"))?;
+        #[allow(clippy::cast_possible_truncation)]
+        let dims: Vec<f32> =
+            embedding.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+        if dims.is_empty() {
+            anyhow::bail!("empty embedding vector");
+        }
+        Ok(dims)
     }
 
     async fn classify_one_session(&self, session_id: &str) -> Result<()> {
@@ -2011,15 +2142,17 @@ impl WorkerPool {
         if let Some(format) = response_format {
             body["response_format"] = format;
         }
-        let res = self
+        let mut req = self
             .http
             .post(&url)
             .bearer_auth(&cfg.proxy_access_key)
-            .header("X-Rivet-Internal", internal)
-            .json(&body)
-            .send()
-            .await
-            .context("chat prompt")?;
+            .header("X-Rivet-Internal", internal);
+        if let Some(account_id) =
+            cfg.wiki_account_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        {
+            req = req.header("X-Rivet-Account", account_id);
+        }
+        let res = req.json(&body).send().await.context("chat prompt")?;
         if !res.status().is_success() {
             anyhow::bail!("chat HTTP {}", res.status());
         }
@@ -2303,8 +2436,9 @@ impl WorkerPool {
         let _ = writeln!(readme, "- Events: **{}**", totals.events);
         let _ = writeln!(readme, "- Tokens in: **{}**", totals.tokens_in);
         let _ = writeln!(readme, "- Tokens out: **{}**", totals.tokens_out);
-        let emb_n = self.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
-        let _ = writeln!(readme, "- Embeddings: **{emb_n}**\n");
+        let emb_space = self.config.read().await.active_embedding_space().to_string();
+        let emb_n = self.ch.embedding_count(&emb_space).await.unwrap_or(0);
+        let _ = writeln!(readme, "- Embeddings ({emb_space}): **{emb_n}**\n");
         readme.push_str("## Table of contents\n\n");
         if toc.is_empty() {
             readme.push_str("_No pages yet — capture events to populate this wiki._\n");

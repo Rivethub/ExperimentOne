@@ -77,7 +77,8 @@ Kimi.ai, xAI, Meta, Devin (OAuth), plus Vertex AI service-account import.
 Accounts live under Settings → Accounts as a list with **Add account**.
 
 Workers (on by default, `RIVET_WORKER_ROLE=all`): **vectorize** writes lexical
-64-d embeddings into ClickHouse for MCP `semantic_search`; **wiki** maintains a
+64-d embeddings into ClickHouse for MCP `semantic_search` (optional Codex
+re-embed into a remote space from Settings → Workers); **wiki** maintains a
 markdown tree under the Rivet data directory (capture READMEs + knowledge
 pages when `wiki_model` is set); **compact** builds session summary DAGs.
 Trigger immediately via `POST /v1/workers/tick` or Intelligence → Run workers

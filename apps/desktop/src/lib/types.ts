@@ -17,7 +17,10 @@ export type Status = {
   capture_backend?: string;
   wiki_dir?: string;
   embedding_model?: string | null;
+  embedding_account_id?: string | null;
+  embedding_space?: string | null;
   wiki_model?: string | null;
+  wiki_account_id?: string | null;
   warnings?: string[];
   onboarding?: OnboardingStatus;
   workers?: {
@@ -76,6 +79,8 @@ export type Account = {
   label: string;
   limit_hint: string;
   reset_hint: string;
+  siwc_status?: string | null;
+  platform_ready?: boolean;
 };
 
 export type ProviderQuota = {

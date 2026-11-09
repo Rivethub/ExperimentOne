@@ -34,13 +34,22 @@ pub struct RivetConfig {
     #[serde(default)]
     pub management_secret: String,
     pub capabilities: Capabilities,
-    /// Reserved / UI field — live embed path is lexical-only; setting this forces
-    /// `capabilities.vector_search = true` for older configs.
+    /// Optional remote embedding model routed via the local proxy (`POST /v1/embeddings`).
+    /// Setting this with a Codex [`Self::embedding_account_id`] enables remote search space.
     #[serde(default)]
     pub embedding_model: Option<String>,
-    /// Optional model id routed via the local proxy for wiki generation.
+    /// Codex account id (auth file stem) used for remote embeddings. `None` = lexical.
+    #[serde(default)]
+    pub embedding_account_id: Option<String>,
+    /// Active `ClickHouse` embeddings space used for semantic search (`lexical` by default).
+    #[serde(default = "default_embedding_space")]
+    pub embedding_space: String,
+    /// Optional model id routed via the local proxy for wiki / summary generation.
     #[serde(default)]
     pub wiki_model: Option<String>,
+    /// Preferred account id for wiki / summary workers (proxy may still load-balance).
+    #[serde(default)]
+    pub wiki_account_id: Option<String>,
     /// Default project bucket for wiki upserts.
     #[serde(default = "default_wiki_project")]
     pub wiki_project_id: String,
@@ -57,6 +66,10 @@ pub struct RivetConfig {
 
 fn default_wiki_project() -> String {
     "default".into()
+}
+
+fn default_embedding_space() -> String {
+    crate::embed::LEXICAL_SPACE.into()
 }
 
 const fn default_nats_port() -> u16 {
@@ -98,7 +111,10 @@ impl Default for RivetConfig {
                 teams: false,
             },
             embedding_model: None,
+            embedding_account_id: None,
+            embedding_space: default_embedding_space(),
             wiki_model: None,
+            wiki_account_id: None,
             wiki_project_id: default_wiki_project(),
             rate_limit_rps: default_rate_limit_rps(),
             rate_limit_burst: default_rate_limit_burst(),
@@ -150,7 +166,20 @@ impl RivetConfig {
         if self.wiki_model.as_ref().is_some_and(|s| !s.trim().is_empty()) {
             self.capabilities.wiki = true;
         }
+        if self.embedding_space.trim().is_empty() {
+            self.embedding_space = default_embedding_space();
+        }
         self.capabilities.mcp = true;
+    }
+
+    /// Resolved search space (`lexical` when unset/blank).
+    pub fn active_embedding_space(&self) -> &str {
+        let s = self.embedding_space.trim();
+        if s.is_empty() {
+            crate::embed::LEXICAL_SPACE
+        } else {
+            s
+        }
     }
 
     pub fn proxy_base_url(&self) -> String {

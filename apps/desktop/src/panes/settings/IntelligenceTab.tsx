@@ -1,6 +1,9 @@
+import type { Account } from "../../lib/types";
 import type { SettingsIntelligenceProps } from "./types";
 import { Actions, Button, Input, Panel, Pill } from "../../ui";
 import { cn } from "#lib/utils";
+
+const DEFAULT_EMBED_MODEL = "text-embedding-3-small";
 
 function capabilityEnabled(value: boolean | undefined): boolean {
   return value === true;
@@ -51,24 +54,45 @@ function ToggleRow({
   );
 }
 
+function accountLabel(account: Account): string {
+  const base = account.label.trim() || account.id;
+  if (account.provider === "codex" && account.platform_ready !== true) {
+    return `${base} (needs SIWC)`;
+  }
+  return base;
+}
+
+function selectClassName(): string {
+  return cn(
+    "h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-xs outline-none",
+    "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+    "disabled:cursor-not-allowed disabled:opacity-50",
+  );
+}
+
 export function IntelligenceTab({
   hidden,
   ...intelligence
 }: SettingsIntelligenceProps & { hidden?: boolean }): React.ReactElement {
   const vectorOn = capabilityEnabled(intelligence.status?.capabilities.vector_search);
   const wikiOn = capabilityEnabled(intelligence.status?.capabilities.wiki);
+  const space = intelligence.status?.embedding_space?.trim() || "lexical";
+  const remoteActive = space !== "lexical";
+  const embedUsesCodex = intelligence.embedAccountId.trim().length > 0;
+  const codexAccounts = intelligence.accounts.filter((a) => a.provider === "codex");
+  const wikiAccounts = intelligence.accounts;
 
   return (
     <Panel
       className="m-0"
       hidden={hidden}
       aria-hidden={hidden}
-      title="Intelligence"
-      lede="Choose which workers run and which models they use. Live worker status lives on the Runtime dashboard."
+      title="Workers"
+      lede="Configure which accounts and models power embeddings and summaries. Saving a Codex embedding account binds SIWC if needed, then enables remote vectors."
     >
       <ToggleRow
         title="Vector search"
-        description="Lexical embeddings for MCP search (offline, no remote model required)."
+        description="Semantic search over history. Lexical stays offline; pick a Codex account below for remote embeddings."
         on={vectorOn}
         disabled={intelligence.busy}
         onToggle={() => {
@@ -84,42 +108,95 @@ export function IntelligenceTab({
           intelligence.onToggleCapability("wiki", !wikiOn);
         }}
       />
-      <div className="my-4 flex flex-col gap-3">
-        <label htmlFor="intelligence-embed-model" className="flex flex-col gap-1.5">
-          <span className="inline-flex items-center gap-2 text-xs tracking-wide text-muted-foreground">
-            Embedding model{" "}
+
+      <div className="my-4 flex flex-col gap-4">
+        <section className="flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <h3 className="m-0 text-sm font-semibold">Embeddings</h3>
             <Pill className="rounded-full px-1.5 py-0 text-[10px] uppercase tracking-wider">
-              v1 lexical
+              {remoteActive ? "remote" : "lexical"}
             </Pill>
-          </span>
-          <Input
-            id="intelligence-embed-model"
-            placeholder="reserved — v1 uses lexical vectors"
-            value={intelligence.embedModel}
-            disabled
-            readOnly
-            title="Reserved for a future remote-embedding release; search stays lexical."
-          />
-        </label>
-        <label htmlFor="intelligence-wiki-model" className="flex flex-col gap-1.5">
-          <span className="text-xs tracking-wide text-muted-foreground">Wiki text model</span>
-          <Input
-            id="intelligence-wiki-model"
-            placeholder="optional, e.g. claude-sonnet-4-5"
-            value={intelligence.wikiModel}
-            onChange={(e) => {
-              intelligence.onWikiModelChange(e.target.value);
-            }}
-          />
-        </label>
+          </div>
+          <label htmlFor="intelligence-embed-account" className="flex flex-col gap-1.5">
+            <span className="text-xs tracking-wide text-muted-foreground">Account</span>
+            <select
+              id="intelligence-embed-account"
+              className={selectClassName()}
+              value={intelligence.embedAccountId}
+              disabled={intelligence.busy}
+              onChange={(e) => {
+                const next = e.target.value;
+                intelligence.onEmbedAccountChange(next);
+                if (next && !intelligence.embedModel.trim()) {
+                  intelligence.onEmbedModelChange(DEFAULT_EMBED_MODEL);
+                }
+              }}
+            >
+              <option value="">Lexical (offline)</option>
+              {codexAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  Codex · {accountLabel(account)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="intelligence-embed-model" className="flex flex-col gap-1.5">
+            <span className="text-xs tracking-wide text-muted-foreground">Model</span>
+            <Input
+              id="intelligence-embed-model"
+              placeholder={DEFAULT_EMBED_MODEL}
+              value={intelligence.embedModel}
+              disabled={intelligence.busy || !embedUsesCodex}
+              onChange={(e) => {
+                intelligence.onEmbedModelChange(e.target.value);
+              }}
+            />
+          </label>
+        </section>
+
+        <section className="flex flex-col gap-3">
+          <h3 className="m-0 text-sm font-semibold">Summaries / wiki</h3>
+          <label htmlFor="intelligence-wiki-account" className="flex flex-col gap-1.5">
+            <span className="text-xs tracking-wide text-muted-foreground">Account</span>
+            <select
+              id="intelligence-wiki-account"
+              className={selectClassName()}
+              value={intelligence.wikiAccountId}
+              disabled={intelligence.busy}
+              onChange={(e) => {
+                intelligence.onWikiAccountChange(e.target.value);
+              }}
+            >
+              <option value="">Any linked account</option>
+              {wikiAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.provider} · {accountLabel(account)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="intelligence-wiki-model" className="flex flex-col gap-1.5">
+            <span className="text-xs tracking-wide text-muted-foreground">Model</span>
+            <Input
+              id="intelligence-wiki-model"
+              placeholder="optional, e.g. claude-sonnet-4-5"
+              value={intelligence.wikiModel}
+              disabled={intelligence.busy}
+              onChange={(e) => {
+                intelligence.onWikiModelChange(e.target.value);
+              }}
+            />
+          </label>
+        </section>
       </div>
+
       <Actions>
         <Button
           variant="primary"
           disabled={intelligence.busy}
           onClick={intelligence.onSaveIntelligence}
         >
-          Save models
+          Save workers
         </Button>
         <Button variant="ghost" disabled={intelligence.busy} onClick={intelligence.onRunWorkers}>
           Run workers once
@@ -131,8 +208,8 @@ export function IntelligenceTab({
         </Button>
       </p>
       <p className="mt-3 max-w-[56ch] text-[12.5px] leading-snug text-muted-foreground">
-        Lexical embeddings stay consistent with MCP search. The embedding model field is reserved
-        for a later remote-vector release.
+        Search space: <code>{space}</code>. Choosing a Codex embedding account and saving will
+        complete Sign in with ChatGPT (SIWC) if needed, then backfill remote vectors.
       </p>
     </Panel>
   );

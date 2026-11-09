@@ -493,16 +493,88 @@ impl ProxySupervisor {
                 .and_then(|v| v.as_str())
                 .unwrap_or(&id)
                 .to_string();
+            let (siwc_status, platform_ready) = if provider == "codex" {
+                let status = codex_siwc_status(&meta);
+                let ready = status == "valid" || codex_has_api_key(&meta);
+                (Some(status.to_string()), ready)
+            } else {
+                (None, false)
+            };
             out.push(AccountInfo {
                 id,
                 provider,
                 label,
                 limit_hint: "—".into(),
                 reset_hint: "—".into(),
+                siwc_status,
+                platform_ready,
             });
         }
         out.sort_by(|a, b| a.provider.cmp(&b.provider).then(a.label.cmp(&b.label)));
         Ok(out)
+    }
+
+    /// Start SIWC bind for a Codex credential (default: first Codex account without SIWC).
+    pub fn start_siwc_bind(&self, account_id: Option<&str>) -> Result<LoginStartResponse> {
+        let accounts = self.list_accounts()?;
+        let target = pick_siwc_bind_target(&accounts, account_id)?;
+        let filename = format!("{target}.json");
+
+        {
+            let mut login = self.login.lock().expect("login lock");
+            if let Some(session) = login.as_mut() {
+                if session.child.try_wait().ok().flatten().is_none() {
+                    bail!("a login flow is already running ({})", session.provider);
+                }
+            }
+            *login = None;
+        }
+
+        let bin = Self::resolve_binary()?;
+        let mut cmd = self.base_command(&bin)?;
+        cmd.arg("-siwc-bind")
+            .arg(&filename)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
+        let mut child =
+            cmd.spawn().with_context(|| format!("spawn siwc-bind {}", bin.display()))?;
+        let output = Arc::new(Mutex::new(String::new()));
+        let done = Arc::new(Mutex::new(false));
+        let success = Arc::new(Mutex::new(false));
+        if let Some(stdout) = child.stdout.take() {
+            spawn_reader(stdout, output.clone());
+        }
+        if let Some(stderr) = child.stderr.take() {
+            spawn_reader(stderr, output.clone());
+        }
+
+        append_login_log(
+            &output,
+            &format!("Starting Sign in with ChatGPT (SIWC) bind for Codex account `{target}`…"),
+        );
+        append_login_log(
+            &output,
+            "Complete the browser OAuth when prompted — this enables Platform APIs like embeddings.",
+        );
+
+        *self.login.lock().expect("login lock") =
+            Some(LoginSession { provider: "codex-siwc".into(), child, output, done, success });
+
+        Ok(LoginStartResponse {
+            provider: "codex".into(),
+            message: format!("SIWC bind started for `{target}` — complete sign-in in the browser."),
+            hint: Some(
+                "Sign in with ChatGPT adds Platform API access (embeddings) to this Codex account."
+                    .into(),
+            ),
+        })
     }
 
     pub fn remove_account(&self, id: &str) -> Result<()> {
@@ -591,6 +663,10 @@ impl ControlApi for ProxySupervisor {
         Self::remove_account(self, id).map_err(|e| e.to_string())
     }
 
+    fn siwc_bind_start(&self, account_id: Option<&str>) -> Result<LoginStartResponse, String> {
+        Self::start_siwc_bind(self, account_id).map_err(|e| e.to_string())
+    }
+
     fn write_harness(
         &self,
         target: &str,
@@ -644,4 +720,62 @@ fn port_open(port: u16) -> bool {
         Duration::from_millis(50),
     )
     .is_ok()
+}
+
+fn codex_has_api_key(meta: &serde_json::Value) -> bool {
+    meta.get("api_key")
+        .or_else(|| meta.pointer("/attributes/api_key"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.trim().is_empty())
+}
+
+fn codex_siwc_status(meta: &serde_json::Value) -> &'static str {
+    let use_siwc = meta
+        .get("use_siwc")
+        .and_then(|v| match v {
+            serde_json::Value::Bool(b) => Some(*b),
+            serde_json::Value::String(s) => s.trim().parse().ok(),
+            _ => None,
+        })
+        .unwrap_or(false);
+    let has_token = meta
+        .pointer("/siwc/access_token")
+        .or_else(|| meta.pointer("/siwc/access"))
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_refresh = meta
+        .pointer("/siwc/refresh_token")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.trim().is_empty());
+    if use_siwc && has_token && has_refresh {
+        "valid"
+    } else if has_token || has_refresh {
+        "invalid"
+    } else {
+        "off"
+    }
+}
+
+fn pick_siwc_bind_target(accounts: &[AccountInfo], account_id: Option<&str>) -> Result<String> {
+    if let Some(raw) = account_id.map(str::trim).filter(|s| !s.is_empty()) {
+        let acc = accounts
+            .iter()
+            .find(|a| a.id == raw)
+            .ok_or_else(|| anyhow::anyhow!("account not found: {raw}"))?;
+        if acc.provider != "codex" {
+            bail!("SIWC bind requires a Codex account");
+        }
+        if acc.platform_ready {
+            bail!("Codex account `{raw}` already has Platform access (SIWC/API key)");
+        }
+        return Ok(acc.id.clone());
+    }
+    accounts
+        .iter()
+        .find(|a| a.provider == "codex" && !a.platform_ready)
+        .or_else(|| accounts.iter().find(|a| a.provider == "codex"))
+        .map(|a| a.id.clone())
+        .ok_or_else(|| {
+            anyhow::anyhow!("No Codex account linked — add a Codex account before binding SIWC")
+        })
 }

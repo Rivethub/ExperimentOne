@@ -41,8 +41,14 @@ function SettingsPage(): React.ReactElement {
       }}
       intelligence={{
         status: rivet.status,
+        accounts: rivet.accounts,
+        embedAccountId: ops.embedAccountId,
         embedModel: ops.embedModel,
+        wikiAccountId: ops.wikiAccountId,
         wikiModel: ops.wikiModel,
+        onEmbedAccountChange: ops.setEmbedAccountId,
+        onEmbedModelChange: ops.setEmbedModel,
+        onWikiAccountChange: ops.setWikiAccountId,
         onWikiModelChange: ops.setWikiModel,
         busy,
         onToggleCapability: (key, value) => void ops.toggleCapability(key, value),

@@ -20,7 +20,10 @@ export type MockStore = {
   wikiEnabled: boolean;
   vectorEnabled: boolean;
   embedModel: string | null;
+  embedAccountId: string;
+  embeddingSpace: string;
   wikiModel: string | null;
+  wikiAccountId: string;
   quotaAccounts: ReturnType<typeof seedQuotaAccounts>;
   accounts: ReturnType<typeof accountsFromQuota>;
   captures: ReturnType<typeof seedCaptures>;
@@ -62,7 +65,10 @@ function createStore(scenario: MockScenario): MockStore {
     wikiEnabled,
     vectorEnabled,
     embedModel: vectorEnabled ? "" : null,
+    embedAccountId: "",
+    embeddingSpace: "lexical",
     wikiModel: wikiEnabled ? "claude-sonnet-4-5" : null,
+    wikiAccountId: "",
     quotaAccounts,
     accounts,
     captures,
@@ -90,7 +96,10 @@ export function currentStatus(snapshot: MockStore): Status {
     wikiEnabled: snapshot.wikiEnabled,
     vectorEnabled: snapshot.vectorEnabled,
     embedModel: snapshot.embedModel,
+    embedAccountId: snapshot.embedAccountId,
+    embeddingSpace: snapshot.embeddingSpace,
     wikiModel: snapshot.wikiModel,
+    wikiAccountId: snapshot.wikiAccountId,
   });
 }
 

@@ -447,6 +447,9 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 
 	modelName := strings.Clone(ojson.GetBytesNoCopy(rawJSON, "model").String())
 	cliCtx, cliCancel := h.GetContextWithCancel(h, c, context.Background())
+	if authID := handlers.NormalizeRivetAccountAuthID(c.GetHeader("X-Rivet-Account")); authID != "" {
+		cliCtx = handlers.WithPinnedAuthID(cliCtx, authID)
+	}
 	stopKeepAlive := h.StartNonStreamingKeepAlive(c, cliCtx)
 	resp, upstreamHeaders, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
 	stopKeepAlive()

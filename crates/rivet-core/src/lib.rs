@@ -34,7 +34,10 @@ pub use capture::{
 pub use chunk::{chunk_text, looks_unembeddable};
 pub use config::{localhost_port_free, Capabilities, RivetConfig};
 pub use control_ipc::{control_endpoint, control_request, control_up, ControlIpcResponse};
-pub use embed::{cosine, lexical_embed, LEXICAL_EMBED_DIMS, LEXICAL_SPACE};
+pub use embed::{
+    cosine, is_lexical_space, lexical_embed, remote_embedding_space, LEXICAL_EMBED_DIMS,
+    LEXICAL_SPACE,
+};
 pub use fusion::{
     fusion_score, gated_fused, hybrid_pool, literal_scan, passes_fusion_gate, rank_fused,
     reciprocal_rank_fusion, Fused, FusionItem, HitSource, HYBRID_RRF_K,

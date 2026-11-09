@@ -69,6 +69,19 @@ func markNestedExecution(ctx context.Context) {
 	}
 }
 
+// NormalizeRivetAccountAuthID maps a Rivet account id (auth filename stem) to the
+// proxy Auth.ID (relative path under authDir, including ".json").
+func NormalizeRivetAccountAuthID(accountID string) string {
+	accountID = strings.TrimSpace(accountID)
+	if accountID == "" {
+		return ""
+	}
+	if strings.HasSuffix(strings.ToLower(accountID), ".json") {
+		return accountID
+	}
+	return accountID + ".json"
+}
+
 // WithPinnedAuthID returns a child context that requests execution on a specific auth ID.
 func WithPinnedAuthID(ctx context.Context, authID string) context.Context {
 	authID = strings.TrimSpace(authID)

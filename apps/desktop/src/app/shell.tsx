@@ -30,12 +30,19 @@ export function AppShell(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  const onModelsHydratedRef = useRef((_embed: string, _wiki: string) => {});
+  const onModelsHydratedRef = useRef(
+    (_opts: {
+      embedModel: string;
+      wikiModel: string;
+      embedAccountId?: string;
+      wikiAccountId?: string;
+    }) => {},
+  );
 
   const rivet = useRivetData({
     horizon,
     setBusy,
-    onModelsHydrated: (embed, wiki) => onModelsHydratedRef.current(embed, wiki),
+    onModelsHydrated: (opts) => onModelsHydratedRef.current(opts),
   });
 
   const ops = useAppOperations({
