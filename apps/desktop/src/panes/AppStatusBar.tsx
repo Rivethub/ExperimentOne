@@ -18,7 +18,7 @@ export type AppStatusBarProps = {
 export function AppStatusBar(props: AppStatusBarProps): JSX.Element {
   return (
     <footer
-      class="@container bg-background text-muted-foreground z-20 flex h-7 max-h-7 min-h-7 flex-nowrap items-center justify-between gap-1.5 overflow-hidden whitespace-nowrap border-t border-border pr-2.5 pl-1 text-[11.5px]"
+      class="@container bg-background text-muted-foreground z-20 flex h-7 max-h-7 min-h-7 w-full shrink-0 flex-nowrap items-center justify-between gap-1.5 overflow-hidden whitespace-nowrap border-t border-border pr-2.5 pl-1 text-[11.5px]"
       aria-label="Server status"
     >
       <div class="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden">

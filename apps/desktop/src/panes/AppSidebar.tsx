@@ -1,8 +1,6 @@
 import type { Component, JSX } from "solid-js";
 import { For, Show } from "solid-js";
 import { Link } from "@tanstack/solid-router";
-import { ChevronRight } from "lucide-solid";
-import { Collapsible, CollapsibleContent } from "#components/ui/collapsible";
 import {
   Sidebar,
   SidebarContent,
@@ -11,7 +9,6 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarMenuSub,
@@ -26,7 +23,6 @@ import type { Page, SettingsTab } from "../lib/types";
 export type AppSidebarProps = {
   page: Page;
   settingsTab: SettingsTab;
-  accountCount: number;
   captureEventCount: number;
 };
 
@@ -40,6 +36,16 @@ function navTo(page: Page, settingsTab: SettingsTab): Record<string, unknown> {
   if (page === "runtime") return { to: "/runtime" };
   if (page === "wiki") return { to: "/wiki" };
   return { to: "/settings/$tab", params: { tab: settingsTab } };
+}
+
+function NavCount(props: { value: number; max?: number }) {
+  const label = () =>
+    props.max != null && props.value > props.max ? `${props.max}+` : String(props.value);
+  return (
+    <span class="bg-sidebar-accent text-sidebar-foreground/70 ml-auto min-w-[18px] rounded-full px-1.5 py-px text-center text-[11px] tabular-nums group-data-[collapsible=icon]:hidden">
+      {label()}
+    </span>
+  );
 }
 
 export function AppSidebar(props: AppSidebarProps): JSX.Element {
@@ -72,64 +78,38 @@ export function AppSidebar(props: AppSidebarProps): JSX.Element {
               {(item) => {
                 const Icon = item.icon;
                 return (
-                  <Show
-                    when={item.id === "settings"}
-                    fallback={
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                          as={RouterLink}
-                          {...navTo(item.id, props.settingsTab)}
-                          isActive={props.page === item.id}
-                          tooltip={item.label}
-                        >
-                          <Icon />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                        <Show when={item.id === "data" && props.captureEventCount > 0}>
-                          <SidebarMenuBadge>
-                            {props.captureEventCount > 99 ? "99+" : props.captureEventCount}
-                          </SidebarMenuBadge>
-                        </Show>
-                      </SidebarMenuItem>
-                    }
-                  >
-                    <Collapsible open={props.page === "settings"} class="group/collapsible">
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                          as={RouterLink}
-                          to="/settings/$tab"
-                          params={{ tab: props.settingsTab }}
-                          isActive={props.page === "settings"}
-                          tooltip={item.label}
-                        >
-                          <Icon />
-                          <span>{item.label}</span>
-                          <ChevronRight class="ml-auto transition-transform duration-200 group-data-[expanded]:rotate-90" />
-                        </SidebarMenuButton>
-                        <Show when={props.accountCount > 0}>
-                          <SidebarMenuBadge>{props.accountCount}</SidebarMenuBadge>
-                        </Show>
-                        <CollapsibleContent>
-                          <SidebarMenuSub>
-                            <For each={SETTINGS_TABS}>
-                              {(tab) => (
-                                <SidebarMenuSubItem>
-                                  <SidebarMenuSubButton
-                                    as={RouterLink}
-                                    to="/settings/$tab"
-                                    params={{ tab: tab.id }}
-                                    isActive={props.settingsTab === tab.id}
-                                  >
-                                    <span>{tab.label}</span>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
-                              )}
-                            </For>
-                          </SidebarMenuSub>
-                        </CollapsibleContent>
-                      </SidebarMenuItem>
-                    </Collapsible>
-                  </Show>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      as={RouterLink}
+                      {...navTo(item.id, props.settingsTab)}
+                      isActive={props.page === item.id}
+                      tooltip={item.label}
+                    >
+                      <Icon />
+                      <span class="truncate">{item.label}</span>
+                      <Show when={item.id === "data" && props.captureEventCount > 0}>
+                        <NavCount value={props.captureEventCount} max={99} />
+                      </Show>
+                    </SidebarMenuButton>
+                    <Show when={item.id === "settings" && props.page === "settings"}>
+                      <SidebarMenuSub>
+                        <For each={SETTINGS_TABS}>
+                          {(tab) => (
+                            <SidebarMenuSubItem>
+                              <SidebarMenuSubButton
+                                as={RouterLink}
+                                to="/settings/$tab"
+                                params={{ tab: tab.id }}
+                                isActive={props.settingsTab === tab.id}
+                              >
+                                <span>{tab.label}</span>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          )}
+                        </For>
+                      </SidebarMenuSub>
+                    </Show>
+                  </SidebarMenuItem>
                 );
               }}
             </For>

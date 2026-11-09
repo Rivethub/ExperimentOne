@@ -37,8 +37,8 @@ export const NAV: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: "quota", label: "Quota", icon: Gauge },
   { id: "data", label: "Data", icon: MessagesSquare },
   { id: "topics", label: "Topics", icon: Tags },
-  { id: "runtime", label: "Runtime", icon: Activity },
   { id: "wiki", label: "Wiki", icon: BookOpen },
+  { id: "runtime", label: "Runtime", icon: Activity },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 

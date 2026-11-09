@@ -968,19 +968,6 @@
     padding: 2px 2px 12px;
   }
 
-  .rv-t3-virtual-inner {
-    position: relative;
-    width: 100%;
-  }
-
-  .rv-t3-virtual-row {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    padding-bottom: 2px;
-  }
-
   .rv-t3-item {
     min-width: 0;
   }

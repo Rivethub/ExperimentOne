@@ -88,6 +88,24 @@ export function topicArchiveSlug(slug: string, kind?: string): string | null {
   return slug;
 }
 
+/** Topic slug for Topics nav, derived from a wiki page path — or null if not a topic/entity page. */
+export function topicSlugFromWikiPage(page: Pick<WikiPageCard, "relative_path">): string | null {
+  const rel = normalizeWikiPath(page.relative_path);
+  const topic = /^topics\/([^/]+)\.md$/iu.exec(rel);
+  if (topic?.[1]) {
+    return topic[1];
+  }
+  const typed = /^entities\/([^/]+)\/([^/]+)\.md$/iu.exec(rel);
+  if (typed?.[2]) {
+    return typed[2];
+  }
+  const entity = /^entities\/([^/]+)\.md$/iu.exec(rel);
+  if (entity?.[1]) {
+    return entity[1];
+  }
+  return null;
+}
+
 export function joinWikiPath(baseDir: string, href: string): string {
   const parts = [
     ...(baseDir !== "" ? baseDir.split("/") : []),

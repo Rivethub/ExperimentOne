@@ -88,8 +88,6 @@ export const styles = {
   t3ToolDiff: "rv-t3-tool-diff",
   t3ToolPre: "rv-t3-tool-pre",
   t3User: "rv-t3-user",
-  t3VirtualInner: "rv-t3-virtual-inner",
-  t3VirtualRow: "rv-t3-virtual-row",
   v: "rv-v",
   viewPane: "rv-view-pane",
   wikiArchiveBar: "rv-wiki-archive-bar",

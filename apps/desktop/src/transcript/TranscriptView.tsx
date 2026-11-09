@@ -1,4 +1,3 @@
-import { createVirtualizer } from "@tanstack/solid-virtual";
 import { Brain, ChevronRight, Terminal, Wrench } from "lucide-solid";
 import { For, Match, Show, Switch, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
@@ -302,44 +301,16 @@ function TimelineRow(props: { item: TimelineItem }) {
  * shell commands, and tool rows (with diffs when available).
  */
 export function TranscriptView(props: { items: TimelineItem[] }) {
-  let parentRef: HTMLDivElement | undefined;
-  const virtualizer = createVirtualizer({
-    get count() {
-      return props.items.length;
-    },
-    getScrollElement: () => parentRef ?? null,
-    estimateSize: () => 120,
-    overscan: 8,
-    getItemKey: (index) => props.items[index]?.id ?? index,
-  });
-
   return (
     <Show when={props.items.length > 0}>
-      <div
-        ref={(el) => {
-          parentRef = el;
-        }}
-        class={styles.t3Timeline}
-      >
-        <div class={styles.t3VirtualInner} style={{ height: `${virtualizer.getTotalSize()}px` }}>
-          <For each={virtualizer.getVirtualItems()}>
-            {(row) => {
-              const item = () => props.items[row.index]!;
-              return (
-                <div
-                  data-index={row.index}
-                  ref={virtualizer.measureElement}
-                  class={cx(styles.t3Item, styles.t3VirtualRow)}
-                  style={{
-                    transform: `translateY(${row.start}px)`,
-                  }}
-                >
-                  <TimelineRow item={item()} />
-                </div>
-              );
-            }}
-          </For>
-        </div>
+      <div class={styles.t3Timeline}>
+        <For each={props.items}>
+          {(item) => (
+            <div class={styles.t3Item}>
+              <TimelineRow item={item} />
+            </div>
+          )}
+        </For>
       </div>
     </Show>
   );

@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { Button } from "#components/ui/button";
+import { topicWikiPageId } from "#components/wiki-board-logic";
 import { cn } from "#lib/utils";
 import { Empty, Input, Panel, Pill } from "../ui";
 
@@ -65,6 +66,7 @@ export type TopicsPaneProps = {
   onSelect: (slug: string | null) => void;
   onOpenSession: (sessionId: string) => void;
   onFilterData: (query: string) => void;
+  onOpenWiki?: (topic: TopicCard) => void;
   onTidyDecide?: (id: string, status: "approved" | "rejected") => void;
   onTagDecide?: (id: string, status: "accepted" | "rejected") => void;
   onFlaggedRetry?: (task: string, jobKey: string) => void;
@@ -192,7 +194,7 @@ export function TopicsPane(props: TopicsPaneProps): JSX.Element {
       <Panel
         class="mb-0 flex min-h-0 flex-1 flex-col"
         title="Topics"
-        lede="Nested subjects (≤4 levels), tidy proposals, tags, and dead worker jobs."
+        lede="Nested subjects (≤4 levels), tidy proposals, tags, and wiki knowledge pages."
       >
         <div
           class={cn(
@@ -289,13 +291,33 @@ export function TopicsPane(props: TopicsPaneProps): JSX.Element {
                         <For each={sel().tags ?? []}>{(tag) => <Pill>{tag}</Pill>}</For>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => props.onFilterData(sel().title)}
-                    >
-                      Search in Data
-                    </Button>
+                    <div class="flex shrink-0 flex-wrap justify-end gap-2">
+                      <Show
+                        when={
+                          props.onOpenWiki &&
+                          topicWikiPageId(
+                            sel().project_id?.trim() || "default",
+                            sel().slug,
+                            sel().kind,
+                          )
+                        }
+                      >
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => props.onOpenWiki?.(sel())}
+                        >
+                          Open in Wiki
+                        </Button>
+                      </Show>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => props.onFilterData(sel().title)}
+                      >
+                        Search in Data
+                      </Button>
+                    </div>
                   </div>
 
                   <Show when={sel().summary}>

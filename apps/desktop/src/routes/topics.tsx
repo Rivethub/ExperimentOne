@@ -1,8 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/solid-router";
 import { Effect } from "effect";
 import type { JSX } from "solid-js";
-import { createSignal } from "solid-js";
+import { createEffect } from "solid-js";
 import { useApp } from "#app/context";
+import { validateTopicsSearch } from "#app/search";
 import { topicArchiveSlug, topicWikiPageId } from "#components/wiki-board-logic";
 import { runApp, softEffect } from "#effect";
 import * as Rivet from "#effect/rivet";
@@ -10,14 +11,35 @@ import { useTopics } from "#hooks";
 import { TopicsPane, type TopicCard, type TopicKnowledge } from "#panes";
 
 export const Route = createFileRoute("/topics")({
+  validateSearch: validateTopicsSearch,
   component: TopicsPage,
 });
 
 function TopicsPage(): JSX.Element {
   const app = useApp();
   const navigate = useNavigate();
+  const search = Route.useSearch();
   const topics = useTopics();
-  const [selectedSlug, setSelectedSlug] = createSignal<string | null>(null);
+
+  const selectedSlug = () => {
+    const slug = search().slug.trim();
+    return slug !== "" ? slug : null;
+  };
+
+  createEffect(() => {
+    const slug = selectedSlug();
+    if (!slug || topics.topics.length === 0) {
+      return;
+    }
+    if (topics.topics.some((t) => t.slug === slug)) {
+      return;
+    }
+    void navigate({
+      to: "/topics",
+      search: { slug: "" },
+      replace: true,
+    });
+  });
 
   const loadArchive = (projectId: string, slug: string, file: string) =>
     runApp(Rivet.loadWikiArchiveContent(slug, file, projectId));
@@ -68,7 +90,13 @@ function TopicsPage(): JSX.Element {
       flagged={topics.flagged}
       busy={app.busy()}
       selectedSlug={selectedSlug()}
-      onSelect={setSelectedSlug}
+      onSelect={(slug) => {
+        void navigate({
+          to: "/topics",
+          search: { slug: slug ?? "" },
+          replace: true,
+        });
+      }}
       onOpenSession={(sessionId) => {
         void navigate({
           to: "/data/c/$conversationId",
@@ -80,6 +108,14 @@ function TopicsPage(): JSX.Element {
         void navigate({
           to: "/data",
           search: { q: query, mode: "keyword", thread: "" },
+        });
+      }}
+      onOpenWiki={(topic) => {
+        const projectId = topic.project_id?.trim() || "default";
+        const pageId = topicWikiPageId(projectId, topic.slug, topic.kind);
+        void navigate({
+          to: "/wiki",
+          search: { page: pageId ?? "" },
         });
       }}
       onTidyDecide={(id, status) => {

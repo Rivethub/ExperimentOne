@@ -127,6 +127,16 @@ export function AppTopbar(props: AppTopbarProps): JSX.Element {
       </div>
 
       <div class="flex flex-wrap items-center justify-end gap-2">
+        <Show when={props.page === "topics"}>
+          <Button variant="ghost" size="sm" as={RouterLink} to="/wiki" search={{ page: "" }}>
+            Wiki
+          </Button>
+        </Show>
+        <Show when={props.page === "wiki"}>
+          <Button variant="ghost" size="sm" as={RouterLink} to="/topics" search={{ slug: "" }}>
+            Topics
+          </Button>
+        </Show>
         <Show when={props.page !== "wiki"}>
           <Button variant="ghost" size="sm" disabled={props.busy} onClick={() => props.onRefresh()}>
             Refresh
