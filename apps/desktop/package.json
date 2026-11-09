@@ -7,8 +7,8 @@
     "#*": "./src/*"
   },
   "scripts": {
-    "dev": "vp dev",
-    "dev:mock": "VITE_MOCK_IPC=1 vp dev",
+    "dev": "NODE_OPTIONS='--max-http-header-size=128000' vp dev",
+    "dev:mock": "VITE_MOCK_IPC=1 NODE_OPTIONS='--max-http-header-size=128000' vp dev",
     "build": "tsc -b && vp build",
     "preview": "vp preview",
     "tauri": "tauri",

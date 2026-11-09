@@ -46,6 +46,26 @@ export default defineConfig({
   clearScreen: false,
   resolve: {
     alias,
+    dedupe: ["solid-js", "solid-js/web", "solid-js/store"],
+  },
+  // solid-markdown keeps a `solid` export condition, so vite-plugin-solid
+  // leaves it (and its remark/rehype graph) unbundled. Prebundle the CJS
+  // edges — especially `debug` via micromark — or the browser throws
+  // "does not provide an export named 'default'" and the page stays blank.
+  optimizeDeps: {
+    include: [
+      "debug",
+      "extend",
+      "micromark",
+      "micromark-core-commonmark",
+      "remark-parse",
+      "remark-rehype",
+      "remark-gfm",
+      "remark-breaks",
+      "rehype-sanitize",
+      "solid-markdown > debug",
+      "solid-markdown > micromark",
+    ],
   },
   server: {
     port: 1420,
