@@ -274,9 +274,20 @@ export async function handleApiRequest(
   if (m === "GET" && base === "/v1/memory/stats") {
     return ok({
       events: s.captures.length,
+      tokens_in: s.captures.reduce((n, e) => n + e.tokens_in, 0),
+      tokens_out: s.captures.reduce((n, e) => n + e.tokens_out, 0),
+      recent_wire: s.captures.length,
+      recent_soft: 0,
       topics: 2,
       summaries: 0,
       embeddings: Math.min(s.captures.length, 12),
+      cursors: {
+        vectorize: null,
+        wiki: null,
+        topics: null,
+        classify: null,
+        compact: null,
+      },
     });
   }
 
@@ -686,6 +697,8 @@ export async function handleApiRequest(
   // Logs
   if (m === "GET" && base === "/v1/logs/proxy") {
     return ok({
+      kind: "proxy",
+      path: "/mock/logs/proxy/main.log",
       text: [
         "[mock] rivet-proxy listening on :18317",
         `[mock] proxy_running=${s.proxyRunning}`,
@@ -696,6 +709,8 @@ export async function handleApiRequest(
   }
   if (m === "GET" && base === "/v1/logs/clickhouse") {
     return ok({
+      kind: "clickhouse",
+      path: "/mock/logs/clickhouse/clickhouse.log",
       text: [
         "[mock] ClickHouse HTTP :8123",
         "[mock] database rivet ready",

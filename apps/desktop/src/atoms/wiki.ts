@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import * as Rivet from "../effect/rivet";
 import { appAtomRegistry } from "./registry";
+import { appRuntime } from "./runtime";
 
 const fetchWiki = Effect.gen(function* loadWikiSnapshot() {
   yield* Rivet.requireBackend;
@@ -13,10 +14,9 @@ const fetchWiki = Effect.gen(function* loadWikiSnapshot() {
  * on wiki_revision bumps from rivetd.
  * Soft failures stay in AsyncResult; UI maps them to null.
  */
-export const wikiAtom = Atom.make(fetchWiki).pipe(
-  Atom.withRefresh("30 seconds"),
-  Atom.withLabel("rivet:wiki"),
-);
+export const wikiAtom = appRuntime
+  .atom(fetchWiki)
+  .pipe(Atom.withRefresh("30 seconds"), Atom.withLabel("rivet:wiki"));
 
 /** Imperative refresh for mutations (workers / config) outside the wiki page. */
 export function refreshWikiAtom(): void {

@@ -16,10 +16,12 @@
     "fmt": "vp fmt",
     "fmt:check": "vp fmt --check",
     "typecheck": "tsc -b --pretty false",
-    "check": "vp fmt --check && vp lint --deny-warnings && tsc -b --pretty false"
+    "test": "vp test",
+    "check": "vp fmt --check && vp lint --deny-warnings && tsc -b --pretty false && vp test"
   },
   "dependencies": {
     "@effect/atom-react": "4.1.2",
+    "@effect/platform-browser": "4.1.2",
     "@pierre/diffs": "^1.6.4",
     "@tailwindcss/vite": "^4.3.5",
     "@tanstack/react-pacer": "^0.24.1",
@@ -48,6 +50,7 @@
     "uplot": "^1.6.32"
   },
   "devDependencies": {
+    "@effect/vitest": "4.1.2",
     "@seanmozeik/de-clank": "^0.1.11",
     "@tanstack/router-plugin": "^1.169.0",
     "@tauri-apps/cli": "^2.12.4",
@@ -62,7 +65,8 @@
     "oxlint-tsgolint": "^7.0.2005",
     "typescript": "npm:@tsc-rs/typescript@0.8.0",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.5.0",
-    "vite-plus": "1.5.0"
+    "vite-plus": "1.5.0",
+    "vitest": "^5.1.0"
   },
   "overrides": {
     "typescript": "$typescript",

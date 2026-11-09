@@ -1,13 +1,17 @@
+import { useAtomValue } from "@effect/atom-react";
 import { Effect } from "effect";
-import { useCallback, useEffect, useState } from "react";
+import { AsyncResult } from "effect/reactivity";
+import { useCallback } from "react";
+import { refreshTopicsAtom, topicsAtom } from "../atoms/topics";
 import type {
   FlaggedJobCard,
   TagSuggestionCard,
   TopicCard,
   TidyProposalCard,
 } from "../panes/TopicsPane";
-import { runApp } from "../effect";
+import { runAppExit } from "../effect";
 import * as Rivet from "../effect/rivet";
+import { notify } from "../lib/notify";
 
 export type UseTopicsResult = {
   topics: TopicCard[];
@@ -20,108 +24,76 @@ export type UseTopicsResult = {
   retryFlagged: (task: string, jobKey: string) => Promise<void>;
 };
 
+const emptySnapshot = {
+  topics: [] as TopicCard[],
+  tidy: [] as TidyProposalCard[],
+  tags: [] as TagSuggestionCard[],
+  flagged: [] as FlaggedJobCard[],
+};
+
 /**
- * Topics + tidy/tags/flagged snapshot. Call only from the topics route so polling
- * runs while the pane is mounted.
+ * Topics via @effect/atom-react. Call only from the topics route so the atom
+ * polls while the pane is mounted.
  */
 export function useTopics(): UseTopicsResult {
-  const [topics, setTopics] = useState<TopicCard[]>([]);
-  const [tidy, setTidy] = useState<TidyProposalCard[]>([]);
-  const [tags, setTags] = useState<TagSuggestionCard[]>([]);
-  const [flagged, setFlagged] = useState<FlaggedJobCard[]>([]);
+  const result = useAtomValue(topicsAtom);
+  const snapshot = AsyncResult.getOrElse(result, () => emptySnapshot);
 
   const refreshTopics = useCallback(async () => {
     try {
-      const next = await runApp(
-        Effect.gen(function* refreshTopicsSnapshot() {
-          yield* Rivet.requireBackend;
-          const topicsFx = yield* Rivet.listTopics();
-          const tidyFx = yield* Rivet.listTidy;
-          const tagsFx = yield* Rivet.listTags;
-          const flaggedFx = yield* Rivet.listFlagged;
-          return {
-            topics: topicsFx,
-            tidy: tidyFx.proposals,
-            tags: tagsFx.suggestions,
-            flagged: flaggedFx.flagged,
-          };
-        }),
-      );
-      setTopics(next.topics);
-      setTidy(next.tidy);
-      setTags(next.tags);
-      setFlagged(next.flagged);
+      refreshTopicsAtom();
     } catch {
-      /* ignore */
+      /* soft-fail while rivetd is down */
     }
   }, []);
 
-  const decideTidy = useCallback(
-    async (id: string, status: "approved" | "rejected") => {
-      try {
-        await runApp(
-          Effect.gen(function* decide() {
-            yield* Rivet.requireBackend;
-            yield* Rivet.decideTidy(id, status);
-          }),
-        );
-        await refreshTopics();
-      } catch {
-        /* ignore */
-      }
-    },
-    [refreshTopics],
-  );
+  const decideTidy = useCallback(async (id: string, status: "approved" | "rejected") => {
+    const outcome = await runAppExit(
+      Effect.gen(function* decide() {
+        yield* Rivet.requireBackend;
+        yield* Rivet.decideTidy(id, status);
+      }),
+    );
+    if (!outcome.ok) {
+      notify.error(outcome.error);
+      return;
+    }
+    refreshTopicsAtom();
+  }, []);
 
-  const decideTag = useCallback(
-    async (id: string, status: "accepted" | "rejected") => {
-      try {
-        await runApp(
-          Effect.gen(function* decide() {
-            yield* Rivet.requireBackend;
-            yield* Rivet.decideTag(id, status);
-          }),
-        );
-        await refreshTopics();
-      } catch {
-        /* ignore */
-      }
-    },
-    [refreshTopics],
-  );
+  const decideTag = useCallback(async (id: string, status: "accepted" | "rejected") => {
+    const outcome = await runAppExit(
+      Effect.gen(function* decide() {
+        yield* Rivet.requireBackend;
+        yield* Rivet.decideTag(id, status);
+      }),
+    );
+    if (!outcome.ok) {
+      notify.error(outcome.error);
+      return;
+    }
+    refreshTopicsAtom();
+  }, []);
 
-  const retryFlagged = useCallback(
-    async (task: string, jobKey: string) => {
-      try {
-        await runApp(
-          Effect.gen(function* retry() {
-            yield* Rivet.requireBackend;
-            yield* Rivet.retryFlagged(task, jobKey);
-          }),
-        );
-        await refreshTopics();
-      } catch {
-        /* ignore */
-      }
-    },
-    [refreshTopics],
-  );
-
-  useEffect(() => {
-    void refreshTopics();
-    const id = setInterval(() => {
-      void refreshTopics();
-    }, 2000);
-    return () => {
-      clearInterval(id);
-    };
-  }, [refreshTopics]);
+  const retryFlagged = useCallback(async (task: string, jobKey: string) => {
+    const outcome = await runAppExit(
+      Effect.gen(function* retry() {
+        yield* Rivet.requireBackend;
+        yield* Rivet.retryFlagged(task, jobKey);
+      }),
+    );
+    if (!outcome.ok) {
+      notify.error(outcome.error);
+      return;
+    }
+    refreshTopicsAtom();
+  }, []);
 
   return {
-    topics,
-    tidy,
-    tags,
-    flagged,
+    topics: snapshot.topics,
+    tidy: snapshot.tidy,
+    tags: snapshot.tags,
+    flagged: snapshot.flagged,
     refreshTopics,
     decideTidy,
     decideTag,

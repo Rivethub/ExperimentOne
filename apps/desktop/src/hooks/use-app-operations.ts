@@ -16,23 +16,19 @@ export type RuntimeLogs = {
 };
 
 async function fetchRuntimeLogs(): Promise<RuntimeLogs> {
-  try {
-    const [proxyRes, chRes] = await runApp(
-      Effect.gen(function* loadProxyAndClickhouseLogs() {
-        yield* Rivet.requireBackend;
-        return yield* Effect.all(
-          [softEffect(Rivet.getProxyLog(80)), softEffect(Rivet.getClickhouseLog(80))],
-          { concurrency: "unbounded" },
-        );
-      }),
-    );
-    return {
-      proxyLog: proxyRes?.ok ? (proxyRes.json<{ text?: string }>()?.text ?? "") : "",
-      chLog: chRes?.ok ? (chRes.json<{ text?: string }>()?.text ?? "") : "",
-    };
-  } catch {
-    return { proxyLog: "", chLog: "" };
-  }
+  const [proxyRes, chRes] = await runApp(
+    Effect.gen(function* loadProxyAndClickhouseLogs() {
+      yield* Rivet.requireBackend;
+      return yield* Effect.all(
+        [softEffect(Rivet.getProxyLog(80)), softEffect(Rivet.getClickhouseLog(80))],
+        { concurrency: "unbounded" },
+      );
+    }),
+  ).catch(() => [null, null] as const);
+  return {
+    proxyLog: proxyRes?.text ?? "",
+    chLog: chRes?.text ?? "",
+  };
 }
 
 /** Poll login/SIWC bind until the prox child exits (or timeout). */
@@ -137,7 +133,6 @@ export function useAppOperations(opts: {
       setBusy(true);
       try {
         const body = await mutations.exportBag.mutateAsync(conversationIds);
-        if (body.error) throw new Error(body.error);
         setBagPath(body.path);
         const scope =
           conversationIds && conversationIds.length > 0
@@ -167,7 +162,6 @@ export function useAppOperations(opts: {
     setBusy(true);
     try {
       const body = await mutations.importBag.mutateAsync(path);
-      if (body.error) throw new Error(body.error);
       notify.success(`Imported ${body.event_count} events from ${body.path}`);
       await queryClient.invalidateQueries({ queryKey: ["conversations"] });
     } catch (err) {
@@ -188,7 +182,6 @@ export function useAppOperations(opts: {
           return yield* Rivet.ingestLocal({});
         }),
       );
-      if (body.error) throw new Error(body.error);
       notify.dismiss(toastId);
       notify.success(
         `Imported local sessions — ${body.events_inserted} new, ${body.events_skipped_existing} already present (${body.events_parsed} parsed from ${body.files_scanned} files)`,

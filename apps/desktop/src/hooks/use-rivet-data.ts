@@ -129,10 +129,7 @@ export function useRivetData(opts: {
     setBusy(true);
     notify.loading("Updating credentials…", toastId);
     try {
-      const body = await mutations.refreshQuota.mutateAsync();
-      if (body.error !== undefined && body.error !== "" && body.ok === false) {
-        throw new Error(body.error);
-      }
+      await mutations.refreshQuota.mutateAsync();
       notify.dismiss(toastId);
       notify.success("Credentials refreshed");
     } catch (err) {
