@@ -47,7 +47,12 @@ impl WorkerRole {
     /// Task identifiers this role is allowed to claim.
     pub const fn tasks(self) -> &'static [&'static str] {
         match self {
-            Self::Embed => &[TASK_EMBED_EVENT, TASK_ENQUEUE_UNEMBEDDED],
+            Self::Embed => &[
+                TASK_EMBED_EVENT,
+                TASK_ENQUEUE_UNEMBEDDED,
+                TASK_EMBED_REMOTE_EVENT,
+                TASK_ENQUEUE_REMOTE_REEMBED,
+            ],
             Self::Compact => &[
                 TASK_CLASSIFY_SESSION,
                 TASK_COMPACT_SESSION,
@@ -65,6 +70,8 @@ impl WorkerRole {
             Self::All => &[
                 TASK_EMBED_EVENT,
                 TASK_ENQUEUE_UNEMBEDDED,
+                TASK_EMBED_REMOTE_EVENT,
+                TASK_ENQUEUE_REMOTE_REEMBED,
                 TASK_CLASSIFY_SESSION,
                 TASK_COMPACT_SESSION,
                 TASK_ENQUEUE_IDLE,
@@ -83,6 +90,8 @@ impl WorkerRole {
 
 pub const TASK_EMBED_EVENT: &str = "embed-event";
 pub const TASK_ENQUEUE_UNEMBEDDED: &str = "enqueue-unembedded";
+pub const TASK_EMBED_REMOTE_EVENT: &str = "embed-remote-event";
+pub const TASK_ENQUEUE_REMOTE_REEMBED: &str = "enqueue-remote-reembed";
 pub const TASK_CLASSIFY_SESSION: &str = "classify-session";
 pub const TASK_COMPACT_SESSION: &str = "compact-session";
 pub const TASK_ENQUEUE_IDLE: &str = "enqueue-idle";
@@ -185,6 +194,25 @@ impl WorkerJob {
         )
     }
 
+    pub fn embed_remote_event(event_id: &str, space: &str) -> Self {
+        Self::new_pending(
+            TASK_EMBED_REMOTE_EVENT,
+            &format!("embed-remote-event:{space}:{event_id}"),
+            serde_json::json!({ "event_id": event_id, "space": space }).to_string(),
+            PRIORITY_EMBED,
+        )
+    }
+
+    pub fn enqueue_remote_reembed(space: &str) -> Self {
+        // Unique job_key each enqueue — NATS Msg-Id dedupes identical keys for 120s.
+        Self::new_pending(
+            TASK_ENQUEUE_REMOTE_REEMBED,
+            &format!("enqueue-remote-reembed:{space}:{}", Utc::now().timestamp_millis()),
+            serde_json::json!({ "space": space }).to_string(),
+            PRIORITY_BACKFILL,
+        )
+    }
+
     pub fn classify_session(session_id: &str) -> Self {
         Self::new_pending(
             TASK_CLASSIFY_SESSION,
@@ -269,10 +297,12 @@ mod tests {
     #[test]
     fn roles_partition_tasks() {
         assert!(WorkerRole::Embed.tasks().contains(&TASK_EMBED_EVENT));
+        assert!(WorkerRole::Embed.tasks().contains(&TASK_EMBED_REMOTE_EVENT));
+        assert!(WorkerRole::Embed.tasks().contains(&TASK_ENQUEUE_REMOTE_REEMBED));
         assert!(!WorkerRole::Embed.tasks().contains(&TASK_EXTRACT_WIKI));
         assert!(WorkerRole::Compact.tasks().contains(&TASK_COMPACT_SESSION));
         assert!(WorkerRole::Wiki.tasks().contains(&TASK_UPSERT_TOPICS));
-        assert_eq!(WorkerRole::All.tasks().len(), 12);
+        assert_eq!(WorkerRole::All.tasks().len(), 14);
         assert_eq!(WorkerRole::None.tasks().len(), 0);
         assert_eq!(WorkerRole::parse("none"), WorkerRole::None);
         assert_eq!(WorkerRole::parse("api"), WorkerRole::None);
@@ -285,6 +315,16 @@ mod tests {
         assert_eq!(job.task, TASK_EMBED_EVENT);
         assert_eq!(job.priority, PRIORITY_EMBED);
         assert_eq!(job.status, JobStatus::Pending);
+    }
+
+    #[test]
+    fn remote_reembed_continuation_keys_are_unique() {
+        let a = WorkerJob::enqueue_remote_reembed("openai:text-embedding-3-small");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        let b = WorkerJob::enqueue_remote_reembed("openai:text-embedding-3-small");
+        assert_eq!(a.task, TASK_ENQUEUE_REMOTE_REEMBED);
+        assert_ne!(a.job_key, b.job_key);
+        assert!(a.job_key.starts_with("enqueue-remote-reembed:openai:text-embedding-3-small:"));
     }
 
     #[test]

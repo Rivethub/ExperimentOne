@@ -31,6 +31,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	if isCodexOpenAIImageRequest(opts) {
 		return e.executeOpenAIImageStream(ctx, auth, req, opts)
 	}
+	if isCodexOpenAIEmbeddingsRequest(opts) {
+		return nil, statusErr{code: http.StatusBadRequest, msg: "streaming not supported for /v1/embeddings"}
+	}
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
 
 	apiKey, baseURL := codexCredsForRequest(ctx, auth, opts.Headers)

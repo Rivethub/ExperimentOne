@@ -16,6 +16,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+reqwest.workspace = true
 rivet-core.workspace = true
 rivet-store.workspace = true
 rmcp.workspace = true

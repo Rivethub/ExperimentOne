@@ -39,7 +39,10 @@ export const StatusSchema = Schema.Struct({
   capture_backend: Schema.optional(Schema.String),
   wiki_dir: Schema.optional(Schema.String),
   embedding_model: Schema.optional(Schema.NullOr(Schema.String)),
+  embedding_account_id: Schema.optional(Schema.NullOr(Schema.String)),
+  embedding_space: Schema.optional(Schema.NullOr(Schema.String)),
   wiki_model: Schema.optional(Schema.NullOr(Schema.String)),
+  wiki_account_id: Schema.optional(Schema.NullOr(Schema.String)),
   warnings: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   onboarding: Schema.optional(OnboardingStatusSchema),
   workers: Schema.optional(WorkersSchema),
@@ -53,6 +56,8 @@ export const AccountSchema = Schema.Struct({
   label: Schema.String,
   limit_hint: Schema.String,
   reset_hint: Schema.String,
+  siwc_status: Schema.optional(Schema.NullOr(Schema.String)),
+  platform_ready: Schema.optional(Schema.Boolean),
 });
 
 export const AccountsSchema = Schema.mutable(Schema.Array(AccountSchema));
@@ -271,7 +276,23 @@ export const BagResultSchema = Schema.Struct({
 
 export const WorkersTickSchema = Schema.Struct({
   embeddings: Schema.optional(Schema.Finite),
+  embedding_space: Schema.optional(Schema.String),
   wiki_pages: Schema.optional(Schema.Finite),
+});
+
+export const WorkersReembedSchema = Schema.Struct({
+  ok: Schema.Boolean,
+  needs_siwc: Schema.optional(Schema.Boolean),
+  account_id: Schema.optional(Schema.NullOr(Schema.String)),
+  embedding_model: Schema.optional(Schema.String),
+  embedding_space: Schema.optional(Schema.String),
+  note: Schema.optional(Schema.String),
+});
+
+export const LoginStartSchema = Schema.Struct({
+  provider: Schema.String,
+  message: Schema.String,
+  hint: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
 /** Empty 2xx bodies decode as `undefined`; non-empty bodies stay untyped. */
@@ -288,7 +309,10 @@ export const PublicConfigSchema = Schema.Struct({
   management_configured: Schema.Boolean,
   capabilities: CapabilitiesSchema,
   embedding_model: Schema.optional(Schema.NullOr(Schema.String)),
+  embedding_account_id: Schema.optional(Schema.NullOr(Schema.String)),
+  embedding_space: Schema.optional(Schema.String),
   wiki_model: Schema.optional(Schema.NullOr(Schema.String)),
+  wiki_account_id: Schema.optional(Schema.NullOr(Schema.String)),
   wiki_project_id: Schema.String,
   rate_limit_rps: Schema.optional(Schema.Finite),
   rate_limit_burst: Schema.optional(Schema.Finite),

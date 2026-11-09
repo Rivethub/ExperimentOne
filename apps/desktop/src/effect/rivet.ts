@@ -32,6 +32,8 @@ import {
   UnknownOkSchema,
   WikiInfoSchema,
   WikiPageContentSchema,
+  LoginStartSchema,
+  WorkersReembedSchema,
   WorkersTickSchema,
 } from "./schemas";
 import { softEffect } from "./soft";
@@ -224,6 +226,13 @@ export const putConfig = (
 ): ApiFx<Schema.Schema.Type<typeof ConfigResponseSchema>> =>
   apiJsonSchema("PUT", "/v1/config", ConfigResponseSchema, body);
 export const tickWorkers = apiJsonSchema("POST", "/v1/workers/tick", WorkersTickSchema);
+export const reembedWorkers = apiJsonSchema("POST", "/v1/workers/reembed", WorkersReembedSchema);
+export const startSiwcBind = (
+  accountId?: string | null,
+): ApiFx<Schema.Schema.Type<typeof LoginStartSchema>> =>
+  apiJsonSchema("POST", "/v1/accounts/siwc/bind", LoginStartSchema, {
+    account_id: accountId ?? undefined,
+  });
 
 export const exportBag = (
   conversationIds?: string[],

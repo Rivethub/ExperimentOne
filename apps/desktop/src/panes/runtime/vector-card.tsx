@@ -9,7 +9,8 @@ export function RuntimeVectorCard({ status }: { status: Status | null }): React.
   const model =
     isDefined(status?.embedding_model) && status.embedding_model !== ""
       ? status.embedding_model
-      : "lexical (v1)";
+      : "lexical (default)";
+  const space = status?.embedding_space?.trim() || "lexical";
   const cursor = status?.workers?.vectorize_cursor ?? undefined;
 
   return (
@@ -25,6 +26,7 @@ export function RuntimeVectorCard({ status }: { status: Status | null }): React.
       />
       <RuntimeKv label="Last run" value={formatRelativeIso(cursor)} title={cursor} />
       <RuntimeKv label="Model" value={model} />
+      <RuntimeKv label="Search space" value={space} />
     </RuntimePaneCard>
   );
 }

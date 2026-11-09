@@ -29,15 +29,16 @@ use chrono::{Duration, Utc};
 use rivet_core::{
     age_days_since, assemble_startup_memory_with_workspace, claude_mcp_json, claude_settings_json,
     codex_config_toml, conversations_from_events, harness_user_ready, hydrate_event_content,
-    lexical_embed, load_workspace_memory, localhost_port_free, normalize_event_turns,
-    project_id_from_cwd, provider_catalog, recency_boost, resolve_project_root, Capabilities,
-    CaptureEvent, CaptureRole, ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths,
-    UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
+    is_lexical_space, lexical_embed, load_workspace_memory, localhost_port_free,
+    normalize_event_turns, project_id_from_cwd, provider_catalog, recency_boost,
+    remote_embedding_space, resolve_project_root, Capabilities, CaptureEvent, CaptureRole,
+    ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths, UsageTotals,
+    WorkspaceMemorySection, LEXICAL_SPACE,
 };
 use rivet_store::{
     fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, CaptureStore,
     ClickHouseCaptureStore, JobStatus, MetaStore, NatsJobStore, QueueStats, SessionBinding,
-    TopicMeta, WikiPageMeta, WorkerRole,
+    TopicMeta, WikiPageMeta, WorkerJob, WorkerRole,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -57,6 +58,8 @@ pub trait ControlApi: Send + Sync {
     fn login_cancel(&self) -> Result<(), String>;
     fn list_accounts(&self) -> Result<Vec<AccountInfo>, String>;
     fn remove_account(&self, id: &str) -> Result<(), String>;
+    /// Bind Sign in with `ChatGPT` (SIWC) onto an existing Codex credential.
+    fn siwc_bind_start(&self, account_id: Option<&str>) -> Result<LoginStartResponse, String>;
     fn write_harness(
         &self,
         target: &str,
@@ -111,7 +114,11 @@ pub struct StatusResponse {
     pub capture_backend: &'static str,
     pub wiki_dir: String,
     pub embedding_model: Option<String>,
+    pub embedding_account_id: Option<String>,
+    /// Active embeddings space for semantic search (`lexical` by default).
+    pub embedding_space: String,
     pub wiki_model: Option<String>,
+    pub wiki_account_id: Option<String>,
     /// Soft warnings for the desktop UI (port conflicts, onboarding hints).
     pub warnings: Vec<String>,
     pub onboarding: OnboardingStatus,
@@ -148,6 +155,12 @@ pub struct AccountInfo {
     pub label: String,
     pub limit_hint: String,
     pub reset_hint: String,
+    /// Codex only: `off` | `valid` | `invalid`. Absent for other providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub siwc_status: Option<String>,
+    /// Codex credential can call Platform APIs (SIWC token or API key present).
+    #[serde(default)]
+    pub platform_ready: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,7 +268,12 @@ pub struct ImportResponse {
 #[derive(Debug, Deserialize)]
 pub struct ConfigUpdate {
     pub embedding_model: Option<String>,
+    /// Empty string clears the account (lexical embeddings).
+    pub embedding_account_id: Option<String>,
+    pub embedding_space: Option<String>,
     pub wiki_model: Option<String>,
+    /// Empty string clears the preferred wiki account.
+    pub wiki_account_id: Option<String>,
     pub wiki_project_id: Option<String>,
     pub capabilities: Option<CapabilitiesPatch>,
 }
@@ -284,7 +302,10 @@ pub struct PublicConfig {
     pub management_configured: bool,
     pub capabilities: Capabilities,
     pub embedding_model: Option<String>,
+    pub embedding_account_id: Option<String>,
+    pub embedding_space: String,
     pub wiki_model: Option<String>,
+    pub wiki_account_id: Option<String>,
     pub wiki_project_id: String,
 }
 
@@ -305,7 +326,10 @@ fn public_config(cfg: &RivetConfig) -> PublicConfig {
         management_configured: !cfg.management_secret.trim().is_empty(),
         capabilities: cfg.capabilities,
         embedding_model: cfg.embedding_model.clone(),
+        embedding_account_id: cfg.embedding_account_id.clone(),
+        embedding_space: cfg.active_embedding_space().to_string(),
         wiki_model: cfg.wiki_model.clone(),
+        wiki_account_id: cfg.wiki_account_id.clone(),
         wiki_project_id: cfg.wiki_project_id.clone(),
     }
 }
@@ -470,12 +494,14 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/accounts/{id}", delete(account_delete))
         .route("/v1/accounts/login", post(login_start))
         .route("/v1/accounts/login/cancel", post(login_cancel))
+        .route("/v1/accounts/siwc/bind", post(siwc_bind_start))
         .route("/v1/accounts/import/vertex", post(import_vertex))
         .route("/v1/quota/refresh", post(quota_refresh))
         .route("/v1/export", post(export_bag))
         .route("/v1/import", post(import_bag))
         .route("/v1/ingest/local", post(ingest_local))
         .route("/v1/workers/tick", post(workers_tick))
+        .route("/v1/workers/reembed", post(workers_reembed))
         .route("/v1/workers/queue", get(workers_queue))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_api_key));
 
@@ -532,7 +558,10 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         access_key_hint,
         capabilities,
         embedding_model,
+        embedding_account_id,
+        embedding_space,
         wiki_model,
+        wiki_account_id,
         wiki_project_id,
     ) = {
         let cfg = state.config.read().await;
@@ -549,7 +578,10 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
             hint,
             cfg.capabilities,
             cfg.embedding_model.clone(),
+            cfg.embedding_account_id.clone(),
+            cfg.active_embedding_space().to_string(),
             cfg.wiki_model.clone(),
+            cfg.wiki_account_id.clone(),
             cfg.wiki_project_id.clone(),
         )
     };
@@ -563,7 +595,7 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
     let harness_ready = harness_user_ready()
         || state.paths.harness_claude_dir().join("settings.json").exists()
         || state.paths.harness_codex_dir().join("config.toml").exists();
-    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    let embeddings = state.ch.embedding_count(&embedding_space).await.unwrap_or(0);
     let queue = state.jobs.queue_stats().await.unwrap_or(QueueStats {
         pending: 0,
         running: 0,
@@ -583,7 +615,10 @@ pub async fn status(State(state): State<ApiState>) -> Json<StatusResponse> {
         capture_backend: state.capture_backend,
         wiki_dir: state.paths.wiki_dir().to_string(),
         embedding_model,
+        embedding_account_id,
+        embedding_space,
         wiki_model,
+        wiki_account_id,
         warnings,
         onboarding: OnboardingStatus {
             proxy_running,
@@ -622,9 +657,36 @@ async fn put_config(
     let mut cfg = state.config.write().await;
     if let Some(m) = body.embedding_model {
         cfg.embedding_model = if m.trim().is_empty() { None } else { Some(m) };
+        // Clearing the model drops search back to lexical.
+        if cfg.embedding_model.is_none() {
+            cfg.embedding_space = LEXICAL_SPACE.to_string();
+            cfg.embedding_account_id = None;
+        }
+    }
+    if let Some(account_id) = body.embedding_account_id {
+        let account_id = account_id.trim();
+        if account_id.is_empty() {
+            cfg.embedding_account_id = None;
+            cfg.embedding_space = LEXICAL_SPACE.to_string();
+        } else {
+            cfg.embedding_account_id = Some(account_id.to_string());
+        }
+    }
+    if let Some(space) = body.embedding_space {
+        let space = space.trim();
+        if space.is_empty() || is_lexical_space(space) {
+            cfg.embedding_space = LEXICAL_SPACE.to_string();
+        } else {
+            cfg.embedding_space = space.to_string();
+        }
     }
     if let Some(m) = body.wiki_model {
         cfg.wiki_model = if m.trim().is_empty() { None } else { Some(m) };
+    }
+    if let Some(account_id) = body.wiki_account_id {
+        let account_id = account_id.trim();
+        cfg.wiki_account_id =
+            if account_id.is_empty() { None } else { Some(account_id.to_string()) };
     }
     if let Some(p) = body.wiki_project_id {
         if !p.trim().is_empty() {
@@ -817,14 +879,11 @@ async fn semantic_conversation_search(
     query: &str,
     limit: u32,
 ) -> Result<(&'static str, Vec<ConversationSummary>), String> {
-    let query_vec = lexical_embed(query);
+    let (space, query_vec) = query_embedding_for_search(state, query).await?;
     // Overscan so conversation projection still has enough distinct sessions.
     let fetch = limit.saturating_mul(4).max(limit);
-    let hits = state
-        .ch
-        .search_embeddings(LEXICAL_SPACE, &query_vec, fetch)
-        .await
-        .map_err(|e| e.to_string())?;
+    let hits =
+        state.ch.search_embeddings(&space, &query_vec, fetch).await.map_err(|e| e.to_string())?;
 
     // cosineDistance on unit vectors: similarity ≈ 1 - distance. Keep weak hits out.
     let scored: Vec<(f32, String)> = hits
@@ -882,12 +941,9 @@ async fn hybrid_conversation_search(
     if prefer_lexical_query(query) && !keyword_ids.is_empty() {
         return Ok(("hybrid_lexical", conversations_from_events(&keyword, limit.max(1))));
     }
-    let query_vec = lexical_embed(query);
-    let hits = state
-        .ch
-        .search_embeddings(LEXICAL_SPACE, &query_vec, fetch)
-        .await
-        .map_err(|e| e.to_string())?;
+    let (space, query_vec) = query_embedding_for_search(state, query).await?;
+    let hits =
+        state.ch.search_embeddings(&space, &query_vec, fetch).await.map_err(|e| e.to_string())?;
     let vector_ids: Vec<String> = hits
         .into_iter()
         .filter(|h| 1.0 - h.distance > 0.05)
@@ -1365,6 +1421,21 @@ async fn login_start(
         .login_start(&body.provider, body.method.as_deref())
         .map(Json)
         .map_err(err_response)
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct SiwcBindRequest {
+    /// Optional Codex account id (credential stem). Defaults to first Codex account needing SIWC.
+    #[serde(default)]
+    pub account_id: Option<String>,
+}
+
+async fn siwc_bind_start(
+    State(state): State<ApiState>,
+    Json(body): Json<SiwcBindRequest>,
+) -> Result<Json<LoginStartResponse>, (StatusCode, Json<ErrBody>)> {
+    let account_id = body.account_id.filter(|s| !s.trim().is_empty());
+    state.control.siwc_bind_start(account_id.as_deref()).map(Json).map_err(err_response)
 }
 
 #[derive(Debug, Deserialize)]
@@ -1849,7 +1920,10 @@ async fn workers_tick(
         return Err(err_response("workers unavailable".into()));
     };
     workers.tick_once().await.map_err(|e| err_response(e.to_string()))?;
-    let wiki_project_id = state.config.read().await.wiki_project_id.clone();
+    let (wiki_project_id, embedding_space) = {
+        let cfg = state.config.read().await;
+        (cfg.wiki_project_id.clone(), cfg.active_embedding_space().to_string())
+    };
     let queue = state.jobs.queue_stats().await.unwrap_or(QueueStats {
         pending: 0,
         running: 0,
@@ -1859,13 +1933,152 @@ async fn workers_tick(
     });
     Ok(Json(serde_json::json!({
         "ok": true,
-        "embeddings": state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0),
+        "embeddings": state.ch.embedding_count(&embedding_space).await.unwrap_or(0),
+        "embedding_space": embedding_space,
         "wiki_pages": state.meta.wiki_page_count(&wiki_project_id).unwrap_or(0),
         "topics": state.meta.list_topics().map_or(0, |t| t.len()),
         "summaries": state.meta.list_summaries().map_or(0, |s| s.len()),
         "queue": queue,
         "role": WorkerRole::from_env().as_str(),
     })))
+}
+
+/// Switch search to the configured Codex/OpenAI embedding model and enqueue a remote backfill.
+/// If the selected Codex account lacks SIWC/Platform access, returns `needs_siwc` so the UI can bind.
+async fn workers_reembed(
+    State(state): State<ApiState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrBody>)> {
+    let (model, preferred_account) = {
+        let cfg = state.config.read().await;
+        let model = cfg
+            .embedding_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                err_response("Set an embedding model first (e.g. text-embedding-3-small)".into())
+            })?
+            .to_string();
+        let preferred = cfg
+            .embedding_account_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        drop(cfg);
+        (model, preferred)
+    };
+
+    let accounts = state.control.list_accounts().map_err(err_response)?;
+    let codex_accounts: Vec<AccountInfo> =
+        accounts.into_iter().filter(|a| a.provider == "codex").collect();
+    if codex_accounts.is_empty() {
+        return Err(err_response(
+            "Link a Codex account first, then save workers (SIWC bind runs automatically)".into(),
+        ));
+    }
+
+    let target = preferred_account
+        .as_ref()
+        .and_then(|id| codex_accounts.iter().find(|a| a.id == *id).cloned())
+        .or_else(|| codex_accounts.iter().find(|a| a.platform_ready).cloned())
+        .or_else(|| codex_accounts.first().cloned());
+
+    let Some(target) = target else {
+        return Err(err_response("No Codex account available for embeddings".into()));
+    };
+
+    if !target.platform_ready {
+        return Ok(Json(serde_json::json!({
+            "ok": false,
+            "needs_siwc": true,
+            "account_id": target.id,
+            "embedding_model": model,
+            "note": "Codex Platform access (SIWC) is required for embeddings — complete Sign in with ChatGPT",
+        })));
+    }
+
+    let space = {
+        let mut cfg = state.config.write().await;
+        let space = remote_embedding_space(&model);
+        cfg.embedding_space.clone_from(&space);
+        cfg.embedding_account_id = Some(target.id.clone());
+        cfg.capabilities.vector_search = true;
+        cfg.save(&state.paths).map_err(|e| err_response(e.to_string()))?;
+        space
+    };
+    state
+        .jobs
+        .enqueue_job(&WorkerJob::enqueue_remote_reembed(&space))
+        .await
+        .map_err(|e| err_response(e.to_string()))?;
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "needs_siwc": false,
+        "account_id": target.id,
+        "embedding_model": model,
+        "embedding_space": space,
+        "note": "Remote re-embed queued via Codex SIWC; search now uses this space",
+    })))
+}
+
+/// Embed a search query with the active space's embedder (lexical or remote via proxy).
+async fn query_embedding_for_search(
+    state: &ApiState,
+    query: &str,
+) -> Result<(String, Vec<f32>), String> {
+    let cfg = state.config.read().await.clone();
+    let space = cfg.active_embedding_space().to_string();
+    if is_lexical_space(&space) {
+        return Ok((LEXICAL_SPACE.to_string(), lexical_embed(query)));
+    }
+    let model = cfg
+        .embedding_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            "embedding_space is remote but embedding_model is unset — revert to lexical or set a model"
+                .to_string()
+        })?;
+    if let Some(workers) = state.workers.as_ref() {
+        let dims = workers.proxy_embeddings(&cfg, model, query).await.map_err(|e| e.to_string())?;
+        return Ok((space, dims));
+    }
+    // API-only process: call the proxy directly.
+    let dims = proxy_embeddings_http(&cfg, model, query).await.map_err(|e| e.to_string())?;
+    Ok((space, dims))
+}
+
+async fn proxy_embeddings_http(cfg: &RivetConfig, model: &str, input: &str) -> Result<Vec<f32>> {
+    let url = format!("{}/v1/embeddings", cfg.proxy_base_url());
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build()?;
+    let mut req = client
+        .post(&url)
+        .bearer_auth(&cfg.proxy_access_key)
+        .header("X-Rivet-Internal", "embeddings");
+    if let Some(account_id) =
+        cfg.embedding_account_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+    {
+        req = req.header("X-Rivet-Account", account_id);
+    }
+    let res = req.json(&serde_json::json!({ "model": model, "input": input })).send().await?;
+    let status = res.status();
+    if !status.is_success() {
+        let detail = res.text().await.unwrap_or_default();
+        anyhow::bail!("embeddings HTTP {status}: {detail}");
+    }
+    let parsed: serde_json::Value = res.json().await?;
+    let embedding = parsed
+        .pointer("/data/0/embedding")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow::anyhow!("embeddings response missing data[0].embedding"))?;
+    #[allow(clippy::cast_possible_truncation)]
+    let dims: Vec<f32> = embedding.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+    if dims.is_empty() {
+        anyhow::bail!("empty embedding vector");
+    }
+    Ok(dims)
 }
 
 async fn workers_queue(
@@ -2295,7 +2508,8 @@ async fn memory_stats(
     let wire = recent.len().saturating_sub(soft);
     let topics = state.meta.list_topics().map_or(0, |t| t.len());
     let summaries = state.meta.list_summaries().map_or(0, |s| s.len());
-    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    let embedding_space = state.config.read().await.active_embedding_space().to_string();
+    let embeddings = state.ch.embedding_count(&embedding_space).await.unwrap_or(0);
     Ok(Json(serde_json::json!({
         "events": usage.events,
         "tokens_in": usage.tokens_in,
@@ -2304,6 +2518,7 @@ async fn memory_stats(
         "recent_soft": soft,
         "topics": topics,
         "summaries": summaries,
+        "embedding_space": embedding_space,
         "embeddings": embeddings,
         "cursors": {
             "vectorize": state.meta.job_cursor("vectorize").ok().flatten(),

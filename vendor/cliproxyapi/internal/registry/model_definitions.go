@@ -15,6 +15,8 @@ const (
 	codexBuiltinImage26FlareModelID    = "gpt-image-2.6-flare"
 	codexBuiltinImage26SunburstModelID = "gpt-image-2.6-sunburst"
 	codexBuiltinImage26ModelID         = "gpt-image-2.6"
+	codexBuiltinEmbeddingSmallModelID  = "text-embedding-3-small"
+	codexBuiltinEmbeddingLargeModelID  = "text-embedding-3-large"
 	xaiBuiltinImageModelID             = "grok-imagine-image"
 	xaiBuiltinImageQualityModelID      = "grok-imagine-image-quality"
 	xaiBuiltinImage20ModelID           = "grok-imagine-image-2.0"
@@ -261,6 +263,8 @@ func WithCodexBuiltins(models []*ModelInfo) []*ModelInfo {
 		codexBuiltinImage26FlareModelInfo(),
 		codexBuiltinImage26SunburstModelInfo(),
 		codexBuiltinImage26ModelInfo(),
+		codexBuiltinEmbeddingSmallModelInfo(),
+		codexBuiltinEmbeddingLargeModelInfo(),
 	)
 }
 
@@ -371,6 +375,30 @@ func codexBuiltinImage26ModelInfo() *ModelInfo {
 		Type:        "openai",
 		DisplayName: "GPT Image 2.6",
 		Version:     codexBuiltinImage26ModelID,
+	}
+}
+
+func codexBuiltinEmbeddingSmallModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:          codexBuiltinEmbeddingSmallModelID,
+		Object:      "model",
+		Created:     1704067200, // 2024-01-01
+		OwnedBy:     "openai",
+		Type:        "openai",
+		DisplayName: "Text Embedding 3 Small",
+		Version:     codexBuiltinEmbeddingSmallModelID,
+	}
+}
+
+func codexBuiltinEmbeddingLargeModelInfo() *ModelInfo {
+	return &ModelInfo{
+		ID:          codexBuiltinEmbeddingLargeModelID,
+		Object:      "model",
+		Created:     1704067200, // 2024-01-01
+		OwnedBy:     "openai",
+		Type:        "openai",
+		DisplayName: "Text Embedding 3 Large",
+		Version:     codexBuiltinEmbeddingLargeModelID,
 	}
 }
 

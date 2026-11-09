@@ -618,7 +618,10 @@ export function seedStatus(
     wikiEnabled: boolean;
     vectorEnabled: boolean;
     embedModel: string | null;
+    embedAccountId?: string;
+    embeddingSpace?: string;
     wikiModel: string | null;
+    wikiAccountId?: string;
   },
 ): Status {
   const events = opts.captures.length;
@@ -635,7 +638,10 @@ export function seedStatus(
     capture_backend: "clickhouse",
     wiki_dir: "/mock/Rivet/wiki",
     embedding_model: opts.embedModel,
+    embedding_account_id: opts.embedAccountId || null,
+    embedding_space: opts.embeddingSpace || "lexical",
     wiki_model: opts.wikiModel,
+    wiki_account_id: opts.wikiAccountId || null,
     warnings:
       scenario === "limit-hit" ? ["Mock: quota pool empty — recovery banners should show"] : [],
     onboarding: {

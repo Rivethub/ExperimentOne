@@ -35,6 +35,28 @@ async function fetchRuntimeLogs(): Promise<RuntimeLogs> {
   }
 }
 
+/** Poll login/SIWC bind until the prox child exits (or timeout). */
+async function waitForLoginSuccess(timeoutMs = 5 * 60 * 1000): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const status = await runApp(
+        Effect.gen(function* pollLogin() {
+          yield* Rivet.requireBackend;
+          return yield* Rivet.getLoginStatus;
+        }),
+      );
+      if (status.done) {
+        return status.success;
+      }
+    } catch {
+      /* rivetd briefly unavailable */
+    }
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return false;
+}
+
 export function useAppOperations(opts: {
   horizon: "1h" | "3h" | "6h";
   setBusy: (v: boolean) => void;
@@ -46,7 +68,9 @@ export function useAppOperations(opts: {
   const queryClient = useQueryClient();
   const mutations = useRivetMutations({ horizon });
   const [bagPath, setBagPath] = useState<string | null>(null);
+  const [embedAccountId, setEmbedAccountId] = useState("");
   const [embedModel, setEmbedModel] = useState("");
+  const [wikiAccountId, setWikiAccountId] = useState("");
   const [wikiModel, setWikiModel] = useState("");
 
   const logsQuery = useQuery({
@@ -205,23 +229,78 @@ export function useAppOperations(opts: {
   }, [bagPath]);
 
   const saveIntelligence = useCallback(async () => {
+    const toastId = "save-workers";
     setBusy(true);
+    const useCodexEmbed = embedAccountId.trim().length > 0;
+    const model = useCodexEmbed ? embedModel.trim() || "text-embedding-3-small" : embedModel.trim();
+    if (useCodexEmbed && model !== embedModel) {
+      setEmbedModel(model);
+    }
+    notify.loading(
+      useCodexEmbed ? "Saving workers & enabling Codex embeddings…" : "Saving workers…",
+      toastId,
+    );
     try {
       await mutations.putConfig.mutateAsync({
-        embedding_model: embedModel,
+        embedding_model: useCodexEmbed ? model : "",
+        embedding_account_id: embedAccountId.trim(),
+        ...(useCodexEmbed ? {} : { embedding_space: "lexical" }),
         wiki_model: wikiModel,
+        wiki_account_id: wikiAccountId.trim(),
         capabilities: {
-          vector_search: Boolean(embedModel.trim() || status?.capabilities.vector_search),
-          wiki: Boolean(wikiModel.trim() || status?.capabilities.wiki),
+          vector_search: useCodexEmbed ? true : Boolean(status?.capabilities.vector_search),
+          wiki: Boolean(wikiModel.trim() || wikiAccountId.trim() || status?.capabilities.wiki),
         },
       });
-      notify.success("Intelligence settings saved");
+
+      if (!useCodexEmbed) {
+        notify.dismiss(toastId);
+        notify.success("Workers saved — embeddings stay lexical");
+        return;
+      }
+
+      let body = await mutations.reembedWorkers.mutateAsync();
+      if (body.needs_siwc === true) {
+        notify.loading("Opening Sign in with ChatGPT for Platform embeddings…", toastId);
+        await mutations.startSiwcBind.mutateAsync(body.account_id ?? embedAccountId);
+        const ok = await waitForLoginSuccess();
+        if (!ok) {
+          notify.dismiss(toastId);
+          notify.error("SIWC bind did not finish — save workers again after signing in");
+          return;
+        }
+        notify.loading("SIWC ready — enabling remote embeddings…", toastId);
+        body = await mutations.reembedWorkers.mutateAsync();
+        if (body.needs_siwc === true) {
+          notify.dismiss(toastId);
+          notify.error(
+            body.note ?? "Platform access still missing — confirm SIWC completed, then save again",
+          );
+          return;
+        }
+      }
+      notify.dismiss(toastId);
+      notify.success(
+        body.note ??
+          `Workers saved — remote embeddings queued for ${body.embedding_space ?? "remote space"}`,
+      );
     } catch (err) {
+      notify.dismiss(toastId);
       notify.error(rivetErrorMessage(err));
     } finally {
       setBusy(false);
     }
-  }, [embedModel, wikiModel, status, mutations.putConfig, setBusy]);
+  }, [
+    embedAccountId,
+    embedModel,
+    wikiAccountId,
+    wikiModel,
+    status,
+    mutations.putConfig,
+    mutations.reembedWorkers,
+    mutations.startSiwcBind,
+    setBusy,
+  ]);
 
   const toggleCapability = useCallback(
     async (key: "vector_search" | "wiki", value: boolean) => {
@@ -262,17 +341,32 @@ export function useAppOperations(opts: {
     }
   }, [mutations.tickWorkers, setBusy]);
 
-  const hydrateModels = useCallback((embed: string, wikiModelName: string) => {
-    setEmbedModel(embed);
-    setWikiModel(wikiModelName);
-  }, []);
+  const hydrateModels = useCallback(
+    (opts: {
+      embedModel: string;
+      wikiModel: string;
+      embedAccountId?: string;
+      wikiAccountId?: string;
+    }) => {
+      setEmbedModel(opts.embedModel);
+      setWikiModel(opts.wikiModel);
+      setEmbedAccountId(opts.embedAccountId ?? "");
+      setWikiAccountId(opts.wikiAccountId ?? "");
+    },
+    [],
+  );
 
   return {
     proxyLog: logsQuery.data?.proxyLog ?? "",
     chLog: logsQuery.data?.chLog ?? "",
     bagPath,
+    embedAccountId,
     embedModel,
+    wikiAccountId,
     wikiModel,
+    setEmbedAccountId,
+    setEmbedModel,
+    setWikiAccountId,
     setWikiModel,
     loadLogs,
     proxyAction,

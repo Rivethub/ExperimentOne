@@ -25,9 +25,11 @@ Without a sidecar **and** without `RIVET_CLICKHOUSE_URL`, `rivetd` refuses to st
 
 ## Embeddings (HNSW)
 
-Lexical vectors live in ClickHouse `embeddings` with a native
-`vector_similarity('hnsw', 'cosineDistance', 64)` index. Semantic search uses
-`ORDER BY cosineDistance(dims, q) LIMIT k` so the engine can use HNSW.
+Vectors live in ClickHouse `embeddings` keyed by `space`. The default
+**lexical** space uses a native `vector_similarity('hnsw', 'cosineDistance', 64)`
+index. Optional remote Codex/OpenAI spaces (`openai:{model}`) store full-dim
+vectors in the same table; search filters `length(dims)` and uses
+`ORDER BY cosineDistance(dims, q) LIMIT k` (HNSW applies to 64-d lexical rows).
 
 ## Meta (not ClickHouse)
 

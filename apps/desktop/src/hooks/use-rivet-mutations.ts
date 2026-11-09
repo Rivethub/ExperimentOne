@@ -94,6 +94,22 @@ export function useRivetMutations(opts: { horizon: "1h" | "3h" | "6h" }) {
     },
   });
 
+  const reembedWorkers = useMutation({
+    mutationFn: async () => {
+      const result = await withBackend(Rivet.reembedWorkers);
+      await invalidateHome();
+      return result;
+    },
+  });
+
+  const startSiwcBind = useMutation({
+    mutationFn: async (accountId?: string | null) => {
+      const result = await withBackend(Rivet.startSiwcBind(accountId));
+      await queryClient.invalidateQueries({ queryKey: queryKeys.loginStatus });
+      return result;
+    },
+  });
+
   const removeAccount = useMutation({
     mutationFn: async (id: string) => {
       const result = await withBackend(Rivet.removeAccount(id));
@@ -138,6 +154,8 @@ export function useRivetMutations(opts: { horizon: "1h" | "3h" | "6h" }) {
     importBag,
     putConfig,
     tickWorkers,
+    reembedWorkers,
+    startSiwcBind,
     removeAccount,
     startLogin,
     cancelLogin,

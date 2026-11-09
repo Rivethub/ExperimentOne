@@ -23,8 +23,14 @@ export type SettingsAccountsProps = {
 
 export type SettingsIntelligenceProps = {
   status: Status | null;
+  accounts: Account[];
+  embedAccountId: string;
   embedModel: string;
+  wikiAccountId: string;
   wikiModel: string;
+  onEmbedAccountChange: (accountId: string) => void;
+  onEmbedModelChange: (model: string) => void;
+  onWikiAccountChange: (accountId: string) => void;
   onWikiModelChange: (model: string) => void;
   busy: boolean;
   onToggleCapability: (key: "vector_search" | "wiki", value: boolean) => void;

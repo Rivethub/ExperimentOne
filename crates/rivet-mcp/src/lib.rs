@@ -17,8 +17,8 @@ use axum::{
     Router,
 };
 use rivet_core::{
-    hydrate_event_content, hydrate_events, lexical_embed, normalize_event_turns, RivetConfig,
-    RivetPaths, LEXICAL_SPACE,
+    hydrate_event_content, hydrate_events, is_lexical_space, lexical_embed, normalize_event_turns,
+    RivetConfig, RivetPaths,
 };
 use rivet_store::{CaptureStore, ClickHouseCaptureStore, MetaStore};
 use rmcp::transport::streamable_http_server::{
@@ -279,16 +279,23 @@ async fn do_semantic_search(
     query: &str,
     limit: u32,
 ) -> Result<SearchResponse, String> {
-    if !state.config.read().await.capabilities.vector_search {
+    let cfg = state.config.read().await.clone();
+    if !cfg.capabilities.vector_search {
         return Err("vector_search capability disabled".into());
     }
 
-    let query_vec = lexical_embed(query);
-    let hits = state
-        .ch
-        .search_embeddings(LEXICAL_SPACE, &query_vec, limit)
-        .await
-        .map_err(|e| e.to_string())?;
+    let space = cfg.active_embedding_space().to_string();
+    let query_vec = if is_lexical_space(&space) {
+        lexical_embed(query)
+    } else {
+        let model =
+            cfg.embedding_model.as_deref().map(str::trim).filter(|s| !s.is_empty()).ok_or_else(
+                || "embedding_space is remote but embedding_model is unset".to_string(),
+            )?;
+        mcp_proxy_embeddings(&cfg, model, query).await?
+    };
+    let hits =
+        state.ch.search_embeddings(&space, &query_vec, limit).await.map_err(|e| e.to_string())?;
 
     // cosineDistance on unit vectors: similarity ≈ 1 - distance.
     let scored: Vec<(f32, String)> = hits
@@ -374,10 +381,13 @@ async fn do_browse_session(
 
 async fn do_memory_stats(state: &McpState) -> Result<serde_json::Value, ()> {
     let topics = state.meta.list_topics().map_or(0, |t| t.len());
-    let project = state.config.read().await.wiki_project_id.clone();
+    let (project, space) = {
+        let cfg = state.config.read().await;
+        (cfg.wiki_project_id.clone(), cfg.active_embedding_space().to_string())
+    };
     let wiki = state.meta.list_wiki_pages(&project).map_or(0, |p| p.len());
     let totals = state.store.usage_totals().await.unwrap_or_default();
-    let embeddings = state.ch.embedding_count(LEXICAL_SPACE).await.unwrap_or(0);
+    let embeddings = state.ch.embedding_count(&space).await.unwrap_or(0);
     Ok(json!({
         "topics": topics,
         "wiki_pages": wiki,
@@ -385,7 +395,50 @@ async fn do_memory_stats(state: &McpState) -> Result<serde_json::Value, ()> {
         "tokens_in": totals.tokens_in,
         "tokens_out": totals.tokens_out,
         "embeddings": embeddings,
+        "embedding_space": space,
     }))
+}
+
+async fn mcp_proxy_embeddings(
+    cfg: &RivetConfig,
+    model: &str,
+    input: &str,
+) -> Result<Vec<f32>, String> {
+    let url = format!("{}/v1/embeddings", cfg.proxy_base_url());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let mut req = client
+        .post(&url)
+        .bearer_auth(&cfg.proxy_access_key)
+        .header("X-Rivet-Internal", "embeddings");
+    if let Some(account_id) =
+        cfg.embedding_account_id.as_deref().map(str::trim).filter(|s| !s.is_empty())
+    {
+        req = req.header("X-Rivet-Account", account_id);
+    }
+    let res = req
+        .json(&json!({ "model": model, "input": input }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = res.status();
+    if !status.is_success() {
+        let detail = res.text().await.unwrap_or_default();
+        return Err(format!("embeddings HTTP {status}: {detail}"));
+    }
+    let parsed: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+    let embedding = parsed
+        .pointer("/data/0/embedding")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "embeddings response missing data[0].embedding".to_string())?;
+    #[allow(clippy::cast_possible_truncation)]
+    let dims: Vec<f32> = embedding.iter().filter_map(|x| x.as_f64().map(|f| f as f32)).collect();
+    if dims.is_empty() {
+        return Err("empty embedding vector".into());
+    }
+    Ok(dims)
 }
 
 pub async fn serve(addr: SocketAddr, state: McpState) -> Result<()> {

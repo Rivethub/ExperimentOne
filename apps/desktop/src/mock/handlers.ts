@@ -435,14 +435,26 @@ export async function handleApiRequest(
   if (m === "PUT" && base === "/v1/config") {
     const bodyObj = (payload ?? {}) as {
       embedding_model?: string | null;
+      embedding_account_id?: string | null;
+      embedding_space?: string | null;
       wiki_model?: string | null;
+      wiki_account_id?: string | null;
       capabilities?: { vector_search?: boolean; wiki?: boolean };
     };
     if (bodyObj.embedding_model !== undefined) {
       s.embedModel = bodyObj.embedding_model?.trim() ? bodyObj.embedding_model : "";
     }
+    if (bodyObj.embedding_account_id !== undefined) {
+      s.embedAccountId = bodyObj.embedding_account_id?.trim() ? bodyObj.embedding_account_id : "";
+    }
+    if (bodyObj.embedding_space !== undefined) {
+      s.embeddingSpace = bodyObj.embedding_space?.trim() || "lexical";
+    }
     if (bodyObj.wiki_model !== undefined) {
       s.wikiModel = bodyObj.wiki_model?.trim() ? bodyObj.wiki_model : null;
+    }
+    if (bodyObj.wiki_account_id !== undefined) {
+      s.wikiAccountId = bodyObj.wiki_account_id?.trim() ? bodyObj.wiki_account_id : "";
     }
     if (bodyObj.capabilities?.vector_search != null) {
       s.vectorEnabled = bodyObj.capabilities.vector_search;
@@ -450,12 +462,57 @@ export async function handleApiRequest(
     if (bodyObj.capabilities?.wiki != null) {
       s.wikiEnabled = bodyObj.capabilities.wiki;
     }
-    return ok({ ok: true });
+    return ok({
+      proxy_port: 18317,
+      api_port: 18765,
+      mcp_port: 8742,
+      clickhouse_http_port: 18123,
+      clickhouse_native_port: 19000,
+      access_key_hint: "mock…key",
+      management_configured: true,
+      capabilities: {
+        mcp: true,
+        vector_search: s.vectorEnabled,
+        wiki: s.wikiEnabled,
+        teams: false,
+      },
+      embedding_model: s.embedModel,
+      embedding_account_id: s.embedAccountId || null,
+      embedding_space: s.embeddingSpace,
+      wiki_model: s.wikiModel,
+      wiki_account_id: s.wikiAccountId || null,
+      wiki_project_id: "default",
+    });
   }
   if (m === "POST" && base === "/v1/workers/tick") {
     return ok({
       embeddings: Math.min(s.captures.length, 12),
+      embedding_space: "lexical",
       wiki_pages: s.wiki.pages.length,
+    });
+  }
+  if (m === "POST" && base === "/v1/workers/reembed") {
+    const model = s.embedModel?.trim() || "text-embedding-3-small";
+    const accountId =
+      s.embedAccountId?.trim() || s.accounts.find((a) => a.provider === "codex")?.id;
+    const space = `openai:${model}`;
+    s.embedModel = model;
+    s.embeddingSpace = space;
+    s.vectorEnabled = true;
+    return ok({
+      ok: true,
+      needs_siwc: false,
+      account_id: accountId ?? null,
+      embedding_model: model,
+      embedding_space: space,
+      note: "Mock: remote re-embed queued",
+    });
+  }
+  if (m === "POST" && base === "/v1/accounts/siwc/bind") {
+    return ok({
+      provider: "codex",
+      message: "Mock SIWC bind started",
+      hint: "Complete Sign in with ChatGPT in the browser.",
     });
   }
 

@@ -339,12 +339,14 @@ func TestValidateModelsCatalog_Meta(t *testing.T) {
 func TestWithCodexBuiltinsIncludesImage25And26Models(t *testing.T) {
 	models := WithCodexBuiltins(nil)
 	expectedModels := map[string]string{
-		"gpt-image-2.5-flare":    "GPT Image 2.5 Flare",
-		"gpt-image-2.5-sunburst": "GPT Image 2.5 Sunburst",
-		"gpt-image-2.5":          "GPT Image 2.5",
-		"gpt-image-2.6-flare":    "GPT Image 2.6 Flare",
-		"gpt-image-2.6-sunburst": "GPT Image 2.6 Sunburst",
-		"gpt-image-2.6":          "GPT Image 2.6",
+		"gpt-image-2.5-flare":      "GPT Image 2.5 Flare",
+		"gpt-image-2.5-sunburst":   "GPT Image 2.5 Sunburst",
+		"gpt-image-2.5":            "GPT Image 2.5",
+		"gpt-image-2.6-flare":      "GPT Image 2.6 Flare",
+		"gpt-image-2.6-sunburst":   "GPT Image 2.6 Sunburst",
+		"gpt-image-2.6":            "GPT Image 2.6",
+		"text-embedding-3-small":   "Text Embedding 3 Small",
+		"text-embedding-3-large":   "Text Embedding 3 Large",
 	}
 
 	found := make(map[string]*ModelInfo)

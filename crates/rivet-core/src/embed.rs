@@ -1,12 +1,21 @@
-//! Local lexical embedding used when no remote embedding model is configured.
-//! Deterministic bag-of-hashed-tokens — good enough for MCP `semantic_search`
-//! until a real embedding model is pointed at the proxy.
+//! Lexical embeddings (default) plus helpers for remote Codex/OpenAI spaces.
 
 /// Fixed dimensionality for [`lexical_embed`] (and the `ClickHouse` HNSW index).
 pub const LEXICAL_EMBED_DIMS: usize = 64;
 
 /// Embedding space id stored in `ClickHouse` `embeddings.space`.
 pub const LEXICAL_SPACE: &str = "lexical";
+
+/// `ClickHouse` `embeddings.space` for a remote OpenAI-compatible embedding model.
+pub fn remote_embedding_space(model: &str) -> String {
+    format!("openai:{}", model.trim())
+}
+
+/// True when search/ingest should use the local lexical embedder.
+pub fn is_lexical_space(space: &str) -> bool {
+    let s = space.trim();
+    s.is_empty() || s == LEXICAL_SPACE
+}
 
 /// Hash tokens into a fixed-size unit vector.
 pub fn lexical_embed(text: &str) -> Vec<f32> {
@@ -55,5 +64,16 @@ mod tests {
         let embed_b = lexical_embed("claude proxy captures and tokens");
         let embed_c = lexical_embed("completely unrelated gardening tips");
         assert!(cosine(&embed_a, &embed_b) > cosine(&embed_a, &embed_c));
+    }
+
+    #[test]
+    fn remote_space_helpers() {
+        assert_eq!(
+            remote_embedding_space(" text-embedding-3-small "),
+            "openai:text-embedding-3-small"
+        );
+        assert!(is_lexical_space("lexical"));
+        assert!(is_lexical_space(""));
+        assert!(!is_lexical_space("openai:text-embedding-3-small"));
     }
 }

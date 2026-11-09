@@ -44,6 +44,6 @@ export const NAV: { id: Page; label: string; icon: LucideIcon }[] = [
 
 export const SETTINGS_TABS: { id: SettingsTab; label: string; hint: string }[] = [
   { id: "accounts", label: "Accounts", hint: "Provider credentials" },
-  { id: "intelligence", label: "Intelligence", hint: "Models & workers" },
+  { id: "intelligence", label: "Workers", hint: "Accounts & models for embeddings and summaries" },
   { id: "harness", label: "Harness", hint: "Advanced / snippets" },
 ];

@@ -686,9 +686,11 @@ Close-to-tray; Quit from tray stops `rivetd`.
 
 1. **Ingest** is HTTP batch to `/v1/ingest/batch` (async queue in `rivetsink`).
    Batches are size-validated before insert.
-2. **Embeddings** live in ClickHouse with HNSW; embed path is **lexical-only**.
-   Wiki index and quota history remain meta-file backed. Schema evolves via
-   versioned CH migrations.
+2. **Embeddings** live in ClickHouse (`embeddings.space`). Ingest defaults to
+   **lexical** 64-d vectors (HNSW). Optional Codex/OpenAI remote re-embed via
+   proxy `POST /v1/embeddings` writes `openai:{model}` spaces; search stays
+   lexical until Re-embed flips `embedding_space`. Wiki index and quota history
+   remain meta-file backed. Schema evolves via versioned CH migrations.
 3. **`body_ref` / `blobs/`** hold spilled full turns when the preview is short; small
    bodies stay in `content`.
 4. **Project** on capture is hard-evidence only; workers classify from `cwd` + context
