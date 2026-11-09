@@ -317,7 +317,12 @@ export function WikiBoard(props: WikiBoardProps): JSX.Element {
 
   createEffect(() => {
     const pageId = props.initialPageId?.trim() || "";
-    if (pageId === "" || openedInitialPage() === pageId) return;
+    if (pageId === "") {
+      // Allow the same ?page= id to reopen after clear/close.
+      setOpenedInitialPage(null);
+      return;
+    }
+    if (openedInitialPage() === pageId) return;
     const page = pageList().find((p) => p.id === pageId);
     if (!page) return;
     setOpenedInitialPage(pageId);
