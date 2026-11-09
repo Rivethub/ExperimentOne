@@ -71,15 +71,7 @@ function MarkdownBody({ text }: { text: string }) {
   );
 }
 
-function WorkRow({
-  icon,
-  label,
-  meta,
-  open,
-  onToggle,
-  tone = "default",
-  children,
-}: {
+function WorkRow(props: {
   icon: JSX.Element;
   label: JSX.Element;
   meta?: JSX.Element;
@@ -88,8 +80,9 @@ function WorkRow({
   tone?: "default" | "think" | "cmd" | "tool" | "error";
   children?: JSX.Element;
 }) {
-  const toneClass =
-    tone === "think"
+  const toneClass = () => {
+    const tone = props.tone ?? "default";
+    return tone === "think"
       ? styles.t3RowThink
       : tone === "cmd"
         ? styles.t3RowCmd
@@ -98,22 +91,28 @@ function WorkRow({
           : tone === "error"
             ? styles.t3RowError
             : undefined;
+  };
   return (
-    <div class={cx(styles.t3Row, toneClass)} data-open={open ? "1" : "0"}>
-      <button type="button" class={styles.t3RowHead} onClick={onToggle} aria-expanded={open}>
+    <div class={cx(styles.t3Row, toneClass())} data-open={props.open ? "1" : "0"}>
+      <button
+        type="button"
+        class={styles.t3RowHead}
+        onClick={() => props.onToggle()}
+        aria-expanded={props.open}
+      >
         <span class={styles.t3RowIcon} aria-hidden>
-          {icon}
+          {props.icon}
         </span>
-        <span class={styles.t3RowLabel}>{label}</span>
-        {meta ? <span class={styles.t3RowMeta}>{meta}</span> : null}
+        <span class={styles.t3RowLabel}>{props.label}</span>
+        {props.meta ? <span class={styles.t3RowMeta}>{props.meta}</span> : null}
         <ChevronRight
-          class={cx(styles.t3Chevron, open && styles.t3ChevronOpen)}
+          class={cx(styles.t3Chevron, props.open && styles.t3ChevronOpen)}
           size={14}
           strokeWidth={1.75}
           aria-hidden
         />
       </button>
-      {open && children ? <div class={styles.t3RowBody}>{children}</div> : null}
+      {props.open && props.children ? <div class={styles.t3RowBody}>{props.children}</div> : null}
     </div>
   );
 }
@@ -249,17 +248,19 @@ function TimelineRow({ item }: { item: TimelineItem }) {
   }
 }
 
-export function TranscriptView({ items }: { items: TimelineItem[] }) {
+export function TranscriptView(props: { items: TimelineItem[] }) {
   let parentRef: HTMLDivElement | undefined;
   const virtualizer = createVirtualizer({
-    count: items.length,
+    get count() {
+      return props.items.length;
+    },
     getScrollElement: () => parentRef ?? null,
     estimateSize: () => 120,
     overscan: 8,
-    getItemKey: (index) => items[index]?.id ?? index,
+    getItemKey: (index) => props.items[index]?.id ?? index,
   });
 
-  if (items.length === 0) return null;
+  if (props.items.length === 0) return null;
 
   return (
     <div
@@ -270,7 +271,7 @@ export function TranscriptView({ items }: { items: TimelineItem[] }) {
     >
       <div class={styles.t3VirtualInner} style={{ height: `${virtualizer.getTotalSize()}px` }}>
         {virtualizer.getVirtualItems().map((row) => {
-          const item = items[row.index]!;
+          const item = props.items[row.index]!;
           const style = {
             transform: `translateY(${row.start}px)`,
           } satisfies JSX.CSSProperties;
