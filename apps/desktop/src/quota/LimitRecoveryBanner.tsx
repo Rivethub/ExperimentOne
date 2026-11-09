@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import { Show, createMemo } from "solid-js";
+import { Alert, AlertDescription, AlertTitle } from "#components/ui/alert";
 import { Button as ShadcnButton } from "#components/ui/button";
 import {
   DropdownMenu,
@@ -30,26 +31,24 @@ export function LimitRecoveryBanner(props: {
   return (
     <Show when={props.hit}>
       {(hit) => (
-        <div
-          role="alert"
+        <Alert
           class={cn(
-            "mb-3.5 flex flex-wrap items-start justify-between gap-3 rounded-lg border px-4 py-3",
-            "border-amber-800/70 bg-[#1c1410] text-amber-100",
+            "mb-3.5 grid-cols-[auto_1fr_auto] items-start gap-x-3",
+            "border-amber-800/70 bg-[#1c1410] text-amber-100 [&>svg]:text-amber-300",
+            "*:data-[slot=alert-description]:text-amber-200/90",
           )}
         >
-          <div class="flex min-w-0 flex-1 gap-3">
-            <TriangleAlert class="mt-0.5 size-4 shrink-0 text-amber-300" aria-hidden />
-            <div class="min-w-0">
-              <div class="font-medium tracking-tight text-amber-100">{hit().windowLabel}</div>
-              <div class="mt-0.5 text-sm text-amber-200/90">
-                <span>{hit().reason}</span>
-                <Show when={resetNote() !== null}>
-                  <span class="mt-1 block text-amber-200/70">{resetNote()}</span>
-                </Show>
-              </div>
-            </div>
+          <TriangleAlert aria-hidden />
+          <div class="min-w-0">
+            <AlertTitle class="text-amber-100">{hit().windowLabel}</AlertTitle>
+            <AlertDescription>
+              <span>{hit().reason}</span>
+              <Show when={resetNote() !== null}>
+                <span class="mt-1 block text-amber-200/70">{resetNote()}</span>
+              </Show>
+            </AlertDescription>
           </div>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="col-start-3 row-span-2 flex shrink-0 items-center gap-2 self-start">
             <ShadcnButton
               size="sm"
               variant="secondary"
@@ -76,7 +75,7 @@ export function LimitRecoveryBanner(props: {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        </div>
+        </Alert>
       )}
     </Show>
   );

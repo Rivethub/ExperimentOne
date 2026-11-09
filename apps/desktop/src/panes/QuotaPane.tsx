@@ -20,9 +20,8 @@ import {
   seriesFromRemainingHistory,
 } from "../lib/quota-series";
 import { isDefined } from "../lib/nullish";
-import { Button, Chip, Panel } from "../ui";
+import { Button, Chip, Panel, SegControl } from "../ui";
 import { quotaMetricModeTitle } from "./quota-pane-toolbar";
-import { cn } from "#lib/utils";
 import type {
   ProviderFilter,
   ProviderQuota,
@@ -31,6 +30,18 @@ import type {
   QuotaSnapshot,
   CaptureEvent,
 } from "../lib/types";
+
+const METRIC_OPTIONS = [
+  { value: "limits" as const, label: "Limits", title: quotaMetricModeTitle("limits") },
+  { value: "tokens" as const, label: "Tokens", title: quotaMetricModeTitle("tokens") },
+  { value: "cost" as const, label: "Cost", title: quotaMetricModeTitle("cost") },
+];
+
+const HORIZON_OPTIONS = [
+  { value: "1h" as const, label: "1h" },
+  { value: "3h" as const, label: "3h" },
+  { value: "6h" as const, label: "6h" },
+];
 
 export type QuotaPaneProps = {
   counts: Record<string, number>;
@@ -57,28 +68,6 @@ export type QuotaPaneProps = {
   onAddCredentials: () => void;
   onAccountSelect: (account: QuotaAccountUx) => void;
 };
-
-function SegButton(props: {
-  active: boolean;
-  onClick: () => void;
-  title?: string;
-  children: JSX.Element;
-}): JSX.Element {
-  return (
-    <button
-      type="button"
-      title={props.title}
-      class={cn(
-        "border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium text-muted-foreground",
-        "[&:not(:first-child)]:border-l [&:not(:first-child)]:border-border",
-        props.active && "bg-secondary text-foreground",
-      )}
-      onClick={() => props.onClick()}
-    >
-      {props.children}
-    </button>
-  );
-}
 
 export function QuotaPane(props: QuotaPaneProps): JSX.Element {
   return (
@@ -135,43 +124,18 @@ export function QuotaPane(props: QuotaPaneProps): JSX.Element {
         </div>
 
         <div class="mb-4.5 flex flex-wrap items-center gap-2">
-          <div class="inline-flex overflow-hidden rounded-lg border border-border bg-card">
-            <For
-              each={
-                [
-                  ["limits", "Limits"],
-                  ["tokens", "Tokens"],
-                  ["cost", "Cost"],
-                ] as const
-              }
-            >
-              {([id, label]) => (
-                <SegButton
-                  active={props.metricMode === id}
-                  title={quotaMetricModeTitle(id)}
-                  onClick={() => {
-                    props.onMetricModeChange(id);
-                  }}
-                >
-                  {label}
-                </SegButton>
-              )}
-            </For>
-          </div>
-          <div class="inline-flex overflow-hidden rounded-lg border border-border bg-card">
-            <For each={["1h", "3h", "6h"] as const}>
-              {(h) => (
-                <SegButton
-                  active={props.horizon === h}
-                  onClick={() => {
-                    props.onHorizonChange(h);
-                  }}
-                >
-                  {h}
-                </SegButton>
-              )}
-            </For>
-          </div>
+          <SegControl
+            aria-label="Metric mode"
+            value={props.metricMode}
+            onChange={(mode) => props.onMetricModeChange(mode)}
+            options={METRIC_OPTIONS}
+          />
+          <SegControl
+            aria-label="History horizon"
+            value={props.horizon}
+            onChange={(horizon) => props.onHorizonChange(horizon)}
+            options={HORIZON_OPTIONS}
+          />
           <span class="py-2 text-[13px] text-muted-foreground" title={props.quota?.note}>
             {props.quota?.source === "management"
               ? `Live credentials · ${props.quota.credentials_loaded}/${props.quota.credentials_total} loaded · quota ≤5m · ${props.horizon} history`

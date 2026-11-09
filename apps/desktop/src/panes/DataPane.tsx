@@ -12,13 +12,13 @@ import {
 import { LimitRecoveryBanner, type LimitHitInfo } from "../quota";
 import { filterTimeline, timelineFromCaptureEvents, TranscriptView } from "../transcript";
 import type { ConversationSummary, SearchMode, CaptureEvent } from "../lib/types";
-import { Button, Empty, Input, Panel, Pill } from "../ui";
+import { Button, Empty, Input, Panel, Pill, SegControl } from "../ui";
 import { cn } from "#lib/utils";
 
-const SEARCH_MODES = [
-  ["keyword", "Keyword"],
-  ["vector", "Vector"],
-] as const;
+const SEARCH_MODE_OPTIONS = [
+  { value: "keyword" as const, label: "Keyword" },
+  { value: "vector" as const, label: "Vector" },
+];
 
 export type DataPaneProps = {
   limitHit: LimitHitInfo | null;
@@ -218,28 +218,13 @@ export function DataPane(props: DataPaneProps) {
           <div class="flex min-h-0 min-w-0 flex-col">
             <div class="flex min-w-0 items-center gap-2">
               <Show when={props.vectorSearchEnabled}>
-                <div
-                  class="inline-flex shrink-0 items-stretch gap-px rounded-[9px] border border-border/60 bg-background p-0.5"
-                  role="radiogroup"
+                <SegControl
+                  class="shrink-0"
                   aria-label="Search mode"
-                >
-                  {SEARCH_MODES.map(([id, label]) => (
-                    <button
-                      type="button"
-                      role="radio"
-                      aria-checked={props.searchMode === id}
-                      class={cn(
-                        "cursor-pointer rounded-[7px] border-0 bg-transparent px-2.5 py-1.5 text-xs font-medium whitespace-nowrap text-muted-foreground",
-                        "hover:bg-white/3 hover:text-foreground",
-                        props.searchMode === id &&
-                          "bg-secondary text-foreground shadow-[inset_0_0_0_1px_var(--border)]",
-                      )}
-                      onClick={() => props.onSearchModeChange(id)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+                  value={props.searchMode}
+                  onChange={(mode) => props.onSearchModeChange(mode)}
+                  options={SEARCH_MODE_OPTIONS}
+                />
               </Show>
               <Input
                 class="min-w-0 flex-1"

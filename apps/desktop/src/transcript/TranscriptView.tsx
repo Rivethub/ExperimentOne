@@ -6,6 +6,7 @@ import { SolidMarkdown } from "solid-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
+import { Badge } from "#components/ui/badge";
 import { reasoningPreview } from "./timeline";
 import { ToolDiff, detectToolDiff } from "./ToolDiff";
 import type { AgentContext, TimelineItem } from "./types";
@@ -45,10 +46,14 @@ function AgentBadge(props: { agent?: AgentContext }) {
   return (
     <Show when={label()}>
       {(text) => (
-        <span class={styles.t3AgentBadge} title={tip() || undefined}>
+        <Badge
+          variant="secondary"
+          class="mb-1.5 px-1.5 py-px text-[11px] font-medium tracking-wide text-muted-foreground"
+          title={tip() || undefined}
+        >
           {text()}
           {agent()?.agent_id ? ` · ${shortAgentId(agent()!.agent_id!)}` : ""}
-        </span>
+        </Badge>
       )}
     </Show>
   );

@@ -2,6 +2,7 @@ import { createEffect, createSignal, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
+import { Card, CardContent } from "#components/ui/card";
 import { cx, styles } from "#styles";
 
 export function QuotaChart(props: {
@@ -130,22 +131,26 @@ export function QuotaChart(props: {
   });
 
   return (
-    <Show
-      when={props.empty !== true}
-      fallback={
-        <div class={cx(styles.chartWrap, styles.chartWrapEmpty)}>
-          <p>{props.emptyLabel ?? "No captures in this window"}</p>
-        </div>
-      }
-    >
-      <div class={styles.chartWrap}>
-        <div ref={setHostEl} class={styles.chartUplotHost} />
-        <div class={styles.chartLegend} style={{ color: props.color }}>
-          <span>
-            <i class={styles.swatch} /> {props.legend ?? "Measured capture burn"}
-          </span>
-        </div>
-      </div>
-    </Show>
+    <Card class="gap-0 border-border/60 bg-transparent py-0 shadow-none">
+      <CardContent class="p-0">
+        <Show
+          when={props.empty !== true}
+          fallback={
+            <div class={cx(styles.chartWrap, styles.chartWrapEmpty)}>
+              <p>{props.emptyLabel ?? "No captures in this window"}</p>
+            </div>
+          }
+        >
+          <div class={styles.chartWrap}>
+            <div ref={setHostEl} class={styles.chartUplotHost} />
+            <div class={styles.chartLegend} style={{ color: props.color }}>
+              <span>
+                <i class={styles.swatch} /> {props.legend ?? "Measured capture burn"}
+              </span>
+            </div>
+          </div>
+        </Show>
+      </CardContent>
+    </Card>
   );
 }

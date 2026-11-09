@@ -4,8 +4,8 @@ import { isDeviceAuthBlocked } from "../../lib/format-utils";
 import { isDefined } from "../../lib/nullish";
 import type { CatalogProvider } from "../../lib/provider-utils";
 import type { LoginStatus } from "../../lib/types";
-import { cn } from "#lib/utils";
-import { Actions, Button, ButtonHint, Modal, Pill, Snippet } from "../../ui";
+import { AlertDescription, AlertTitle } from "#components/ui/alert";
+import { Actions, Banner, Button, ButtonHint, Modal, Pill, Snippet } from "../../ui";
 
 function loginKindHint(loginKind: string): string {
   if (loginKind === "file_import") {
@@ -186,19 +186,16 @@ export function AccountsTabLoginModal({
       )}
 
       {showDeviceBanner && (
-        <div
-          role="alert"
-          class={cn(
-            "mb-3 flex flex-wrap items-start justify-between gap-3 rounded-lg border px-3.5 py-3",
-            "border-amber-800/70 bg-[#1c1410] text-amber-100",
-          )}
+        <Banner
+          tone="warn"
+          class="mb-3 flex flex-wrap items-start justify-between gap-3 border-amber-800/70 px-3.5 py-3"
         >
           <div class="min-w-0 max-w-[52ch]">
-            <div class="font-medium tracking-tight">ChatGPT blocked device code sign-in</div>
-            <p class="mt-1 m-0 text-[13px] leading-snug text-amber-200/85">
+            <AlertTitle class="text-amber-100">ChatGPT blocked device code sign-in</AlertTitle>
+            <AlertDescription class="text-amber-200/85">
               Enable device code for Codex in ChatGPT Security Settings, then retry — or use browser
               OAuth instead (recommended).
-            </p>
+            </AlertDescription>
           </div>
           <div class="flex shrink-0 flex-wrap items-center gap-2">
             <Button
@@ -220,7 +217,7 @@ export function AccountsTabLoginModal({
               Retry device code
             </Button>
           </div>
-        </div>
+        </Banner>
       )}
 
       <Snippet>{outputText}</Snippet>
