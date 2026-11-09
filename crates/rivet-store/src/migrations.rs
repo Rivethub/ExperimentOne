@@ -157,11 +157,9 @@ pub async fn run(client: &Client) -> Result<u32> {
             let has_old = table_exists(client, "traffic_events").await?;
             let has_new = table_exists(client, "capture_events").await?;
             if has_old && !has_new {
-                client
-                    .query(migration.sql)
-                    .execute()
-                    .await
-                    .with_context(|| format!("migration {} ({})", migration.version, migration.name))?;
+                client.query(migration.sql).execute().await.with_context(|| {
+                    format!("migration {} ({})", migration.version, migration.name)
+                })?;
             } else if !has_new {
                 anyhow::bail!(
                     "migration {} ({}): neither traffic_events nor capture_events exists after earlier migrations",

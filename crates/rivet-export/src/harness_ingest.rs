@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use rivet_core::{redact_event, CaptureQuality, ProviderKind, CaptureEvent, CaptureRole};
+use rivet_core::{redact_event, CaptureEvent, CaptureQuality, CaptureRole, ProviderKind};
 use rivet_store::CaptureStore;
 use serde::Serialize;
 use serde_json::Value;

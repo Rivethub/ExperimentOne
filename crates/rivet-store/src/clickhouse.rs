@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use clickhouse::{Client, Row};
 use rivet_core::{
-    CaptureQuality, ProviderKind, CaptureEvent, CaptureRole, UsageTotals, LEXICAL_EMBED_DIMS,
+    CaptureEvent, CaptureQuality, CaptureRole, ProviderKind, UsageTotals, LEXICAL_EMBED_DIMS,
     LEXICAL_SPACE,
 };
 use serde::{Deserialize, Serialize};

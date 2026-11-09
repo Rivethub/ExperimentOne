@@ -14,13 +14,13 @@ mod redacting;
 use anyhow::Result;
 use async_trait::async_trait;
 use rivet_core::{
-    conversations_from_events, ConversationSummary, RivetPaths, CaptureEvent, UsageTotals,
+    conversations_from_events, CaptureEvent, ConversationSummary, RivetPaths, UsageTotals,
 };
 use std::sync::Arc;
 use tracing::info;
 
 pub use clickhouse::{
-    ClickHouseCaptureStore, EmbeddingSearchHit, EMBEDDINGS_DDL, CAPTURE_EVENTS_DDL,
+    ClickHouseCaptureStore, EmbeddingSearchHit, CAPTURE_EVENTS_DDL, EMBEDDINGS_DDL,
 };
 pub use hybrid::{
     fuse_event_id_arms, fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query,

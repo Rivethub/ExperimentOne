@@ -5,7 +5,7 @@ use utoipa::OpenApi;
 use crate::{
     AccountInfo, LocalSession, OnboardingStatus, PublicConfig, StatusResponse, WorkersStatus,
 };
-use rivet_core::{Capabilities, ConversationSummary, LiveCursor, CaptureEvent, UsageTotals};
+use rivet_core::{Capabilities, CaptureEvent, ConversationSummary, LiveCursor, UsageTotals};
 
 #[derive(OpenApi)]
 #[openapi(

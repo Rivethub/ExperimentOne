@@ -95,7 +95,9 @@ export function OnboardingOverlay({
         </ol>
         <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-3">
           <span className="text-xs text-muted-foreground">
-            {onboarding.has_captures ? "Captures recorded" : "No captures yet — start the proxy first"}
+            {onboarding.has_captures
+              ? "Captures recorded"
+              : "No captures yet — start the proxy first"}
           </span>
           <Button variant="ghost" onClick={onDismiss}>
             Dismiss

@@ -83,7 +83,7 @@ pub fn validate_ingest_batch(events: &[CaptureEvent]) -> Result<(), IngestValida
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ProviderKind, CaptureEvent};
+    use crate::{CaptureEvent, ProviderKind};
 
     #[test]
     fn rejects_oversized_batch() {

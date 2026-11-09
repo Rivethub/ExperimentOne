@@ -20,7 +20,7 @@ use rivet_core::{
     hydrate_event_content, hydrate_events, lexical_embed, normalize_event_turns, RivetConfig,
     RivetPaths, LEXICAL_SPACE,
 };
-use rivet_store::{ClickHouseCaptureStore, MetaStore, CaptureStore};
+use rivet_store::{CaptureStore, ClickHouseCaptureStore, MetaStore};
 use rmcp::transport::streamable_http_server::{
     session::local::LocalSessionManager,
     tower::{StreamableHttpServerConfig, StreamableHttpService},

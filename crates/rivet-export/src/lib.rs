@@ -19,7 +19,7 @@ use chrono::Utc;
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
 use flate2::Compression;
-use rivet_core::{ExportManifest, CaptureEvent};
+use rivet_core::{CaptureEvent, ExportManifest};
 use rivet_store::CaptureStore;
 use tar::{Archive, Builder};
 
@@ -106,7 +106,7 @@ pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<CaptureEvent>)> {
                 if events.is_none() || name == "capture_events.json" {
                     events = Some(serde_json::from_slice(&buf)?);
                 }
-            }
+            },
             other => tracing::debug!(other, "skipping unknown bag entry"),
         }
     }
@@ -119,7 +119,8 @@ pub fn import_bag(path: &Path) -> Result<(ExportManifest, Vec<CaptureEvent>)> {
             ExportManifest::SCHEMA_VERSION
         );
     }
-    let events = events.context("capture_events.json (or legacy traffic_events.json) missing from rivetbag")?;
+    let events = events
+        .context("capture_events.json (or legacy traffic_events.json) missing from rivetbag")?;
     Ok((manifest, events))
 }
 
@@ -288,8 +289,12 @@ mod tests {
             let file = File::create(&path).unwrap();
             let enc = GzEncoder::new(file, Compression::default());
             let mut builder = Builder::new(enc);
-            append_bytes(&mut builder, "manifest.json", &serde_json::to_vec_pretty(&manifest).unwrap())
-                .unwrap();
+            append_bytes(
+                &mut builder,
+                "manifest.json",
+                &serde_json::to_vec_pretty(&manifest).unwrap(),
+            )
+            .unwrap();
             append_bytes(
                 &mut builder,
                 "traffic_events.json",

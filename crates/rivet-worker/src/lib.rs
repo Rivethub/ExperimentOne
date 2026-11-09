@@ -30,12 +30,12 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use rivet_core::{
     chunk_text, hydrate_events, lexical_embed, looks_unembeddable, normalize_event_turns,
-    project_id_from_cwd, LiveBus, LiveEvent, RivetConfig, RivetPaths, CaptureEvent, CaptureRole,
+    project_id_from_cwd, CaptureEvent, CaptureRole, LiveBus, LiveEvent, RivetConfig, RivetPaths,
     TurnKind, LEXICAL_SPACE,
 };
 use rivet_store::{
-    ClaimedJob, ClickHouseCaptureStore, MetaStore, NatsJobStore, PlacementBy, SessionBinding,
-    SummaryKind, SummaryMeta, TidyProposal, TopicMeta, CaptureStore, WikiPageMeta, WorkerJob,
+    CaptureStore, ClaimedJob, ClickHouseCaptureStore, MetaStore, NatsJobStore, PlacementBy,
+    SessionBinding, SummaryKind, SummaryMeta, TidyProposal, TopicMeta, WikiPageMeta, WorkerJob,
     WorkerRole, COMPACT_PIPELINE_VERSION, PRIORITY_BACKFILL, PRIORITY_CLASSIFY,
     PRIORITY_LIVE_COMPACT, PRIORITY_WIKI, TASK_CLASSIFY_SESSION, TASK_COMPACT_SESSION,
     TASK_CONSOLIDATE_WIKI, TASK_EMBED_EVENT, TASK_ENQUEUE_IDLE, TASK_ENQUEUE_UNEMBEDDED,

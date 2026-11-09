@@ -31,13 +31,13 @@ use rivet_core::{
     codex_config_toml, conversations_from_events, harness_user_ready, hydrate_event_content,
     lexical_embed, load_workspace_memory, localhost_port_free, normalize_event_turns,
     project_id_from_cwd, provider_catalog, recency_boost, resolve_project_root, Capabilities,
-    ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths, CaptureEvent, CaptureRole,
+    CaptureEvent, CaptureRole, ConversationSummary, LiveBus, ProviderKind, RivetConfig, RivetPaths,
     UsageTotals, WorkspaceMemorySection, LEXICAL_SPACE,
 };
 use rivet_store::{
-    fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, ClickHouseCaptureStore,
-    JobStatus, MetaStore, NatsJobStore, QueueStats, SessionBinding, TopicMeta, CaptureStore,
-    WikiPageMeta, WorkerRole,
+    fuse_event_id_arms_boosted, hybrid_fetch_limit, prefer_lexical_query, CaptureStore,
+    ClickHouseCaptureStore, JobStatus, MetaStore, NatsJobStore, QueueStats, SessionBinding,
+    TopicMeta, WikiPageMeta, WorkerRole,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;

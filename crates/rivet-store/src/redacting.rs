@@ -2,7 +2,7 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use rivet_core::{redact_event, ConversationSummary, CaptureEvent, UsageTotals};
+use rivet_core::{redact_event, CaptureEvent, ConversationSummary, UsageTotals};
 use std::sync::Arc;
 
 use crate::CaptureStore;
