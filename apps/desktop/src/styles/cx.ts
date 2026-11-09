@@ -7,7 +7,7 @@ export function cx(...parts: (string | false | null | undefined)[]): string {
 
 export { cn };
 
-/** Look up a CSS-module local by kebab/camel key (for dynamic variants). */
+/** Look up a style token by kebab/camel key (for dynamic variants). */
 export function styleOf(
   styles: Record<string, string>,
   key: string | null | undefined,

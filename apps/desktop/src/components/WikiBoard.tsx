@@ -3,7 +3,6 @@ import { createEffect, createMemo, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { Alert, AlertDescription } from "#components/ui/alert";
 import { Actions, Button, Panel } from "../ui";
-import styles from "../styles/app.module.css";
 import {
   archiveSlugForPage,
   buildWikiProjects,
@@ -12,6 +11,7 @@ import {
   coverTone,
 } from "./wiki-board-logic";
 import { WikiReaderMarkdown, WikiTilePreviewMarkdown } from "./wiki-reader-markdown";
+import { styles } from "#styles";
 
 export type WikiPageCard = {
   id: string;

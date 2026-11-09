@@ -6,11 +6,10 @@ import { SolidMarkdown } from "solid-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
 import { reasoningPreview } from "./timeline";
 import { ToolDiff } from "./ToolDiff";
 import type { AgentContext, TimelineItem } from "./types";
+import { cx, styles } from "#styles";
 
 function shortAgentId(id: string): string {
   const t = id.trim();

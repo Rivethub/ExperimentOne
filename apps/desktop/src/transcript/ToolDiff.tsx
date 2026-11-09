@@ -1,7 +1,6 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cx, styles } from "#styles";
 
 type FilePair = {
   name: string;

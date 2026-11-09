@@ -9,8 +9,7 @@ import { isDefined } from "../lib/nullish";
 import { splitCaptureBody, captureTokenLabel, trunc } from "../lib/capture-utils";
 import type { CaptureEvent } from "../lib/types";
 import { Button, Pill, Snippet } from "../ui";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cx, styles } from "#styles";
 
 export function CaptureEventDetail({
   event,

@@ -1,8 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { Empty, Input, Panel, Pill } from "../ui";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cx, styles } from "#styles";
 export type TopicCard = {
   slug: string;
   title: string;

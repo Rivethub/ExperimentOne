@@ -17,7 +17,7 @@ import {
   quotaPoolEmpty,
 } from "./provider-card-logic";
 import { Panel } from "../ui";
-import styles from "../styles/app.module.css";
+import { styles } from "#styles";
 
 export type QuotaProviderCardProps = {
   name: string;

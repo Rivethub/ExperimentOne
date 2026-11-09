@@ -2,7 +2,7 @@ import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import { formatCheckedAgo } from "../lib/provider-utils";
 import { isDefined } from "../lib/nullish";
-import styles from "../styles/app.module.css";
+import { styles } from "#styles";
 
 export function StaleStamp(props: { observedAt: string | null | undefined }): JSX.Element {
   return (

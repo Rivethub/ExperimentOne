@@ -10,8 +10,7 @@ import {
   sortAccountsById,
   windowForAccount,
 } from "./pooled-window-ids";
-import { cx } from "../styles/cx";
-import styles from "../styles/app.module.css";
+import { cx, styles } from "#styles";
 
 function SegmentBar(props: {
   accounts: QuotaAccountUx[];
