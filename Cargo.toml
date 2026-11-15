@@ -72,7 +72,7 @@ rmcp = { version = "3", default-features = false, features = [
   "macros",
   "transport-streamable-http-server",
 ] }
-utoipa = { version = "5", features = ["chrono", "uuid"] }
+utoipa = { version = "6", features = ["chrono", "uuid"] }
 tower_governor = "0.8"
 axum-prometheus = "0.10"
 opentelemetry = "0.32"
