@@ -28,7 +28,7 @@ require (
 	github.com/pion/webrtc/v4 v4.2.26
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/refraction-networking/utls v1.8.2
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.10.2
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/tiktoken-go/tokenizer v0.10.0
 	go.etcd.io/bbolt v1.5.0
